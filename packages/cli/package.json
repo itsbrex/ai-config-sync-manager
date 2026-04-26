@@ -31,6 +31,6 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@ai-config-sync-manager/core": "workspace:*"
+    "@ai-config-sync-manager/core": "file:../core"
   }
 }

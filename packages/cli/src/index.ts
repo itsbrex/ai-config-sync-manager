@@ -191,10 +191,6 @@ function parseSyncOptions(args: ParsedArgs): SyncOptions {
     throw new Error("Supported sync scopes are global and project.");
   }
 
-  if ((fromValue && !toValue) || (!fromValue && toValue)) {
-    throw new Error("Both --from and --to must be provided together.");
-  }
-
   if (!fromValue && !toValue) {
     return {
       source: "claude",
@@ -202,6 +198,10 @@ function parseSyncOptions(args: ParsedArgs): SyncOptions {
       scope: scopeValue,
       dryRun: !args.flags.has("--apply")
     };
+  }
+
+  if (!fromValue || !toValue) {
+    throw new Error("Both --from and --to must be provided together.");
   }
 
   if (!isHost(fromValue) || !isHost(toValue)) {

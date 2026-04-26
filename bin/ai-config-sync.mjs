@@ -321,6 +321,7 @@ function createOperation(entry, from, to) {
       sourcePath,
       targetPath,
       serverNames: directionalItems(entry, to),
+      patchPreview: mcpPatchPreview(sourcePath, targetPath, from, to, directionalItems(entry, to)),
       backupRequired: true,
       approvalRequired: false
     };
@@ -409,6 +410,15 @@ function renderSyncPlan(plan) {
     }
     if (operation.serverNames?.length) {
       lines.push(`  MCP servers: ${operation.serverNames.join(", ")}`);
+    }
+    if (operation.patchPreview?.length) {
+      lines.push("  MCP patch preview:");
+      for (const patch of operation.patchPreview) {
+        lines.push(`    - ${patch.server}: ${patch.action}`);
+        for (const change of patch.changes) {
+          lines.push(`      ${change}`);
+        }
+      }
     }
     if (operation.skillNames && operation.skillNames.length === 0) {
       lines.push("  Skills: none missing in target direction");
@@ -938,6 +948,89 @@ function pickServers(servers, names) {
   return Object.fromEntries(Object.entries(servers).filter(([name]) => names.includes(name)));
 }
 
+function mcpPatchPreview(sourcePath, targetPath, sourceHost, targetHost, serverNames) {
+  const sourceServers = sourceHost === "claude"
+    ? readClaudeMcpServerDetails(sourcePath)
+    : readCodexMcpServerDetails(sourcePath);
+  const targetServers = targetHost === "claude"
+    ? readClaudeMcpServerDetails(targetPath)
+    : readCodexMcpServerDetails(targetPath);
+  const selected = serverNames.length ? serverNames : Object.keys(sourceServers).sort();
+  const patches = [];
+
+  for (const name of selected) {
+    const source = sourceServers[name];
+    if (!source) continue;
+
+    const target = targetServers[name];
+    const changes = mcpServerChanges(source, target);
+    if (changes.length === 0) continue;
+
+    patches.push({
+      server: name,
+      action: target ? "update" : "add",
+      changes
+    });
+  }
+
+  return patches;
+}
+
+function mcpServerChanges(source, target) {
+  const changes = [];
+
+  for (const key of ["command", "url"]) {
+    if (source[key] && source[key] !== target?.[key]) {
+      changes.push(`${key}: ${JSON.stringify(source[key])}`);
+    }
+  }
+
+  if (source.args?.length && JSON.stringify(source.args) !== JSON.stringify(target?.args ?? [])) {
+    changes.push(`args: ${JSON.stringify(source.args)}`);
+  }
+
+  for (const [key, value] of Object.entries(source.env ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+    if (target?.env?.[key] !== value) {
+      changes.push(`env.${key}: ${JSON.stringify(value)}`);
+    }
+  }
+
+  for (const key of source.secretEnvKeys ?? []) {
+    changes.push(`metadata-only env.${key}: skipped secret-like value`);
+  }
+
+  return changes;
+}
+
+function readClaudeMcpServerDetails(path) {
+  const data = readJsonFile(path, {});
+  return normalizeMcpServerDetails(data.mcpServers ?? data.servers ?? {});
+}
+
+function readCodexMcpServerDetails(path) {
+  if (!existsSync(path)) return {};
+  const text = readFileSync(path, "utf8");
+  const servers = {};
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[|$)/gm;
+
+  for (const match of text.matchAll(tablePattern)) {
+    const server = {};
+    const body = match[2];
+    const command = body.match(/^command\s*=\s*"([^"]*)"/m);
+    const url = body.match(/^url\s*=\s*"([^"]*)"/m);
+    const args = body.match(/^args\s*=\s*(\[.*\])/m);
+    const env = body.match(/^env\s*=\s*(\{.*\})/m);
+
+    if (command) server.command = command[1];
+    if (url) server.url = url[1];
+    if (args) server.args = parseJsonLike(args[1], []);
+    if (env) server.env = parseInlineTomlObject(env[1]);
+    servers[match[1]] = server;
+  }
+
+  return normalizeMcpServerDetails(servers);
+}
+
 function readClaudeMcpServers(path) {
   const data = readJsonFile(path, {});
   return normalizeMcpServers(data.mcpServers ?? data.servers ?? {});
@@ -969,13 +1062,25 @@ function readCodexMcpServers(path) {
 
 function normalizeMcpServers(servers) {
   return Object.fromEntries(
+    Object.entries(normalizeMcpServerDetails(servers)).map(([name, value]) => [name, {
+      ...(value.command ? { command: value.command } : {}),
+      ...(value.url ? { url: value.url } : {}),
+      ...(value.args?.length ? { args: value.args } : {}),
+      ...(value.env && Object.keys(value.env).length > 0 ? { env: value.env } : {})
+    }])
+  );
+}
+
+function normalizeMcpServerDetails(servers) {
+  return Object.fromEntries(
     Object.entries(servers)
       .filter(([name, value]) => name && value && typeof value === "object")
       .map(([name, value]) => [name, {
         ...(typeof value.command === "string" ? { command: value.command } : {}),
         ...(typeof value.url === "string" ? { url: value.url } : {}),
         ...(Array.isArray(value.args) ? { args: value.args.filter((item) => typeof item === "string") } : {}),
-        ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {})
+        ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {}),
+        ...(value.env && typeof value.env === "object" ? { secretEnvKeys: secretEnvKeys(value.env) } : {})
       }])
   );
 }
@@ -989,6 +1094,10 @@ function safeEnv(env) {
 
 function isSecretEnvKey(key) {
   return /(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(key);
+}
+
+function secretEnvKeys(env) {
+  return Object.keys(env).filter((key) => isSecretEnvKey(key)).sort();
 }
 
 function renderCodexMcpServers(servers) {
