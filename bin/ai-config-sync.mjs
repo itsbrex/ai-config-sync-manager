@@ -397,6 +397,7 @@ function createOperation(entry, from, to) {
       targetPath,
       itemNames,
       itemQualities: operationItemQualities(entry, itemNames),
+      reviewNotes: entry.area === "permissions" ? permissionReviewNotes(itemNames) : [],
       backupRequired: true,
       approvalRequired: false
     };
@@ -493,6 +494,25 @@ function operationItemQualities(entry, items) {
   );
 }
 
+function permissionReviewNotes(itemNames) {
+  const notes = [];
+
+  for (const itemName of itemNames) {
+    const { value } = parsePermissionItem(itemName);
+    const pattern = bashPattern(value);
+
+    if (pattern?.risky) {
+      notes.push(`${value}: broad, interpreter, shell-wrapper, network, or destructive command is preserved as metadata until reviewed`);
+    } else if (itemMappingQuality("permissions", itemName) === "approximate") {
+      notes.push(`${value}: maps to a broad Codex approval policy; review before relying on equivalent behavior`);
+    } else if (itemMappingQuality("permissions", itemName) === "unsupported") {
+      notes.push(`${value}: unsupported permission mapping; preserved as metadata only`);
+    }
+  }
+
+  return notes;
+}
+
 function renderSyncPlan(plan) {
   const lines = [
     "AI Config Sync Manager sync",
@@ -523,6 +543,12 @@ function renderSyncPlan(plan) {
     }
     if (operation.serverNames?.length) {
       lines.push(`  MCP servers: ${formatOperationItems(operation, operation.serverNames).join(", ")}`);
+    }
+    if (operation.reviewNotes?.length) {
+      lines.push("  Review notes:");
+      for (const note of operation.reviewNotes) {
+        lines.push(`    - ${note}`);
+      }
     }
     if (operation.patchPreview?.length) {
       lines.push("  MCP patch preview:");

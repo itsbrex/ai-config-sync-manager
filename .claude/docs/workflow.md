@@ -60,6 +60,7 @@ Reference: `.claude/docs/maximal-one-to-one-mapping.md`
 16. Status UX supports compact and tree renderers; sync can emit a machine-readable `--plan-json` plan; each command exposes command-specific `--help`.
 17. Status and sync plans include per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, and `unsupported`.
 18. `sync --confirm` shows the plan, requires an explicit `yes`, and then applies with the existing backup flow.
+19. Permission sync plans include review notes for broad interpreters, shell wrappers, destructive/network commands, unsupported mappings, and approximate Codex approval-policy mappings.
 
 ### Current State
 
@@ -96,7 +97,6 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 ## Remaining Core Work Order
 
 1. Manual and risk controls
-   - Add safer permission review policy for broad interpreters, shell wrappers, destructive commands, and secret-like env keys.
    - Add item-level patch preview so users can inspect exact writes before `sync --apply`.
    - Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
 

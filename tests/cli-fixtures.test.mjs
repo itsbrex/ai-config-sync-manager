@@ -278,6 +278,43 @@ test("sync confirm applies only after explicit yes", () => {
   assert.match(config, /\[mcp_servers\.notion\]/);
 });
 
+test("sync plan includes permission review notes for risky and approximate mappings", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    permissions: {
+      allow: ["Bash", "WebFetch"]
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const text = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "permissions:Bash,permissions:WebFetch",
+    "--dry-run"
+  ]);
+  const plan = JSON.parse(runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "permissions:Bash,permissions:WebFetch",
+    "--plan-json"
+  ]));
+
+  assert.match(text, /Review notes:/);
+  assert.match(text, /Bash: broad, interpreter, shell-wrapper, network, or destructive command/);
+  assert.match(text, /WebFetch: maps to a broad Codex approval policy/);
+  assert.deepEqual(plan.operations[0].reviewNotes, [
+    "Bash: broad, interpreter, shell-wrapper, network, or destructive command is preserved as metadata until reviewed",
+    "WebFetch: maps to a broad Codex approval policy; review before relying on equivalent behavior"
+  ]);
+});
+
 test("sync apply keeps unsupported permission mappings as managed metadata", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
