@@ -39,11 +39,19 @@ writeFileSync(
         name: "Maxx",
         email: "slash9494@gmail.com"
       },
+      metadata: {
+        description: "Local marketplace for AI Config Sync Manager.",
+        version: "0.1.0"
+      },
       plugins: [
         {
           name: "config-manager",
           version: "0.1.0",
           description: "Sync Claude and Codex agent config from an OSS bundled plugin.",
+          author: {
+            name: "Maxx",
+            email: "slash9494@gmail.com"
+          },
           source: "./plugins/config-manager"
         }
       ]

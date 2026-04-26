@@ -23,5 +23,5 @@ Use this skill when the user asks to sync Codex and Claude configuration with AI
 - Require backups before any real write.
 - Confirm the backup location before applying changes.
 - Treat `partial` and `manual` entries as higher-risk entries that must be clearly shown in the dry-run.
-- Apply may run selected file and skill operations even when they are marked `manual`.
+- Apply may run selected file, skill, and settings item merge operations even when they are marked `manual`.
 - Do not bypass CLI safeguards from this skill.

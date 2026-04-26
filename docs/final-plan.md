@@ -127,7 +127,7 @@ config-manager-connect
 - `sync` defaults to dry-run.
 - Real writes require backups.
 - Diff entries are classified as `safe`, `partial`, or `manual`.
-- `--apply` applies selected file and skill operations, including entries marked `manual`.
+- `--apply` applies selected file, skill, and settings item merge operations, including entries marked `manual`.
 - Permissions, hooks, and custom commands must show risk level and conversion notes.
 
 ## MVP Completion Criteria
@@ -139,11 +139,12 @@ config-manager-connect
 - Generate sync dry-run plans.
 - Support `CLAUDE.md` <-> `AGENTS.md`, skills, and MCP diffs.
 - Support partial sync selectors with `--include area[,area:item]` and `--exclude area[,area:item]` for itemized areas including `skills`, `permissions`, and `hooks`.
+- Patch/merge selected `permissions` and `hooks` items instead of copying the whole settings file.
 - Report permissions and hooks with risk labels before apply.
 
 ## Implementation Order
 
-1. Create `/Users/maxx/dev/projects/AI Config Sync Manager`.
+1. Create `/Users/maxx/dev/projects/ai-config-sync-manager`.
 2. Scaffold workspace directories.
 3. Define `core` scanner, adapter, diff, and sync types.
 4. Scaffold `cli` commands: `connect`, `status`, `sync`.

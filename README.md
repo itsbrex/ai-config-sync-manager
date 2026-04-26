@@ -18,7 +18,7 @@ The bundled CLI now scans real global/project config diffs, previews sync plans,
 - `sync` starts as dry-run.
 - Real writes must create backups.
 - `permissions`, `hooks`, and custom commands are marked with their risk level in the diff.
-- Apply runs selected file and skill operations, including entries marked `manual`.
+- Apply runs selected file, skill, and settings item merge operations, including entries marked `manual`.
 - Status checks both global and current project scopes by default.
 - Review the dry-run before apply, especially for entries marked `manual`.
 
@@ -39,6 +39,6 @@ The bundled CLI now scans real global/project config diffs, previews sync plans,
 ./bin/ai-config-sync sync --from codex --to claude
 ```
 
-Selectors use `area` or `area:item` syntax. `--include` narrows the plan first, then `--exclude` removes matching areas or items. Item selectors are supported for itemized areas such as `skills`, `permissions`, and `hooks`.
+Selectors use `area` or `area:item` syntax. `--include` narrows the plan first, then `--exclude` removes matching areas or items. Item selectors are supported for itemized areas such as `skills`, `permissions`, and `hooks`. `permissions` and `hooks` are patched item-by-item instead of copying the whole settings file.
 
 `npm install -g` is optional. Plugin and local installs should call the bundled CLI through `AI_CONFIG_SYNC_ROOT` or the repository-local `bin/ai-config-sync` path.

@@ -7,7 +7,8 @@ import {
   lstatSync,
   mkdirSync,
   readdirSync,
-  readFileSync
+  readFileSync,
+  writeFileSync
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -233,6 +234,12 @@ function entryItems(entry) {
   return [entry.area];
 }
 
+function directionalItems(entry, to) {
+  if (to === "codex") return entry.missingInCodex ?? [];
+  if (to === "claude") return entry.missingInClaude ?? [];
+  return entryItems(entry);
+}
+
 function createSyncPlan(options, mode) {
   const entries = filterEntries(diffScope(options.scope), options.selectors);
   const operations = entries.map((entry) => createOperation(entry, options.from, options.to)).filter(Boolean);
@@ -255,7 +262,39 @@ function createOperation(entry, from, to) {
   const sourcePath = from === "claude" ? entry.claudePath : entry.codexPath;
   const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
 
-  if (entry.area === "instructions" || entry.area === "mcp" || entry.area === "permissions" || entry.area === "hooks") {
+  if (entry.area === "permissions" || entry.area === "hooks") {
+    const itemNames = directionalItems(entry, to);
+    if (itemNames.length === 0) return null;
+
+    if (!existsSync(sourcePath)) {
+      return {
+        scope: entry.scope,
+        area: entry.area,
+        risk: "manual",
+        action: "source-missing",
+        sourcePath,
+        targetPath,
+        backupRequired: false,
+        approvalRequired: true
+      };
+    }
+
+    return {
+      scope: entry.scope,
+      area: entry.area,
+      risk: entry.risk,
+      action: "merge-settings-items",
+      from,
+      to,
+      sourcePath,
+      targetPath,
+      itemNames,
+      backupRequired: true,
+      approvalRequired: false
+    };
+  }
+
+  if (entry.area === "instructions" || entry.area === "mcp") {
     if (!existsSync(sourcePath)) {
       return {
         scope: entry.scope,
@@ -276,7 +315,6 @@ function createOperation(entry, from, to) {
       action: "copy-file",
       sourcePath,
       targetPath,
-      itemNames: entryItems(entry),
       backupRequired: true,
       approvalRequired: false
     };
@@ -373,6 +411,8 @@ function applySyncPlan(plan) {
         applyCopyFile(plan, operation);
       } else if (operation.action === "copy-missing-skills") {
         applyCopyMissingSkills(plan, operation);
+      } else if (operation.action === "merge-settings-items") {
+        applyMergeSettingsItems(plan, operation);
       } else {
         plan.results.push({
           status: "skipped",
@@ -424,6 +464,209 @@ function applyCopyMissingSkills(plan, operation) {
     cpSync(source, target, { recursive: true, dereference: false });
     plan.results.push({ status: "applied", message: `copied skill ${skillName}` });
   }
+}
+
+function applyMergeSettingsItems(plan, operation) {
+  mkdirSync(dirname(operation.targetPath), { recursive: true });
+  backupPath(plan, operation.targetPath);
+
+  if (operation.to === "claude") {
+    mergeIntoClaudeSettings(operation.targetPath, operation.sourcePath, operation.from, operation.area, operation.itemNames ?? []);
+  } else {
+    mergeIntoCodexSettings(operation.targetPath, operation.sourcePath, operation.from, operation.area, operation.itemNames ?? []);
+  }
+
+  plan.results.push({
+    status: "applied",
+    message: `merged ${operation.area} item(s): ${(operation.itemNames ?? []).join(", ")}`
+  });
+}
+
+function mergeIntoClaudeSettings(targetPath, sourcePath, sourceHost, area, itemNames) {
+  const target = readJsonFile(targetPath, {});
+
+  if (area === "permissions") {
+    target.permissions ??= {};
+    for (const itemName of itemNames) {
+      const { bucket, value } = parsePermissionItem(itemName);
+      const list = Array.isArray(target.permissions[bucket]) ? target.permissions[bucket] : [];
+      if (!list.includes(value)) list.push(value);
+      target.permissions[bucket] = list;
+    }
+  }
+
+  if (area === "hooks") {
+    target.hooks ??= {};
+    const sourceHooks = sourceHost === "codex"
+      ? codexManagedValues("hooks", sourcePath)
+      : readJsonFile(sourcePath, {}).hooks ?? {};
+
+    for (const itemName of itemNames) {
+      if (!target.hooks[itemName]) {
+        target.hooks[itemName] = sourceHooks[itemName] ?? [];
+      }
+    }
+  }
+
+  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
+}
+
+function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNames) {
+  const sourceValues = sourceHost === "claude"
+    ? claudeManagedValues(area, sourcePath, itemNames)
+    : codexManagedValues(area, sourcePath);
+  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  writeFileSync(targetPath, replaceManagedBlock(text, area, sourceValues, itemNames));
+}
+
+function claudeManagedValues(area, sourcePath, itemNames) {
+  const data = readJsonFile(sourcePath, {});
+  const values = {};
+
+  if (area === "permissions") {
+    for (const itemName of itemNames) {
+      const { bucket, value } = parsePermissionItem(itemName);
+      values[`${bucket}:${value}`] = { bucket, value };
+    }
+  }
+
+  if (area === "hooks") {
+    const hooks = data.hooks ?? {};
+    for (const itemName of itemNames) {
+      values[itemName] = hooks[itemName] ?? [];
+    }
+  }
+
+  return values;
+}
+
+function codexManagedValues(area, sourcePath) {
+  if (!existsSync(sourcePath)) return {};
+  const text = readFileSync(sourcePath, "utf8");
+  const values = {};
+
+  if (area === "permissions") {
+    for (const match of text.matchAll(/^\s*#\s*permissions\.(allow|deny|ask)\s*=\s*(.+)$/gm)) {
+      try {
+        const value = JSON.parse(match[2]);
+        values[`${match[1]}:${value}`] = { bucket: match[1], value };
+      } catch {
+        // Ignore malformed managed comments.
+      }
+    }
+  }
+
+  if (area === "hooks") {
+    for (const match of text.matchAll(/^\s*#\s*hooks\.([A-Za-z0-9_-]+)\s*=\s*(.+)$/gm)) {
+      try {
+        values[match[1]] = JSON.parse(match[2]);
+      } catch {
+        values[match[1]] = [];
+      }
+    }
+  }
+
+  return values;
+}
+
+function replaceManagedBlock(text, area, sourceValues, itemNames) {
+  const begin = `# BEGIN ai-config-sync ${area}`;
+  const end = `# END ai-config-sync ${area}`;
+  const existing = parseManagedBlock(text, area);
+  const merged = { ...existing };
+
+  for (const itemName of itemNames) {
+    const key = area === "permissions" ? permissionKey(itemName) : itemName;
+    if (sourceValues[key] !== undefined) merged[key] = sourceValues[key];
+  }
+
+  const lines = [
+    begin,
+    ...Object.entries(merged)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, value]) => managedLine(area, key, value)),
+    end
+  ];
+  const block = lines.join("\n");
+  const pattern = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m");
+
+  if (pattern.test(text)) {
+    return text.replace(pattern, block);
+  }
+
+  return `${text.replace(/\s*$/, "")}\n\n${block}\n`;
+}
+
+function parseManagedBlock(text, area) {
+  const begin = `# BEGIN ai-config-sync ${area}`;
+  const end = `# END ai-config-sync ${area}`;
+  const pattern = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m");
+  const match = text.match(pattern);
+  if (!match) return {};
+
+  const tempPath = "__managed_block__";
+  return area === "permissions"
+    ? parsePermissionManagedLines(match[0])
+    : parseHookManagedLines(match[0], tempPath);
+}
+
+function parsePermissionManagedLines(text) {
+  const values = {};
+  for (const match of text.matchAll(/^\s*#\s*permissions\.(allow|deny|ask)\s*=\s*(.+)$/gm)) {
+    try {
+      const value = JSON.parse(match[2]);
+      values[`${match[1]}:${value}`] = { bucket: match[1], value };
+    } catch {
+      // Ignore malformed managed comments.
+    }
+  }
+  return values;
+}
+
+function parseHookManagedLines(text) {
+  const values = {};
+  for (const match of text.matchAll(/^\s*#\s*hooks\.([A-Za-z0-9_-]+)\s*=\s*(.+)$/gm)) {
+    try {
+      values[match[1]] = JSON.parse(match[2]);
+    } catch {
+      values[match[1]] = [];
+    }
+  }
+  return values;
+}
+
+function managedLine(area, key, value) {
+  if (area === "permissions") {
+    return `# permissions.${value.bucket} = ${JSON.stringify(value.value)}`;
+  }
+
+  return `# hooks.${key} = ${JSON.stringify(value)}`;
+}
+
+function parsePermissionItem(itemName) {
+  const [maybeBucket, ...rest] = itemName.split(":");
+  if (rest.length > 0 && ["allow", "deny", "ask"].includes(maybeBucket)) {
+    return { bucket: maybeBucket, value: rest.join(":") };
+  }
+  return { bucket: "allow", value: itemName };
+}
+
+function permissionKey(itemName) {
+  const { bucket, value } = parsePermissionItem(itemName);
+  return `${bucket}:${value}`;
+}
+
+function readJsonFile(path, fallback) {
+  if (!existsSync(path)) return fallback;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function backupPath(plan, targetPath) {
