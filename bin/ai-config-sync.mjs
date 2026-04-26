@@ -23,24 +23,36 @@ const home = process.env.AI_CONFIG_SYNC_HOME ?? homedir();
 
 try {
   if (command === "connect") {
-    noOptions(argv, "connect");
-    runConnect();
-  } else if (command === "status") {
-    const { json, scopes, selectors } = parseStatus(argv);
-    const report = createStatusReport(scopes, selectors);
-    console.log(
-      json
-        ? JSON.stringify(report, null, 2)
-        : renderStatus(report)
-    );
-  } else if (command === "sync") {
-    const options = parseSync(argv);
-    const mode = options.apply ? "apply" : "dry-run";
-    const plan = createSyncPlan(options, mode);
-    if (mode === "apply") {
-      applySyncPlan(plan);
+    if (isHelp(argv)) {
+      printConnectHelp();
+    } else {
+      noOptions(argv, "connect");
+      runConnect();
     }
-    console.log(renderSyncPlan(plan));
+  } else if (command === "status") {
+    if (isHelp(argv)) {
+      printStatusHelp();
+    } else {
+      const { format, json, scopes, selectors } = parseStatus(argv);
+      const report = createStatusReport(scopes, selectors);
+      console.log(
+        json
+          ? JSON.stringify(report, null, 2)
+          : renderStatus(report, format)
+      );
+    }
+  } else if (command === "sync") {
+    if (isHelp(argv)) {
+      printSyncHelp();
+    } else {
+      const options = parseSync(argv);
+      const mode = options.apply ? "apply" : "dry-run";
+      const plan = createSyncPlan(options, mode);
+      if (mode === "apply") {
+        applySyncPlan(plan);
+      }
+      console.log(options.planJson ? JSON.stringify(plan, null, 2) : renderSyncPlan(plan));
+    }
   } else {
     printHelp();
   }
@@ -50,6 +62,7 @@ try {
 }
 
 function parseStatus(argv) {
+  let format = "default";
   let json = false;
   let scopes = ["global", "project"];
   const selectors = emptySelectors();
@@ -58,6 +71,10 @@ function parseStatus(argv) {
     const token = argv[index];
     if (token === "--json") {
       json = true;
+    } else if (token === "--compact") {
+      format = "compact";
+    } else if (token === "--tree") {
+      format = "tree";
     } else if (token === "--scope") {
       const value = argv[index + 1];
       scopes = parseScopes(value, true);
@@ -70,7 +87,7 @@ function parseStatus(argv) {
     }
   }
 
-  return { json, scopes, selectors };
+  return { format, json, scopes, selectors };
 }
 
 function createStatusReport(scopes, selectors = emptySelectors()) {
@@ -94,7 +111,10 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
   };
 }
 
-function renderStatus(report) {
+function renderStatus(report, format = "default") {
+  if (format === "compact") return renderCompactStatus(report);
+  if (format === "tree") return renderTreeStatus(report);
+
   const lines = [
     "AI Config Sync Manager status",
     `Scopes: ${report.scopes.join(", ")}`,
@@ -117,6 +137,43 @@ function renderStatus(report) {
 
         for (const item of statusItems(entry)) {
           lines.push(`      - ${item}`);
+        }
+      }
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function renderCompactStatus(report) {
+  const lines = [
+    `status: ${report.summary}`,
+    `scopes=${report.scopes.join(",")} include=${report.include.length ? report.include.join(",") : "all"} exclude=${report.exclude.length ? report.exclude.join(",") : "none"}`
+  ];
+
+  for (const entry of report.entries) {
+    lines.push(`${entry.scope}/${entry.area} [${entry.risk}] ${statusItems(entry).join("; ")}`);
+  }
+
+  return lines.join("\n");
+}
+
+function renderTreeStatus(report) {
+  const lines = [
+    "AI Config Sync Manager status",
+    report.summary
+  ];
+
+  for (const [scope, scopeEntries] of groupBy(report.entries, "scope")) {
+    lines.push(`${scope}/`);
+
+    for (const [area, areaEntries] of groupBy(scopeEntries, "area")) {
+      lines.push(`  ${area}/`);
+
+      for (const entry of areaEntries) {
+        lines.push(`    [${entry.risk}] ${entry.summary}`);
+        for (const item of statusItems(entry)) {
+          lines.push(`      ${item}`);
         }
       }
     }
@@ -1822,6 +1879,7 @@ function parseSync(argv) {
   let to = "codex";
   let dryRun = false;
   let apply = false;
+  let planJson = false;
   let scope = "project";
   const selectors = emptySelectors();
 
@@ -1831,6 +1889,8 @@ function parseSync(argv) {
       dryRun = true;
     } else if (token === "--apply") {
       apply = true;
+    } else if (token === "--plan-json") {
+      planJson = true;
     } else if (token === "--from" || token === "--to") {
       const value = argv[index + 1];
       if (!hosts.has(value)) throw new Error(`Missing or invalid value for ${token}`);
@@ -1851,7 +1911,7 @@ function parseSync(argv) {
   if (dryRun && apply) throw new Error("Choose either --dry-run or --apply, not both.");
   if (from === to) throw new Error("--from and --to must be different hosts.");
 
-  return { from, to, apply, scope, selectors };
+  return { from, to, apply, planJson, scope, selectors };
 }
 
 function parseScopes(value, allowAll) {
@@ -1864,17 +1924,75 @@ function noOptions(argv, command) {
   if (argv.length > 0) throw new Error(`${command} does not accept options.`);
 }
 
+function isHelp(argv) {
+  return argv.length === 1 && (argv[0] === "--help" || argv[0] === "-h");
+}
+
 function printHelp() {
   console.log(`Usage:
   ai-config-sync connect
+  ai-config-sync connect --help
   ai-config-sync status
+  ai-config-sync status --help
   ai-config-sync status --json
+  ai-config-sync status --compact
+  ai-config-sync status --tree
   ai-config-sync status --scope global|project|all
-  ai-config-sync status --include skills:foo --exclude mcp
+  ai-config-sync status --include skills:foo,mcp:notion --exclude permissions:Bash
   ai-config-sync sync --dry-run
+  ai-config-sync sync --help
+  ai-config-sync sync --plan-json
   ai-config-sync sync --scope global|project --dry-run
   ai-config-sync sync --scope global|project --apply
-  ai-config-sync sync --include instructions,skills:foo --exclude mcp --dry-run
+  ai-config-sync sync --include instructions,skills:foo,mcp:notion --exclude permissions:Bash --dry-run
   ai-config-sync sync --from claude --to codex
   ai-config-sync sync --from codex --to claude`);
+}
+
+function printConnectHelp() {
+  console.log(`Usage:
+  ai-config-sync connect
+
+Checks Claude and Codex installation state, registers missing local host integrations when possible, and prints manual actions when writes are blocked.
+
+Options:
+  -h, --help  Show connect help`);
+}
+
+function printStatusHelp() {
+  console.log(`Usage:
+  ai-config-sync status [options]
+
+Options:
+  --json                         Print the full status report as JSON
+  --compact                      Print one compact line per diff entry
+  --tree                         Print scope/area/item tree output
+  --scope global|project|all     Limit status scope
+  --include area[:item][,...]    Include only selected areas or items
+  --exclude area[:item][,...]    Exclude selected areas or items
+  -h, --help                     Show status help
+
+Examples:
+  ai-config-sync status --scope project --tree
+  ai-config-sync status --include skills:foo,mcp:notion --exclude permissions:Bash`);
+}
+
+function printSyncHelp() {
+  console.log(`Usage:
+  ai-config-sync sync [options]
+
+Options:
+  --dry-run                      Preview planned operations without writing files
+  --apply                        Apply planned operations with backups
+  --plan-json                    Print the sync plan as JSON
+  --from claude|codex            Source host
+  --to claude|codex              Target host
+  --scope global|project         Limit sync scope
+  --include area[:item][,...]    Include only selected areas or items
+  --exclude area[:item][,...]    Exclude selected areas or items
+  -h, --help                     Show sync help
+
+Examples:
+  ai-config-sync sync --scope project --include mcp:notion --dry-run
+  ai-config-sync sync --from codex --to claude --include permissions:Bash --plan-json`);
 }

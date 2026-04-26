@@ -64,6 +64,39 @@ test("status supports item selectors for MCP servers", () => {
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
 });
 
+test("status supports compact and tree output formats", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const compact = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--compact"]);
+  const tree = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--tree"]);
+
+  assert.match(compact, /^status: 1 diff\(s\) detected for project scope\./);
+  assert.match(compact, /project\/mcp \[safe\] missing-in-codex: notion/);
+  assert.match(tree, /project\/\n  mcp\/\n    \[safe\] MCP servers differ/);
+  assert.match(tree, /missing-in-codex: notion/);
+});
+
+test("commands support command-specific help", () => {
+  const fixture = createFixture();
+  const connectHelp = runCli(fixture, ["connect", "--help"]);
+  const statusHelp = runCli(fixture, ["status", "--help"]);
+  const syncHelp = runCli(fixture, ["sync", "--help"]);
+
+  assert.match(connectHelp, /Usage:\n  ai-config-sync connect/);
+  assert.match(statusHelp, /--compact/);
+  assert.match(statusHelp, /--tree/);
+  assert.match(syncHelp, /--plan-json/);
+  assert.match(syncHelp, /--from claude\|codex/);
+});
+
 test("connect registers missing host integrations in an isolated home", () => {
   const fixture = createFixture();
 
@@ -141,6 +174,33 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
   assert.doesNotMatch(config, /# permissions\.allow/);
   assert.match(rules, /prefix_rule\(pattern=\["npm","run","check"\], decision="allow"/);
   assert.ok(existsSync(join(backupRoot(output), realpathSync(fixture.project), ".codex/config.toml")));
+});
+
+test("sync supports JSON plan output", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const plan = JSON.parse(runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--plan-json"
+  ]));
+
+  assert.equal(plan.mode, "dry-run");
+  assert.equal(plan.operations.length, 1);
+  assert.equal(plan.operations[0].action, "merge-mcp-servers");
+  assert.deepEqual(plan.operations[0].serverNames, ["notion"]);
+  assert.deepEqual(plan.results, []);
 });
 
 test("sync apply keeps unsupported permission mappings as managed metadata", () => {
