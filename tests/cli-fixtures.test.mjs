@@ -99,7 +99,7 @@ test("status labels permission mapping quality per item", () => {
 
   const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions:Bash,permissions:WebFetch", "--json"]));
 
-  assert.equal(report.entries[0].itemQualities.Bash, "metadata-only");
+  assert.equal(report.entries[0].itemQualities.Bash, "exact");
   assert.equal(report.entries[0].itemQualities.WebFetch, "approximate");
 });
 
@@ -308,15 +308,15 @@ test("sync plan includes permission review notes for risky and approximate mappi
 
   assert.match(text, /Review notes:/);
   assert.match(text, /Patch preview:/);
-  assert.match(text, /managed metadata permissions\.allow = "Bash"/);
+  assert.match(text, /rules\/default\.rules prefix_rule\(pattern=\[\], decision="allow"/);
   assert.match(text, /config\.toml approval_policy = "on-request"/);
   assert.match(text, /Bash: broad, interpreter, shell-wrapper, network, or destructive command/);
   assert.match(text, /WebFetch: maps to a broad Codex approval policy/);
   assert.equal(plan.operations[0].patchPreview[0].item, "allow:Bash");
-  assert.deepEqual(plan.operations[0].patchPreview[0].changes, ['managed metadata permissions.allow = "Bash"']);
+  assert.deepEqual(plan.operations[0].patchPreview[0].changes, ['rules/default.rules prefix_rule(pattern=[], decision="allow", justification="Migrated from Claude allow permission Bash.")']);
   assert.deepEqual(plan.operations[0].patchPreview[1].changes, ['config.toml approval_policy = "on-request"']);
   assert.deepEqual(plan.operations[0].reviewNotes, [
-    "Bash: broad, interpreter, shell-wrapper, network, or destructive command is preserved as metadata until reviewed",
+    "Bash: broad, interpreter, shell-wrapper, network, or destructive command will be written as a prefix_rule; review before apply",
     "WebFetch: maps to a broad Codex approval policy; review before relying on equivalent behavior"
   ]);
 });
@@ -341,10 +341,12 @@ test("sync apply keeps unsupported permission mappings as managed metadata", () 
     "--apply"
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+  const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
 
   assert.match(config, /approval_policy = "on-request"/);
-  assert.match(config, /# permissions\.allow = "Bash"/);
   assert.match(config, /# permissions\.allow = "WebFetch"/);
+  assert.doesNotMatch(config, /# permissions\.allow = "Bash"/);
+  assert.match(rules, /prefix_rule\(pattern=\[\], decision="allow"/);
 });
 
 test("sync apply converts Codex prefix rules and MCP approvals back to Claude permissions", () => {

@@ -34,7 +34,7 @@ By default, status checks both global and current project scopes. Use `--scope g
 
 `/config-manager:sync` calls the bundled `bin/ai-config-sync sync --dry-run` by default. Apply mode must create backups and ask for confirmation before writing.
 
-Manual review entries are shown in the dry-run diff. In the MVP, `sync --apply` applies mapped manual items after the user explicitly runs apply mode; a future `--force-manual` flag can restore per-item confirmation.
+Manual review entries are shown in the dry-run diff. In the MVP, `sync --apply` applies planned writable items in one pass; risky permission semantics are still surfaced with review notes and patch previews before executable rules are written.
 
 ## Full Mapping Workflow
 
@@ -97,15 +97,12 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 
 ## Remaining Core Work Order
 
-1. Manual and risk controls
-   - Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
-
-2. Distribution readiness
+1. Distribution readiness
    - Create or connect the GitHub repo remote.
    - Tighten README install guide.
    - Document Claude marketplace install flow.
    - Document Codex plugin local/OSS install flow.
    - Decide whether to publish an npm package or keep CLI bundled in plugin dist for MVP.
 
-3. Milestone verification
+2. Milestone verification
    - After each milestone: build dist, install/update Claude plugin, run Codex command, run Claude command, and verify both hosts report the same `status`.

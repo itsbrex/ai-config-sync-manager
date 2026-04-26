@@ -345,7 +345,7 @@ function directionalItems(entry, to) {
 
 function createSyncPlan(options, mode) {
   const entries = filterEntries(diffScope(options.scope), options.selectors);
-  const operations = entries.map((entry) => createOperation(entry, options.from, options.to)).filter(Boolean);
+  const operations = entries.map((entry) => createOperation(entry, options.from, options.to, options)).filter(Boolean);
 
   return {
     from: options.from,
@@ -363,7 +363,7 @@ function createSyncPlan(options, mode) {
   };
 }
 
-function createOperation(entry, from, to) {
+function createOperation(entry, from, to, options = {}) {
   const sourcePath = from === "claude" ? entry.claudePath : entry.codexPath;
   const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
 
@@ -503,7 +503,7 @@ function permissionReviewNotes(itemNames) {
     const pattern = bashPattern(value);
 
     if (pattern?.risky) {
-      notes.push(`${value}: broad, interpreter, shell-wrapper, network, or destructive command is preserved as metadata until reviewed`);
+      notes.push(`${value}: broad, interpreter, shell-wrapper, network, or destructive command will be written as a prefix_rule; review before apply`);
     } else if (itemMappingQuality("permissions", itemName) === "approximate") {
       notes.push(`${value}: maps to a broad Codex approval policy; review before relying on equivalent behavior`);
     } else if (itemMappingQuality("permissions", itemName) === "unsupported") {
@@ -540,7 +540,7 @@ function permissionPatchPreview(to, itemNames) {
         changes.push(`config.toml [mcp_servers.${mcp.server}.tools.${mcp.tool}] approval_mode = ${JSON.stringify(approvalMode)}`);
       }
       const rule = codexPrefixRuleForPermission(bucket, value);
-      if (rule && !rule.startsWith("# skipped risky")) {
+      if (rule) {
         changes.push(`rules/default.rules ${rule}`);
       }
       if (changes.length === 0 || itemMappingQuality("permissions", itemName) === "metadata-only") {
@@ -849,7 +849,7 @@ function hasExactCodexPermissionMapping(bucket, value) {
   if (parseMcpPermission(value)) return true;
 
   const prefixRule = codexPrefixRuleForPermission(bucket, value);
-  return Boolean(prefixRule && !prefixRule.startsWith("# skipped risky"));
+  return Boolean(prefixRule);
 }
 
 function codexManagedHookFallbackValues(sourceValues, itemNames) {
@@ -1223,10 +1223,6 @@ function replaceTextBlock(text, name, body) {
 function codexPrefixRuleForPermission(bucket, value) {
   const pattern = bashPattern(value);
   if (!pattern) return null;
-
-  if (pattern.risky) {
-    return `# skipped risky Claude permission ${JSON.stringify(value)}; review before creating a prefix_rule`;
-  }
 
   const decision = bucket === "deny" ? "forbidden" : bucket === "ask" ? "prompt" : "allow";
   return `prefix_rule(pattern=${JSON.stringify(pattern.parts)}, decision=${JSON.stringify(decision)}, justification=${JSON.stringify(`Migrated from Claude ${bucket} permission ${value}.`)})`;
@@ -1724,7 +1720,7 @@ function itemMappingQuality(area, item) {
   if (parseMcpPermission(value)) return "exact";
 
   const rule = codexPrefixRuleForPermission(bucket, value);
-  if (rule && !rule.startsWith("# skipped risky")) return "exact";
+  if (rule) return "exact";
   if (["Write", "Edit", "MultiEdit"].includes(value)) return "equivalent";
   if (isCommandLikePermission(value) && value !== "Bash" && !value.startsWith("Bash(")) return "approximate";
   if (isCommandLikePermission(value)) return "metadata-only";
