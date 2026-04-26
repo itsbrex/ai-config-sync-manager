@@ -14,6 +14,8 @@ import {
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { stdin as input, stdout as output } from "node:process";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const hosts = new Set(["claude", "codex"]);
@@ -22,6 +24,13 @@ const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.AI_CONFIG_SYNC_HOME ?? homedir();
 
 try {
+  await main();
+} catch (error) {
+  process.exitCode = 1;
+  console.error(error instanceof Error ? error.message : "Unknown CLI error");
+}
+
+async function main() {
   if (command === "connect") {
     if (isHelp(argv)) {
       printConnectHelp();
@@ -48,17 +57,24 @@ try {
       const options = parseSync(argv);
       const mode = options.apply ? "apply" : "dry-run";
       const plan = createSyncPlan(options, mode);
-      if (mode === "apply") {
+      if (options.confirm && !options.planJson) {
+        console.log(renderSyncPlan(plan));
+        if (await confirmApply()) {
+          applySyncPlan(plan);
+        } else {
+          plan.results.push({ status: "cancelled", message: "Confirmation declined" });
+        }
+        console.log(renderApplyResults(plan));
+      } else if (mode === "apply") {
         applySyncPlan(plan);
+        console.log(options.planJson ? JSON.stringify(plan, null, 2) : renderSyncPlan(plan));
+      } else {
+        console.log(options.planJson ? JSON.stringify(plan, null, 2) : renderSyncPlan(plan));
       }
-      console.log(options.planJson ? JSON.stringify(plan, null, 2) : renderSyncPlan(plan));
     }
   } else {
     printHelp();
   }
-} catch (error) {
-  process.exitCode = 1;
-  console.error(error instanceof Error ? error.message : "Unknown CLI error");
 }
 
 function parseStatus(argv) {
@@ -339,6 +355,8 @@ function createSyncPlan(options, mode) {
     include: renderSelectors(options.selectors.include),
     exclude: renderSelectors(options.selectors.exclude),
     canApply: true,
+    confirm: options.confirm,
+    requiresConfirmation: options.apply && options.confirm,
     backupRoot: `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`,
     operations,
     results: []
@@ -520,7 +538,7 @@ function renderSyncPlan(plan) {
     }
   }
 
-  if (plan.mode === "apply") {
+  if (plan.mode === "apply" && plan.results.length > 0) {
     lines.push("");
     lines.push("Apply results:");
     for (const result of plan.results) {
@@ -532,6 +550,24 @@ function renderSyncPlan(plan) {
   }
 
   return lines.join("\n");
+}
+
+function renderApplyResults(plan) {
+  const lines = ["", "Apply results:"];
+  for (const result of plan.results) {
+    lines.push(`  ${result.status}: ${result.message}`);
+  }
+  return lines.join("\n");
+}
+
+async function confirmApply() {
+  const rl = createInterface({ input, output });
+  try {
+    const answer = await rl.question("Apply this sync plan? Type yes to continue: ");
+    return answer.trim().toLowerCase() === "yes";
+  } finally {
+    rl.close();
+  }
 }
 
 function formatOperationItems(operation, items) {
@@ -1938,6 +1974,7 @@ function parseSync(argv) {
   let to = "codex";
   let dryRun = false;
   let apply = false;
+  let confirm = false;
   let planJson = false;
   let scope = "project";
   const selectors = emptySelectors();
@@ -1947,6 +1984,9 @@ function parseSync(argv) {
     if (token === "--dry-run") {
       dryRun = true;
     } else if (token === "--apply") {
+      apply = true;
+    } else if (token === "--confirm") {
+      confirm = true;
       apply = true;
     } else if (token === "--plan-json") {
       planJson = true;
@@ -1970,7 +2010,7 @@ function parseSync(argv) {
   if (dryRun && apply) throw new Error("Choose either --dry-run or --apply, not both.");
   if (from === to) throw new Error("--from and --to must be different hosts.");
 
-  return { from, to, apply, planJson, scope, selectors };
+  return { from, to, apply, confirm, planJson, scope, selectors };
 }
 
 function parseScopes(value, allowAll) {
@@ -2043,6 +2083,7 @@ function printSyncHelp() {
 Options:
   --dry-run                      Preview planned operations without writing files
   --apply                        Apply planned operations with backups
+  --confirm                      Show the plan, ask for confirmation, then apply
   --plan-json                    Print the sync plan as JSON
   --from claude|codex            Source host
   --to claude|codex              Target host
@@ -2053,5 +2094,6 @@ Options:
 
 Examples:
   ai-config-sync sync --scope project --include mcp:notion --dry-run
+  ai-config-sync sync --scope project --include mcp:notion --confirm
   ai-config-sync sync --from codex --to claude --include permissions:Bash --plan-json`);
 }

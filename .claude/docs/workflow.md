@@ -59,12 +59,13 @@ Reference: `.claude/docs/maximal-one-to-one-mapping.md`
 15. Schema-aware Codex writes avoid managed comment blocks for exact native permission and command-hook mappings; managed metadata remains only for unsupported or non-exact fields.
 16. Status UX supports compact and tree renderers; sync can emit a machine-readable `--plan-json` plan; each command exposes command-specific `--help`.
 17. Status and sync plans include per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, and `unsupported`.
+18. `sync --confirm` shows the plan, requires an explicit `yes`, and then applies with the existing backup flow.
 
 ### Current State
 
 - `connect`: detects install state, registers missing local Claude/Codex host integrations when filesystem writes are available, prints manual actions when blocked, and supports `connect --help`.
 - `status`: supports global/project scopes, default/grouped output, `--compact`, `--tree`, per-item mapping quality labels, and `--include`/`--exclude` selectors.
-- `sync`: supports dry-run/apply, `--plan-json`, command help, per-item mapping quality labels, backups, selectors, skills missing-copy, permissions item merge, hooks item merge, MCP server merge, and Codex native mapping for Bash/MCP/hook targets.
+- `sync`: supports dry-run/apply, `--confirm`, `--plan-json`, command help, per-item mapping quality labels, backups, selectors, skills missing-copy, permissions item merge, hooks item merge, MCP server merge, and Codex native mapping for Bash/MCP/hook targets.
 - `permissions`: Claude to Codex native mapping exists for Bash prefix rules, MCP tool approvals, and workspace-write sandbox hints; exact Bash/MCP mappings no longer leave duplicate managed comments.
 - `permissions reverse`: Codex `prefix_rule()` and MCP tool approvals can be converted back to Claude permission buckets when reversible.
 - `hooks`: command hooks can be converted in both directions between Claude settings and Codex native hook TOML; unsupported handlers remain managed metadata.
@@ -94,20 +95,17 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 
 ## Remaining Core Work Order
 
-1. Status and sync UX
-   - Add `sync --interactive`.
-
-2. Manual and risk controls
+1. Manual and risk controls
    - Add safer permission review policy for broad interpreters, shell wrappers, destructive commands, and secret-like env keys.
    - Add item-level patch preview so users can inspect exact writes before `sync --apply`.
    - Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
 
-3. Distribution readiness
+2. Distribution readiness
    - Create or connect the GitHub repo remote.
    - Tighten README install guide.
    - Document Claude marketplace install flow.
    - Document Codex plugin local/OSS install flow.
    - Decide whether to publish an npm package or keep CLI bundled in plugin dist for MVP.
 
-4. Milestone verification
+3. Milestone verification
    - After each milestone: build dist, install/update Claude plugin, run Codex command, run Claude command, and verify both hosts report the same `status`.
