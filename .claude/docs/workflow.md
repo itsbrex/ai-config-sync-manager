@@ -54,10 +54,11 @@ Reference: `.claude/docs/maximal-one-to-one-mapping.md`
 10. Minimal `node:test` CLI fixture tests cover selectors, native mappings, MCP merge safety, hooks, and apply backups.
 11. MCP sync output includes per-server patch previews, and secret-like MCP env keys are shown as metadata-only review items instead of being copied.
 12. Skills policy is defined and same-name content drift is surfaced as a manual conflict; standalone agents and command conversion remain manual-review/outside MVP.
+13. `connect` can register missing local Claude and Codex host integrations in an isolated home and re-print the resulting install state.
 
 ### Current State
 
-- `connect`: detects install state and prints required actions. It does not yet auto-register the missing host.
+- `connect`: detects install state, registers missing local Claude/Codex host integrations when filesystem writes are available, and prints manual actions when blocked.
 - `status`: supports global/project scopes, grouped area/item output, and `--include`/`--exclude` selectors.
 - `sync`: supports dry-run/apply, backups, selectors, skills missing-copy, permissions item merge, hooks item merge, MCP server merge, and Codex native mapping for Bash/MCP/hook targets.
 - `permissions`: Claude to Codex native mapping exists for Bash prefix rules, MCP tool approvals, and workspace-write sandbox hints.
@@ -88,37 +89,32 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 
 ## Remaining Core Work Order
 
-1. Connect auto-install
-   - Implement the target behavior: installing on Claude can register Codex, and installing on Codex can register Claude.
-   - Keep status-only diagnostics when auto-install is blocked by missing permissions or unsupported host state.
-   - Re-run `connect` validation after registration.
-
-2. Reverse mapping
+1. Reverse mapping
    - Improve Codex-to-Claude conversion for `prefix_rule()`, MCP tool approvals, and native Codex hooks.
    - Keep non-reversible mappings as metadata with explicit `status` labels.
 
-3. Schema-aware conversion
+2. Schema-aware conversion
    - Replace managed comment blocks with native TOML/JSON structures when Codex and Claude schemas are confirmed.
    - Keep managed blocks only for unsupported or metadata-only fields.
 
-4. Status and sync UX
+3. Status and sync UX
    - Add `status --tree` and `status --compact`.
    - Add `sync --plan-json`.
    - Add `sync --interactive`.
    - Expand `--include`/`--exclude` examples for area and item selectors.
    - Add per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, `unsupported`.
 
-5. Manual and risk controls
+4. Manual and risk controls
    - Add safer permission review policy for broad interpreters, shell wrappers, destructive commands, and secret-like env keys.
    - Add item-level patch preview so users can inspect exact writes before `sync --apply`.
    - Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
 
-6. Distribution readiness
+5. Distribution readiness
    - Create or connect the GitHub repo remote.
    - Tighten README install guide.
    - Document Claude marketplace install flow.
    - Document Codex plugin local/OSS install flow.
    - Decide whether to publish an npm package or keep CLI bundled in plugin dist for MVP.
 
-7. Milestone verification
+6. Milestone verification
    - After each milestone: build dist, install/update Claude plugin, run Codex command, run Claude command, and verify both hosts report the same `status`.

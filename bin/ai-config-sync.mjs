@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  symlinkSync,
   writeFileSync
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -1508,31 +1509,139 @@ function label(area) {
 }
 
 function runConnect() {
-  const defaultRoot = `${home}/.ai-config-sync-manager`;
-  const claudePlugin = findClaudePlugin();
-  const codexPlugin = `${home}/plugins/ai-config-sync-manager`;
-  const codexMarketplace = `${home}/.agents/plugins/marketplace.json`;
+  const state = connectState();
+  const results = registerMissingIntegrations(state);
+  const nextState = connectState();
 
   console.log("AI Config Sync Manager connect");
   console.log(`Runtime root: ${runtimeRoot}`);
-  console.log(`Default root: ${formatPathState(defaultRoot)}`);
-  console.log(`Claude plugin: ${claudePlugin ? formatPathState(claudePlugin) : "missing"}`);
-  console.log(`Codex plugin: ${formatPathState(codexPlugin)}`);
-  console.log(`Codex marketplace: ${formatPathState(codexMarketplace)}`);
+  console.log(`Default root: ${formatPathState(nextState.defaultRoot)}`);
+  console.log(`Claude plugin: ${nextState.claudePlugin ? formatPathState(nextState.claudePlugin) : "missing"}`);
+  console.log(`Codex plugin: ${formatPathState(nextState.codexPlugin)}`);
+  console.log(`Codex marketplace: ${formatPathState(nextState.codexMarketplace)}`);
 
-  if (!existsSync(defaultRoot)) {
-    console.log(`Action needed: link the default root with: ln -s "${runtimeRoot}" "${defaultRoot}"`);
+  for (const result of results) {
+    console.log(`${result.status}: ${result.message}`);
   }
 
-  if (!claudePlugin) {
+  if (!existsSync(nextState.defaultRoot)) {
+    console.log(`Action needed: link the default root with: ln -s "${runtimeRoot}" "${nextState.defaultRoot}"`);
+  }
+
+  if (!nextState.claudePlugin) {
     console.log("Action needed: install Claude plugin with /plugin install config-manager@ai-config-sync-manager");
   }
 
-  if (!existsSync(codexPlugin) || !codexMarketplaceIncludes(codexMarketplace)) {
+  if (!existsSync(nextState.codexPlugin) || !codexMarketplaceIncludes(nextState.codexMarketplace)) {
     console.log("Action needed: register Codex plugin in ~/.agents/plugins/marketplace.json");
   }
+}
 
-  console.log("No files were modified by connect.");
+function connectState() {
+  const codexPlugin = `${home}/plugins/ai-config-sync-manager`;
+
+  return {
+    defaultRoot: `${home}/.ai-config-sync-manager`,
+    claudePlugin: findClaudePlugin(),
+    claudePluginTarget: `${home}/.claude/plugins/config-manager@ai-config-sync-manager`,
+    codexPlugin,
+    codexMarketplace: `${home}/.agents/plugins/marketplace.json`
+  };
+}
+
+function registerMissingIntegrations(state) {
+  const results = [];
+
+  tryConnectAction(results, "registered default root", () => {
+    if (!existsSync(state.defaultRoot)) {
+      mkdirSync(dirname(state.defaultRoot), { recursive: true });
+      symlinkSync(runtimeRoot, state.defaultRoot, "dir");
+    }
+  });
+
+  tryConnectAction(results, "registered Claude plugin", () => {
+    if (!state.claudePlugin) {
+      installClaudePlugin(state.claudePluginTarget);
+    }
+  });
+
+  tryConnectAction(results, "registered Codex plugin", () => {
+    if (!existsSync(state.codexPlugin)) {
+      installCodexPlugin(state.codexPlugin);
+    }
+
+    if (!codexMarketplaceIncludes(state.codexMarketplace)) {
+      updateCodexMarketplace(state.codexMarketplace, state.codexPlugin);
+    }
+  });
+
+  return results;
+}
+
+function tryConnectAction(results, message, action) {
+  try {
+    action();
+    results.push({ status: "ok", message });
+  } catch (error) {
+    results.push({
+      status: "blocked",
+      message: `${message}: ${error instanceof Error ? error.message : "unknown error"}`
+    });
+  }
+}
+
+function installClaudePlugin(targetPath) {
+  copyPluginRoot("integrations/claude-plugin", targetPath);
+  const installedPath = `${home}/.claude/plugins/installed_plugins.json`;
+  const data = readJsonFile(installedPath, {});
+
+  data.plugins ??= {};
+  data.plugins["config-manager@ai-config-sync-manager"] = [
+    {
+      installPath: targetPath,
+      source: "ai-config-sync-manager",
+      version: "0.1.0"
+    }
+  ];
+
+  mkdirSync(dirname(installedPath), { recursive: true });
+  writeFileSync(installedPath, `${JSON.stringify(data, null, 2)}\n`);
+}
+
+function installCodexPlugin(targetPath) {
+  copyPluginRoot("integrations/codex-plugin", targetPath);
+}
+
+function copyPluginRoot(integrationDir, targetPath) {
+  mkdirSync(dirname(targetPath), { recursive: true });
+  cpSync(join(runtimeRoot, integrationDir), targetPath, { recursive: true, dereference: false });
+
+  for (const name of ["bin", "packages", "schemas", "rules"]) {
+    cpSync(join(runtimeRoot, name), join(targetPath, name), { recursive: true, dereference: false });
+  }
+
+  for (const name of ["package.json", "tsconfig.json", "tsconfig.check.json", "package-lock.json"]) {
+    const source = join(runtimeRoot, name);
+    if (existsSync(source)) copyFileSync(source, join(targetPath, name));
+  }
+}
+
+function updateCodexMarketplace(path, pluginPath) {
+  const data = readJsonFile(path, {});
+  const plugins = Array.isArray(data.plugins) ? data.plugins : [];
+
+  data.plugins = [
+    ...plugins.filter((plugin) => plugin?.name !== "ai-config-sync-manager"),
+    {
+      name: "ai-config-sync-manager",
+      version: "0.1.0",
+      path: pluginPath,
+      source: pluginPath
+    }
+  ];
+
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function findClaudePlugin() {

@@ -64,6 +64,26 @@ test("status supports item selectors for MCP servers", () => {
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
 });
 
+test("connect registers missing host integrations in an isolated home", () => {
+  const fixture = createFixture();
+
+  const output = runCli(fixture, ["connect"]);
+  const installed = JSON.parse(readFileSync(join(fixture.home, ".claude/plugins/installed_plugins.json"), "utf8"));
+  const marketplace = JSON.parse(readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8"));
+
+  assert.match(output, /ok: registered default root/);
+  assert.match(output, /ok: registered Claude plugin/);
+  assert.match(output, /ok: registered Codex plugin/);
+  assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
+  assert.ok(existsSync(join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager/bin/ai-config-sync")));
+  assert.ok(existsSync(join(fixture.home, "plugins/ai-config-sync-manager/bin/ai-config-sync")));
+  assert.equal(
+    installed.plugins["config-manager@ai-config-sync-manager"][0].installPath,
+    join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager")
+  );
+  assert.equal(marketplace.plugins[0].name, "ai-config-sync-manager");
+});
+
 test("status reports same-name skill content drift as a manual conflict", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
