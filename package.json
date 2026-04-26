@@ -1,0 +1,44 @@
+{
+  "name": "ai-config-sync-manager",
+  "version": "0.1.0",
+  "private": false,
+  "description": "OSS manager for syncing Claude and Codex developer configuration.",
+  "author": {
+    "name": "Maxx",
+    "email": "slash9494@gmail.com"
+  },
+  "maintainers": [
+    {
+      "name": "Maxx",
+      "email": "slash9494@gmail.com"
+    }
+  ],
+  "license": "MIT",
+  "type": "module",
+  "keywords": [
+    "ai",
+    "agent",
+    "claude",
+    "codex",
+    "config",
+    "config-sync",
+    "developer-tools",
+    "mcp",
+    "plugin",
+    "skills"
+  ],
+  "bin": {
+    "ai-config-sync": "./bin/ai-config-sync"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "build:dist": "node scripts/build-dist.mjs",
+    "check": "tsc -b --noEmit"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.8.0"
+  }
+}

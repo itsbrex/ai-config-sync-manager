@@ -1,0 +1,30 @@
+{
+  "source": "codex",
+  "target": "claude",
+  "areas": {
+    "instructions": {
+      "risk": "safe",
+      "mapping": "AGENTS.md to CLAUDE.md"
+    },
+    "skills": {
+      "risk": "safe",
+      "mapping": "Codex skills to Claude skills"
+    },
+    "mcp": {
+      "risk": "safe",
+      "mapping": "MCP server definitions"
+    },
+    "permissions": {
+      "risk": "manual",
+      "mapping": "Codex approval/sandbox policy requires Claude permission rule review"
+    },
+    "hooks": {
+      "risk": "manual",
+      "mapping": "Hook events need host-specific conversion"
+    },
+    "commands": {
+      "risk": "partial",
+      "mapping": "Codex skills or scripts may become Claude slash commands"
+    }
+  }
+}

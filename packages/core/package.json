@@ -1,0 +1,30 @@
+{
+  "name": "@ai-config-sync-manager/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Core config snapshot, diff, and sync plan utilities for AI Config Sync Manager.",
+  "author": {
+    "name": "Maxx",
+    "email": "slash9494@gmail.com"
+  },
+  "maintainers": [
+    {
+      "name": "Maxx",
+      "email": "slash9494@gmail.com"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "claude",
+    "codex",
+    "config-sync",
+    "mcp",
+    "skills"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b"
+  }
+}

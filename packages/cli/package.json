@@ -1,0 +1,36 @@
+{
+  "name": "@ai-config-sync-manager/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CLI for connecting, checking, and syncing Claude and Codex configuration.",
+  "author": {
+    "name": "Maxx",
+    "email": "slash9494@gmail.com"
+  },
+  "maintainers": [
+    {
+      "name": "Maxx",
+      "email": "slash9494@gmail.com"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "cli",
+    "claude",
+    "codex",
+    "config-sync",
+    "developer-tools"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "ai-config-sync": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@ai-config-sync-manager/core": "workspace:*"
+  }
+}

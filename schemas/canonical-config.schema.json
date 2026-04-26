@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ai-config-sync-manager.dev/schemas/canonical-config.schema.json",
+  "title": "CanonicalConfigSnapshot",
+  "type": "object",
+  "required": ["host", "paths", "areas"],
+  "properties": {
+    "host": {
+      "enum": ["claude", "codex"]
+    },
+    "paths": {
+      "type": "object"
+    },
+    "areas": {
+      "type": "object",
+      "properties": {
+        "instructions": {},
+        "skills": {},
+        "mcp": {},
+        "permissions": {},
+        "hooks": {},
+        "commands": {}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
