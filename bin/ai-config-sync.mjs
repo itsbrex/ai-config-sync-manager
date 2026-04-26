@@ -185,13 +185,18 @@ function renderTreeStatus(report) {
 function statusItems(entry) {
   if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
     return [
-      ...(entry.missingInCodex ?? []).map((name) => `missing-in-codex: ${name}`),
-      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${name}`),
-      ...(entry.conflicts ?? []).map((name) => `conflict: ${name}`)
+      ...(entry.missingInCodex ?? []).map((name) => `missing-in-codex: ${formatQualityItem(entry, name)}`),
+      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${formatQualityItem(entry, name)}`),
+      ...(entry.conflicts ?? []).map((name) => `conflict: ${formatQualityItem(entry, name)}`)
     ];
   }
 
-  return [`${entry.area}: claude=${entry.claude}, codex=${entry.codex}`];
+  return [`${entry.area}: claude=${entry.claude}, codex=${entry.codex} [${entry.mappingQuality ?? "unsupported"}]`];
+}
+
+function formatQualityItem(entry, item) {
+  const quality = entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
+  return quality ? `${item} [${quality}]` : item;
 }
 
 function groupBy(entries, key) {
@@ -277,6 +282,11 @@ function filterEntryItems(entry, selectors) {
   filtered.missingInCodex = filterItems(entry.missingInCodex ?? [], includeItems, excludeItems);
   filtered.missingInClaude = filterItems(entry.missingInClaude ?? [], includeItems, excludeItems);
   filtered.conflicts = filterItems(entry.conflicts ?? [], includeItems, excludeItems);
+  filtered.itemQualities = filterItemQualities(entry.itemQualities ?? {}, [
+    ...filtered.missingInCodex,
+    ...filtered.missingInClaude,
+    ...filtered.conflicts
+  ]);
 
   if (
     filtered.missingInCodex.length === 0
@@ -284,6 +294,12 @@ function filterEntryItems(entry, selectors) {
     && filtered.conflicts.length === 0
   ) return null;
   return filtered;
+}
+
+function filterItemQualities(itemQualities, items) {
+  return Object.fromEntries(
+    Object.entries(itemQualities).filter(([item]) => items.some((selected) => itemMatchesSelector(item, selected)))
+  );
 }
 
 function filterItems(items, includeItems, excludeItems) {
@@ -362,6 +378,7 @@ function createOperation(entry, from, to) {
       sourcePath,
       targetPath,
       itemNames,
+      itemQualities: operationItemQualities(entry, itemNames),
       backupRequired: true,
       approvalRequired: false
     };
@@ -391,6 +408,7 @@ function createOperation(entry, from, to) {
       sourcePath,
       targetPath,
       serverNames: directionalItems(entry, to),
+      itemQualities: operationItemQualities(entry, directionalItems(entry, to)),
       patchPreview: mcpPatchPreview(sourcePath, targetPath, from, to, directionalItems(entry, to)),
       backupRequired: true,
       approvalRequired: false
@@ -433,6 +451,7 @@ function createOperation(entry, from, to) {
       sourcePath,
       targetPath,
       skillNames: missing,
+      itemQualities: operationItemQualities(entry, missing),
       backupRequired: true,
       approvalRequired: entry.risk !== "safe"
     };
@@ -448,6 +467,12 @@ function createOperation(entry, from, to) {
     backupRequired: true,
     approvalRequired: true
   };
+}
+
+function operationItemQualities(entry, items) {
+  return Object.fromEntries(
+    items.map((item) => [item, entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")] ?? "unsupported"])
+  );
 }
 
 function renderSyncPlan(plan) {
@@ -473,13 +498,13 @@ function renderSyncPlan(plan) {
     lines.push(`  Backup required: ${operation.backupRequired ? "yes" : "no"}`);
     lines.push(`  Approval required: ${operation.approvalRequired ? "yes" : "no"}`);
     if (operation.skillNames?.length) {
-      lines.push(`  Skills: ${operation.skillNames.join(", ")}`);
+      lines.push(`  Skills: ${formatOperationItems(operation, operation.skillNames).join(", ")}`);
     }
     if (operation.itemNames?.length && operation.area !== "skills") {
-      lines.push(`  Items: ${operation.itemNames.join(", ")}`);
+      lines.push(`  Items: ${formatOperationItems(operation, operation.itemNames).join(", ")}`);
     }
     if (operation.serverNames?.length) {
-      lines.push(`  MCP servers: ${operation.serverNames.join(", ")}`);
+      lines.push(`  MCP servers: ${formatOperationItems(operation, operation.serverNames).join(", ")}`);
     }
     if (operation.patchPreview?.length) {
       lines.push("  MCP patch preview:");
@@ -507,6 +532,13 @@ function renderSyncPlan(plan) {
   }
 
   return lines.join("\n");
+}
+
+function formatOperationItems(operation, items) {
+  return items.map((item) => {
+    const quality = operation.itemQualities?.[item] ?? operation.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
+    return quality ? `${item} [${quality}]` : item;
+  });
 }
 
 function applySyncPlan(plan) {
@@ -1435,7 +1467,8 @@ function compareFile(entries, scope, area, claudePath, codexPath) {
       claudePath,
       codexPath,
       claude: claude.summary,
-      codex: codex.summary
+      codex: codex.summary,
+      mappingQuality: area === "instructions" ? "equivalent" : "unsupported"
     });
   }
 }
@@ -1460,8 +1493,9 @@ function comparePresence(entries, scope, area, claudePath, codexPath, risk) {
     summary: `${label(area)} presence differs`,
     claudePath,
     codexPath,
-    claude: claude.summary,
-    codex: codex.summary
+      claude: claude.summary,
+      codex: codex.summary,
+      mappingQuality: risk === "safe" ? "exact" : "unsupported"
   });
 }
 
@@ -1485,7 +1519,8 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
       claude: `${claude.length} skill(s)`,
       codex: `${codex.length} skill(s)`,
       missingInCodex,
-      missingInClaude
+      missingInClaude,
+      itemQualities: itemQualities("skills", [...missingInCodex, ...missingInClaude])
     });
   }
 
@@ -1499,7 +1534,8 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
       codexPath: codexDir,
       claude: `${claude.length} skill(s)`,
       codex: `${codex.length} skill(s)`,
-      conflicts
+      conflicts,
+      itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"]))
     });
   }
 }
@@ -1522,7 +1558,8 @@ function compareMcpServers(entries, scope, claudePath, codexPath) {
     claude: `${claudeServers.length} server(s)`,
     codex: `${codexServers.length} server(s)`,
     missingInCodex,
-    missingInClaude
+    missingInClaude,
+    itemQualities: itemQualities("mcp", [...missingInCodex, ...missingInClaude])
   });
 }
 
@@ -1544,8 +1581,30 @@ function compareSettingsItems(entries, scope, area, claudePath, codexPath) {
     claude: `${claude.length} item(s)`,
     codex: `${codex.length} item(s)`,
     missingInCodex,
-    missingInClaude
+    missingInClaude,
+    itemQualities: itemQualities(area, [...missingInCodex, ...missingInClaude])
   });
+}
+
+function itemQualities(area, items) {
+  return Object.fromEntries(items.map((item) => [item, itemMappingQuality(area, item)]));
+}
+
+function itemMappingQuality(area, item) {
+  if (area === "mcp" || area === "skills") return "exact";
+  if (area === "hooks") return "equivalent";
+  if (area !== "permissions") return "unsupported";
+
+  const { bucket, value } = parsePermissionItem(item);
+  if (parseMcpPermission(value)) return "exact";
+
+  const rule = codexPrefixRuleForPermission(bucket, value);
+  if (rule && !rule.startsWith("# skipped risky")) return "exact";
+  if (["Write", "Edit", "MultiEdit"].includes(value)) return "equivalent";
+  if (isCommandLikePermission(value) && value !== "Bash" && !value.startsWith("Bash(")) return "approximate";
+  if (isCommandLikePermission(value)) return "metadata-only";
+
+  return "unsupported";
 }
 
 function settingsItems(host, area, path) {

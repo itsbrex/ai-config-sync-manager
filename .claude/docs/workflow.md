@@ -58,12 +58,13 @@ Reference: `.claude/docs/maximal-one-to-one-mapping.md`
 14. Codex-to-Claude reverse mapping covers `prefix_rule()`, MCP tool approvals, and native command hooks.
 15. Schema-aware Codex writes avoid managed comment blocks for exact native permission and command-hook mappings; managed metadata remains only for unsupported or non-exact fields.
 16. Status UX supports compact and tree renderers; sync can emit a machine-readable `--plan-json` plan; each command exposes command-specific `--help`.
+17. Status and sync plans include per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, and `unsupported`.
 
 ### Current State
 
 - `connect`: detects install state, registers missing local Claude/Codex host integrations when filesystem writes are available, prints manual actions when blocked, and supports `connect --help`.
-- `status`: supports global/project scopes, default/grouped output, `--compact`, `--tree`, and `--include`/`--exclude` selectors.
-- `sync`: supports dry-run/apply, `--plan-json`, command help, backups, selectors, skills missing-copy, permissions item merge, hooks item merge, MCP server merge, and Codex native mapping for Bash/MCP/hook targets.
+- `status`: supports global/project scopes, default/grouped output, `--compact`, `--tree`, per-item mapping quality labels, and `--include`/`--exclude` selectors.
+- `sync`: supports dry-run/apply, `--plan-json`, command help, per-item mapping quality labels, backups, selectors, skills missing-copy, permissions item merge, hooks item merge, MCP server merge, and Codex native mapping for Bash/MCP/hook targets.
 - `permissions`: Claude to Codex native mapping exists for Bash prefix rules, MCP tool approvals, and workspace-write sandbox hints; exact Bash/MCP mappings no longer leave duplicate managed comments.
 - `permissions reverse`: Codex `prefix_rule()` and MCP tool approvals can be converted back to Claude permission buckets when reversible.
 - `hooks`: command hooks can be converted in both directions between Claude settings and Codex native hook TOML; unsupported handlers remain managed metadata.
@@ -95,7 +96,6 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 
 1. Status and sync UX
    - Add `sync --interactive`.
-   - Add per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, `unsupported`.
 
 2. Manual and risk controls
    - Add safer permission review policy for broad interpreters, shell wrappers, destructive commands, and secret-like env keys.

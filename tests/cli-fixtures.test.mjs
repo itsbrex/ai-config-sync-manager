@@ -62,6 +62,7 @@ test("status supports item selectors for MCP servers", () => {
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
+  assert.deepEqual(report.entries[0].itemQualities, { notion: "exact" });
 });
 
 test("status supports compact and tree output formats", () => {
@@ -79,9 +80,26 @@ test("status supports compact and tree output formats", () => {
   const tree = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--tree"]);
 
   assert.match(compact, /^status: 1 diff\(s\) detected for project scope\./);
-  assert.match(compact, /project\/mcp \[safe\] missing-in-codex: notion/);
+  assert.match(compact, /project\/mcp \[safe\] missing-in-codex: notion \[exact\]/);
   assert.match(tree, /project\/\n  mcp\/\n    \[safe\] MCP servers differ/);
-  assert.match(tree, /missing-in-codex: notion/);
+  assert.match(tree, /missing-in-codex: notion \[exact\]/);
+});
+
+test("status labels permission mapping quality per item", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    permissions: {
+      allow: ["Bash", "WebFetch"]
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions:Bash,permissions:WebFetch", "--json"]));
+
+  assert.equal(report.entries[0].itemQualities.Bash, "metadata-only");
+  assert.equal(report.entries[0].itemQualities.WebFetch, "approximate");
 });
 
 test("commands support command-specific help", () => {
@@ -200,6 +218,7 @@ test("sync supports JSON plan output", () => {
   assert.equal(plan.operations.length, 1);
   assert.equal(plan.operations[0].action, "merge-mcp-servers");
   assert.deepEqual(plan.operations[0].serverNames, ["notion"]);
+  assert.deepEqual(plan.operations[0].itemQualities, { notion: "exact" });
   assert.deepEqual(plan.results, []);
 });
 
