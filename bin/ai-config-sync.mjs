@@ -397,6 +397,7 @@ function createOperation(entry, from, to) {
       targetPath,
       itemNames,
       itemQualities: operationItemQualities(entry, itemNames),
+      patchPreview: settingsItemPatchPreview(entry.area, from, to, sourcePath, itemNames),
       reviewNotes: entry.area === "permissions" ? permissionReviewNotes(itemNames) : [],
       backupRequired: true,
       approvalRequired: false
@@ -513,6 +514,68 @@ function permissionReviewNotes(itemNames) {
   return notes;
 }
 
+function settingsItemPatchPreview(area, from, to, sourcePath, itemNames) {
+  if (area === "permissions") return permissionPatchPreview(to, itemNames);
+  if (area === "hooks") return hookPatchPreview(from, to, sourcePath, itemNames);
+  return [];
+}
+
+function permissionPatchPreview(to, itemNames) {
+  return itemNames.map((itemName) => {
+    const { bucket, value } = parsePermissionItem(itemName);
+    const changes = [];
+
+    if (to === "claude") {
+      changes.push(`settings.json permissions.${bucket}: add ${JSON.stringify(value)}`);
+    } else {
+      if (["Write", "Edit", "MultiEdit"].includes(value)) {
+        changes.push('config.toml sandbox_mode = "workspace-write"');
+      }
+      if (isCommandLikePermission(value) && !value.startsWith("Bash(") && value !== "Bash" && !value.startsWith("mcp__")) {
+        changes.push('config.toml approval_policy = "on-request"');
+      }
+      const mcp = parseMcpPermission(value);
+      if (mcp) {
+        const approvalMode = bucket === "deny" ? "deny" : bucket === "ask" ? "prompt" : "approve";
+        changes.push(`config.toml [mcp_servers.${mcp.server}.tools.${mcp.tool}] approval_mode = ${JSON.stringify(approvalMode)}`);
+      }
+      const rule = codexPrefixRuleForPermission(bucket, value);
+      if (rule && !rule.startsWith("# skipped risky")) {
+        changes.push(`rules/default.rules ${rule}`);
+      }
+      if (changes.length === 0 || itemMappingQuality("permissions", itemName) === "metadata-only") {
+        changes.push(`managed metadata permissions.${bucket} = ${JSON.stringify(value)}`);
+      }
+    }
+
+    return { item: itemName, action: "merge-settings-item", changes };
+  });
+}
+
+function hookPatchPreview(from, to, sourcePath, itemNames) {
+  const sourceValues = to === "codex" && from === "claude"
+    ? claudeManagedValues("hooks", sourcePath, itemNames)
+    : {};
+
+  return itemNames.map((itemName) => {
+    const changes = [];
+
+    if (to === "claude") {
+      changes.push(`settings.json hooks.${itemName}: add or merge`);
+    } else {
+      changes.push("config.toml [features] codex_hooks = true");
+      const groups = sourceValues[itemName];
+      changes.push(
+        Array.isArray(groups) && groups.every(isCodexNativeHookGroup)
+          ? `config.toml [[hooks.${itemName}]] native command hook entries`
+          : `managed metadata hooks.${itemName}`
+      );
+    }
+
+    return { item: itemName, action: "merge-settings-item", changes };
+  });
+}
+
 function renderSyncPlan(plan) {
   const lines = [
     "AI Config Sync Manager sync",
@@ -551,9 +614,9 @@ function renderSyncPlan(plan) {
       }
     }
     if (operation.patchPreview?.length) {
-      lines.push("  MCP patch preview:");
+      lines.push("  Patch preview:");
       for (const patch of operation.patchPreview) {
-        lines.push(`    - ${patch.server}: ${patch.action}`);
+        lines.push(`    - ${patch.item ?? patch.server}: ${patch.action}`);
         for (const change of patch.changes) {
           lines.push(`      ${change}`);
         }

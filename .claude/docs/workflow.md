@@ -61,6 +61,7 @@ Reference: `.claude/docs/maximal-one-to-one-mapping.md`
 17. Status and sync plans include per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, and `unsupported`.
 18. `sync --confirm` shows the plan, requires an explicit `yes`, and then applies with the existing backup flow.
 19. Permission sync plans include review notes for broad interpreters, shell wrappers, destructive/network commands, unsupported mappings, and approximate Codex approval-policy mappings.
+20. Settings sync plans include item-level patch previews for permissions and hooks, alongside existing MCP patch previews.
 
 ### Current State
 
@@ -97,7 +98,6 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 ## Remaining Core Work Order
 
 1. Manual and risk controls
-   - Add item-level patch preview so users can inspect exact writes before `sync --apply`.
    - Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
 
 2. Distribution readiness

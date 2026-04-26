@@ -307,8 +307,14 @@ test("sync plan includes permission review notes for risky and approximate mappi
   ]));
 
   assert.match(text, /Review notes:/);
+  assert.match(text, /Patch preview:/);
+  assert.match(text, /managed metadata permissions\.allow = "Bash"/);
+  assert.match(text, /config\.toml approval_policy = "on-request"/);
   assert.match(text, /Bash: broad, interpreter, shell-wrapper, network, or destructive command/);
   assert.match(text, /WebFetch: maps to a broad Codex approval policy/);
+  assert.equal(plan.operations[0].patchPreview[0].item, "allow:Bash");
+  assert.deepEqual(plan.operations[0].patchPreview[0].changes, ['managed metadata permissions.allow = "Bash"']);
+  assert.deepEqual(plan.operations[0].patchPreview[1].changes, ['config.toml approval_policy = "on-request"']);
   assert.deepEqual(plan.operations[0].reviewNotes, [
     "Bash: broad, interpreter, shell-wrapper, network, or destructive command is preserved as metadata until reviewed",
     "WebFetch: maps to a broad Codex approval policy; review before relying on equivalent behavior"
@@ -395,7 +401,7 @@ test("sync apply merges MCP servers without secret-like env values", () => {
   const output = runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
-  assert.match(output, /MCP patch preview:/);
+  assert.match(output, /Patch preview:/);
   assert.match(output, /notion: add/);
   assert.match(output, /env\.SAFE_ENV: "visible"/);
   assert.match(output, /metadata-only env\.NOTION_TOKEN: skipped secret-like value/);
