@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+HOST="${1:-auto}"
+
+chmod +x "$ROOT/bin/ai-config-sync"
+cd "$ROOT"
+node "$ROOT/scripts/build-dist.mjs"
+
+install_codex() {
+  local target="$HOME/plugins/ai-config-sync-manager"
+  local default_root="$HOME/.ai-config-sync-manager"
+  mkdir -p "$HOME/plugins"
+  rm -rf "$target" "$default_root"
+  ln -s "$ROOT/dist/codex-plugin" "$target"
+  ln -s "$ROOT/dist/codex-plugin" "$default_root"
+  echo "Codex plugin linked: $target"
+  echo "Default CLI root linked: $default_root"
+}
+
+install_claude() {
+  local marketplace="$HOME/.claude/plugins/marketplaces/ai-config-sync-manager"
+  local cache="$HOME/.claude/plugins/cache/ai-config-sync-manager/config-manager/0.1.0"
+  mkdir -p "$(dirname "$marketplace")" "$(dirname "$cache")"
+  rm -rf "$marketplace" "$cache"
+  cp -R "$ROOT/dist/claude-marketplace" "$marketplace"
+  cp -R "$ROOT/dist/claude-marketplace/plugins/config-manager" "$cache"
+  echo "Claude marketplace installed: $marketplace"
+  echo "Claude plugin cache installed: $cache"
+}
+
+case "$HOST" in
+  auto)
+    install_codex
+    install_claude
+    ;;
+  codex)
+    install_codex
+    ;;
+  claude)
+    install_claude
+    ;;
+  *)
+    echo "Usage: ./setup [auto|codex|claude]" >&2
+    exit 1
+    ;;
+esac
+
+echo "Run: $ROOT/bin/ai-config-sync status"

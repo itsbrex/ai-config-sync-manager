@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="${AI_CONFIG_SYNC_ROOT:-}"
+if [ -z "$ROOT" ]; then
+  ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+fi
+
+DIST="$ROOT/packages/cli/dist/index.js"
+SRC="$ROOT/packages/cli/src/index.ts"
+RUNTIME="$ROOT/bin/ai-config-sync.mjs"
+
+if [ -f "$DIST" ]; then
+  exec node "$DIST" "$@"
+fi
+
+if [ -f "$RUNTIME" ]; then
+  exec node "$RUNTIME" "$@"
+fi
+
+if [ -f "$SRC" ]; then
+  exec node --experimental-strip-types "$SRC" "$@"
+fi
+
+echo "ai-config-sync CLI not found under $ROOT" >&2
+exit 1
