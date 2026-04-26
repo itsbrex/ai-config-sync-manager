@@ -135,11 +135,38 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
 
   assert.match(output, /approval required: no/i);
-  assert.match(config, /# permissions\.allow = "Bash\(npm run check:\*\)"/);
   assert.match(config, /\[mcp_servers\.notion\.tools\.search\]/);
   assert.match(config, /approval_mode = "approve"/);
+  assert.doesNotMatch(config, /# BEGIN ai-config-sync permissions/);
+  assert.doesNotMatch(config, /# permissions\.allow/);
   assert.match(rules, /prefix_rule\(pattern=\["npm","run","check"\], decision="allow"/);
   assert.ok(existsSync(join(backupRoot(output), realpathSync(fixture.project), ".codex/config.toml")));
+});
+
+test("sync apply keeps unsupported permission mappings as managed metadata", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    permissions: {
+      allow: ["Bash", "WebFetch"]
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "permissions:Bash,permissions:WebFetch",
+    "--apply"
+  ]);
+  const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /approval_policy = "on-request"/);
+  assert.match(config, /# permissions\.allow = "Bash"/);
+  assert.match(config, /# permissions\.allow = "WebFetch"/);
 });
 
 test("sync apply converts Codex prefix rules and MCP approvals back to Claude permissions", () => {
@@ -238,6 +265,35 @@ test("sync apply converts Claude command hooks to Codex native hook TOML", () =>
   assert.match(config, /matcher = "Write"/);
   assert.match(config, /command = "npm run check"/);
   assert.match(config, /timeout = 30/);
+  assert.doesNotMatch(config, /# BEGIN ai-config-sync hooks/);
+});
+
+test("sync apply keeps unsupported hooks as managed metadata", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    hooks: {
+      Notification: [
+        {
+          hooks: [
+            {
+              type: "webhook",
+              url: "https://example.invalid/hook"
+            }
+          ]
+        }
+      ]
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "hooks:Notification", "--apply"]);
+  const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /# BEGIN ai-config-sync hooks/);
+  assert.match(config, /# hooks\.Notification = /);
+  assert.doesNotMatch(config, /\[\[hooks\.Notification\]\]/);
 });
 
 test("sync apply converts Codex native hooks back to Claude settings", () => {

@@ -56,15 +56,16 @@ Reference: `.claude/docs/maximal-one-to-one-mapping.md`
 12. Skills policy is defined and same-name content drift is surfaced as a manual conflict; standalone agents and command conversion remain manual-review/outside MVP.
 13. `connect` can register missing local Claude and Codex host integrations in an isolated home and re-print the resulting install state.
 14. Codex-to-Claude reverse mapping covers `prefix_rule()`, MCP tool approvals, and native command hooks.
+15. Schema-aware Codex writes avoid managed comment blocks for exact native permission and command-hook mappings; managed metadata remains only for unsupported or non-exact fields.
 
 ### Current State
 
 - `connect`: detects install state, registers missing local Claude/Codex host integrations when filesystem writes are available, and prints manual actions when blocked.
 - `status`: supports global/project scopes, grouped area/item output, and `--include`/`--exclude` selectors.
 - `sync`: supports dry-run/apply, backups, selectors, skills missing-copy, permissions item merge, hooks item merge, MCP server merge, and Codex native mapping for Bash/MCP/hook targets.
-- `permissions`: Claude to Codex native mapping exists for Bash prefix rules, MCP tool approvals, and workspace-write sandbox hints.
+- `permissions`: Claude to Codex native mapping exists for Bash prefix rules, MCP tool approvals, and workspace-write sandbox hints; exact Bash/MCP mappings no longer leave duplicate managed comments.
 - `permissions reverse`: Codex `prefix_rule()` and MCP tool approvals can be converted back to Claude permission buckets when reversible.
-- `hooks`: command hooks can be converted in both directions between Claude settings and Codex native hook TOML; unsupported handlers remain metadata.
+- `hooks`: command hooks can be converted in both directions between Claude settings and Codex native hook TOML; unsupported handlers remain managed metadata.
 - `mcp`: server-level merge exists with selectors such as `mcp:notion` and `mcp:playwright`; sync output shows per-server patch previews and skips secret-like env values as metadata-only review items.
 - `skills`: missing skill directories are copied; same-name content drift is reported as a manual conflict; deletes and overwrites are not in MVP.
 - `agents`: AGENTS/CLAUDE instruction files are compared; standalone agent file sync is outside MVP until Codex agent schema is confirmed.
@@ -91,28 +92,24 @@ Do not auto-allow broad or destructive commands while migrating permissions. If 
 
 ## Remaining Core Work Order
 
-1. Schema-aware conversion
-   - Replace managed comment blocks with native TOML/JSON structures when Codex and Claude schemas are confirmed.
-   - Keep managed blocks only for unsupported or metadata-only fields.
-
-2. Status and sync UX
+1. Status and sync UX
    - Add `status --tree` and `status --compact`.
    - Add `sync --plan-json`.
    - Add `sync --interactive`.
    - Expand `--include`/`--exclude` examples for area and item selectors.
    - Add per-item mapping quality labels: `exact`, `equivalent`, `approximate`, `metadata-only`, `unsupported`.
 
-3. Manual and risk controls
+2. Manual and risk controls
    - Add safer permission review policy for broad interpreters, shell wrappers, destructive commands, and secret-like env keys.
    - Add item-level patch preview so users can inspect exact writes before `sync --apply`.
    - Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
 
-4. Distribution readiness
+3. Distribution readiness
    - Create or connect the GitHub repo remote.
    - Tighten README install guide.
    - Document Claude marketplace install flow.
    - Document Codex plugin local/OSS install flow.
    - Decide whether to publish an npm package or keep CLI bundled in plugin dist for MVP.
 
-5. Milestone verification
+4. Milestone verification
    - After each milestone: build dist, install/update Claude plugin, run Codex command, run Claude command, and verify both hosts report the same `status`.

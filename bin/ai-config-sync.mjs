@@ -595,7 +595,10 @@ function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNa
     ? claudeManagedValues(area, sourcePath, itemNames)
     : codexManagedValues(area, sourcePath);
   const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
-  let nextText = replaceManagedBlock(text, area, sourceValues, itemNames);
+  const managedValues = sourceHost === "claude"
+    ? codexManagedFallbackValues(area, sourceValues, itemNames)
+    : sourceValues;
+  let nextText = replaceManagedBlock(text, area, managedValues, itemNames, { dropMissingSelected: sourceHost === "claude" });
 
   if (area === "permissions" && sourceHost === "claude") {
     nextText = applyCodexNativePermissionMapping(nextText, itemNames);
@@ -607,6 +610,52 @@ function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNa
   }
 
   writeFileSync(targetPath, nextText);
+}
+
+function codexManagedFallbackValues(area, sourceValues, itemNames) {
+  if (area === "permissions") return codexManagedPermissionFallbackValues(sourceValues, itemNames);
+  if (area === "hooks") return codexManagedHookFallbackValues(sourceValues, itemNames);
+  return sourceValues;
+}
+
+function codexManagedPermissionFallbackValues(sourceValues, itemNames) {
+  const values = {};
+
+  for (const itemName of itemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+    if (hasExactCodexPermissionMapping(bucket, value)) continue;
+    const key = permissionKey(itemName);
+    if (sourceValues[key] !== undefined) values[key] = sourceValues[key];
+  }
+
+  return values;
+}
+
+function hasExactCodexPermissionMapping(bucket, value) {
+  if (parseMcpPermission(value)) return true;
+
+  const prefixRule = codexPrefixRuleForPermission(bucket, value);
+  return Boolean(prefixRule && !prefixRule.startsWith("# skipped risky"));
+}
+
+function codexManagedHookFallbackValues(sourceValues, itemNames) {
+  const values = {};
+
+  for (const itemName of itemNames) {
+    const groups = sourceValues[itemName];
+    if (!Array.isArray(groups) || !groups.every(isCodexNativeHookGroup)) {
+      if (sourceValues[itemName] !== undefined) values[itemName] = sourceValues[itemName];
+    }
+  }
+
+  return values;
+}
+
+function isCodexNativeHookGroup(group) {
+  const hooks = group?.hooks;
+  return Array.isArray(hooks)
+    && hooks.length > 0
+    && hooks.every((hook) => hook?.type === "command" && typeof hook.command === "string");
 }
 
 function claudeManagedValues(area, sourcePath, itemNames) {
@@ -726,7 +775,7 @@ function parseTomlScalar(value) {
   return parseJsonLike(trimmed, trimmed.replace(/^"|"$/g, ""));
 }
 
-function replaceManagedBlock(text, area, sourceValues, itemNames) {
+function replaceManagedBlock(text, area, sourceValues, itemNames, options = {}) {
   const begin = `# BEGIN ai-config-sync ${area}`;
   const end = `# END ai-config-sync ${area}`;
   const existing = parseManagedBlock(text, area);
@@ -734,7 +783,17 @@ function replaceManagedBlock(text, area, sourceValues, itemNames) {
 
   for (const itemName of itemNames) {
     const key = area === "permissions" ? permissionKey(itemName) : itemName;
-    if (sourceValues[key] !== undefined) merged[key] = sourceValues[key];
+    if (sourceValues[key] !== undefined) {
+      merged[key] = sourceValues[key];
+    } else if (options.dropMissingSelected) {
+      delete merged[key];
+    }
+  }
+
+  const pattern = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}\\n?`, "m");
+
+  if (Object.keys(merged).length === 0) {
+    return pattern.test(text) ? text.replace(pattern, "").replace(/\s*$/, "\n") : text;
   }
 
   const lines = [
@@ -745,7 +804,6 @@ function replaceManagedBlock(text, area, sourceValues, itemNames) {
     end
   ];
   const block = lines.join("\n");
-  const pattern = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m");
 
   if (pattern.test(text)) {
     return text.replace(pattern, block);
