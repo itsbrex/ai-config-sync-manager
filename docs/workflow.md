@@ -66,3 +66,14 @@ Reference: `docs/maximal-one-to-one-mapping.md`
 ### MVP Rule
 
 Do not auto-allow broad or destructive commands while migrating permissions. If an item cannot be mapped safely, preserve it as metadata and keep it visible in `status`.
+
+## Remaining Core Work Order
+
+1. Fix package manager setup so `npm run check` or an equivalent TypeScript check runs cleanly in this repo without relying on parent workspace state.
+2. Add focused automated tests around selector parsing, Bash prefix conversion, MCP tool approval conversion, MCP server merge, and hook conversion.
+3. Improve Codex-to-Claude reverse mapping for `prefix_rule()`, MCP tool approvals, and native Codex hooks.
+4. Add `status` mapping quality labels per item: `exact`, `equivalent`, `approximate`, `metadata-only`, `unsupported`.
+5. Add safer permission review policy: broad interpreters, shell wrappers, destructive commands, and secret-like env keys must remain visible as review items.
+6. Add item-level patch preview output so users can inspect the exact write before `sync --apply`.
+7. Implement future manual controls: `--force-manual`, optional per-item confirmation, and explicit `--allow-risky` only for reviewed mappings.
+8. Re-run real plugin workflow after each milestone: build dist, install/update Claude plugin, run Codex command, run Claude command, verify both hosts see the same `status`.
