@@ -1,0 +1,36 @@
+{
+  "name": "ai-config-sync-manager",
+  "version": "0.1.0",
+  "description": "Open-source Codex plugin for syncing AI assistant configuration through the ai-config-sync CLI.",
+  "author": {
+    "name": "Maxx",
+    "email": "slash9494@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "ai",
+    "agent",
+    "oss",
+    "config-sync",
+    "codex",
+    "claude",
+    "mcp",
+    "skills"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "AI Config Sync Manager",
+    "shortDescription": "OSS config sync for Codex and Claude.",
+    "longDescription": "Open-source helper plugin that delegates connect, status, and sync workflows to the ai-config-sync CLI with dry-run-first behavior, backups, and manual confirmation for risky changes.",
+    "developerName": "Maxx",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Run config manager status.",
+      "Preview config sync changes.",
+      "Connect Codex and Claude config sync."
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "name": "config-manager",
+  "version": "0.1.0",
+  "description": "OSS Claude plugin scaffold for synchronizing AI assistant configuration with explicit dry-run, backup, and manual confirmation workflows.",
+  "author": {
+    "name": "Maxx",
+    "email": "slash9494@gmail.com"
+  },
+  "license": "MIT"
+}
