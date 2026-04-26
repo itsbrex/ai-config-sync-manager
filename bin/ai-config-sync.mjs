@@ -231,9 +231,13 @@ function filterEntryItems(entry, selectors) {
 
 function filterItems(items, includeItems, excludeItems) {
   return items.filter((item) => {
-    if (includeItems.length > 0 && !includeItems.includes(item)) return false;
-    return !excludeItems.includes(item);
+    if (includeItems.length > 0 && !includeItems.some((includeItem) => itemMatchesSelector(item, includeItem))) return false;
+    return !excludeItems.some((excludeItem) => itemMatchesSelector(item, excludeItem));
   });
+}
+
+function itemMatchesSelector(item, selector) {
+  return item === selector || item.replace(/^(allow|ask|deny):/, "") === selector;
 }
 
 function entryItems(entry) {
@@ -273,7 +277,9 @@ function createOperation(entry, from, to) {
   const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
 
   if (entry.area === "permissions" || entry.area === "hooks") {
-    const itemNames = directionalItems(entry, to);
+    const itemNames = entry.area === "permissions"
+      ? permissionOperationItems(directionalItems(entry, to))
+      : directionalItems(entry, to);
     if (itemNames.length === 0) return null;
 
     if (!existsSync(sourcePath)) {
@@ -571,7 +577,7 @@ function mergeIntoClaudeSettings(targetPath, sourcePath, sourceHost, area, itemN
   if (area === "hooks") {
     target.hooks ??= {};
     const sourceHooks = sourceHost === "codex"
-      ? codexManagedValues("hooks", sourcePath)
+      ? codexHookValues(sourcePath)
       : readJsonFile(sourcePath, {}).hooks ?? {};
 
     for (const itemName of itemNames) {
@@ -651,6 +657,73 @@ function codexManagedValues(area, sourcePath) {
   }
 
   return values;
+}
+
+function codexHookValues(sourcePath) {
+  if (!existsSync(sourcePath)) return {};
+  const text = readFileSync(sourcePath, "utf8");
+  const values = codexManagedValues("hooks", sourcePath);
+
+  for (const [eventName, groups] of Object.entries(parseCodexNativeHooks(text))) {
+    values[eventName] ??= groups;
+  }
+
+  return values;
+}
+
+function parseCodexNativeHooks(text) {
+  const values = {};
+  const lines = text.split(/\r?\n/);
+  let currentEvent = null;
+  let currentGroup = null;
+  let currentHook = null;
+
+  for (const line of lines) {
+    const eventMatch = line.match(/^\s*\[\[hooks\.([A-Za-z0-9_-]+)\]\]\s*$/);
+    if (eventMatch) {
+      currentEvent = eventMatch[1];
+      currentGroup = { hooks: [] };
+      values[currentEvent] ??= [];
+      values[currentEvent].push(currentGroup);
+      currentHook = null;
+      continue;
+    }
+
+    const hookMatch = line.match(/^\s*\[\[hooks\.([A-Za-z0-9_-]+)\.hooks\]\]\s*$/);
+    if (hookMatch) {
+      currentEvent = hookMatch[1];
+      values[currentEvent] ??= [];
+      currentGroup = currentGroup && values[currentEvent].includes(currentGroup)
+        ? currentGroup
+        : { hooks: [] };
+      if (!values[currentEvent].includes(currentGroup)) values[currentEvent].push(currentGroup);
+      currentHook = {};
+      currentGroup.hooks.push(currentHook);
+      continue;
+    }
+
+    const keyValue = line.match(/^\s*([A-Za-z0-9_-]+)\s*=\s*(.+?)\s*$/);
+    if (!keyValue) continue;
+
+    const [, key, rawValue] = keyValue;
+    const value = parseTomlScalar(rawValue);
+
+    if (currentHook) {
+      currentHook[key] = value;
+    } else if (currentGroup) {
+      currentGroup[key] = value;
+    }
+  }
+
+  return values;
+}
+
+function parseTomlScalar(value) {
+  const trimmed = value.trim();
+  if (/^-?\d+$/.test(trimmed)) return Number(trimmed);
+  if (trimmed === "true") return true;
+  if (trimmed === "false") return false;
+  return parseJsonLike(trimmed, trimmed.replace(/^"|"$/g, ""));
 }
 
 function replaceManagedBlock(text, area, sourceValues, itemNames) {
@@ -733,6 +806,19 @@ function parsePermissionItem(itemName) {
     return { bucket: maybeBucket, value: rest.join(":") };
   }
   return { bucket: "allow", value: itemName };
+}
+
+function permissionOperationItems(itemNames) {
+  const bucketed = new Set(
+    itemNames
+      .filter((itemName) => /^(allow|ask|deny):/.test(itemName))
+      .map((itemName) => itemName.replace(/^(allow|ask|deny):/, ""))
+  );
+
+  return itemNames.filter((itemName) => {
+    if (/^(allow|ask|deny):/.test(itemName)) return true;
+    return !bucketed.has(itemName);
+  });
 }
 
 function applyCodexNativePermissionMapping(text, itemNames) {

@@ -142,6 +142,39 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
   assert.ok(existsSync(join(backupRoot(output), realpathSync(fixture.project), ".codex/config.toml")));
 });
 
+test("sync apply converts Codex prefix rules and MCP approvals back to Claude permissions", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    "[mcp_servers.notion.tools.search]",
+    'approval_mode = "approve"',
+    ""
+  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/rules/default.rules"),
+    'prefix_rule(pattern=["npm","run","check"], decision="prompt", justification="test")\n'
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--scope",
+    "project",
+    "--include",
+    "permissions:Bash(npm run check:*),permissions:mcp__notion__search",
+    "--apply"
+  ]);
+  const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
+
+  assert.deepEqual(settings.permissions.ask, ["Bash(npm run check:*)"]);
+  assert.deepEqual(settings.permissions.allow, ["mcp__notion__search"]);
+});
+
 test("sync apply merges MCP servers without secret-like env values", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
@@ -205,4 +238,52 @@ test("sync apply converts Claude command hooks to Codex native hook TOML", () =>
   assert.match(config, /matcher = "Write"/);
   assert.match(config, /command = "npm run check"/);
   assert.match(config, /timeout = 30/);
+});
+
+test("sync apply converts Codex native hooks back to Claude settings", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), {});
+  writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    "[features]",
+    "codex_hooks = true",
+    "",
+    "[[hooks.PostToolUse]]",
+    'matcher = "Write"',
+    "[[hooks.PostToolUse.hooks]]",
+    'type = "command"',
+    'command = "npm run check"',
+    "timeout = 30",
+    'statusMessage = "checking"',
+    ""
+  ].join("\n"));
+
+  runCli(fixture, [
+    "sync",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--scope",
+    "project",
+    "--include",
+    "hooks:PostToolUse",
+    "--apply"
+  ]);
+  const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
+
+  assert.deepEqual(settings.hooks.PostToolUse, [
+    {
+      matcher: "Write",
+      hooks: [
+        {
+          type: "command",
+          command: "npm run check",
+          timeout: 30,
+          statusMessage: "checking"
+        }
+      ]
+    }
+  ]);
 });
