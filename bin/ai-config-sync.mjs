@@ -297,7 +297,36 @@ function createOperation(entry, from, to) {
     };
   }
 
-  if (entry.area === "instructions" || entry.area === "mcp") {
+  if (entry.area === "mcp") {
+    if (!existsSync(sourcePath)) {
+      return {
+        scope: entry.scope,
+        area: entry.area,
+        risk: "manual",
+        action: "source-missing",
+        sourcePath,
+        targetPath,
+        backupRequired: false,
+        approvalRequired: true
+      };
+    }
+
+    return {
+      scope: entry.scope,
+      area: entry.area,
+      risk: entry.risk,
+      action: "merge-mcp-servers",
+      from,
+      to,
+      sourcePath,
+      targetPath,
+      serverNames: directionalItems(entry, to),
+      backupRequired: true,
+      approvalRequired: false
+    };
+  }
+
+  if (entry.area === "instructions") {
     if (!existsSync(sourcePath)) {
       return {
         scope: entry.scope,
@@ -378,6 +407,9 @@ function renderSyncPlan(plan) {
     if (operation.itemNames?.length && operation.area !== "skills") {
       lines.push(`  Items: ${operation.itemNames.join(", ")}`);
     }
+    if (operation.serverNames?.length) {
+      lines.push(`  MCP servers: ${operation.serverNames.join(", ")}`);
+    }
     if (operation.skillNames && operation.skillNames.length === 0) {
       lines.push("  Skills: none missing in target direction");
     }
@@ -416,6 +448,8 @@ function applySyncPlan(plan) {
         applyCopyMissingSkills(plan, operation);
       } else if (operation.action === "merge-settings-items") {
         applyMergeSettingsItems(plan, operation);
+      } else if (operation.action === "merge-mcp-servers") {
+        applyMergeMcpServers(plan, operation);
       } else {
         plan.results.push({
           status: "skipped",
@@ -472,6 +506,9 @@ function applyCopyMissingSkills(plan, operation) {
 function applyMergeSettingsItems(plan, operation) {
   mkdirSync(dirname(operation.targetPath), { recursive: true });
   backupPath(plan, operation.targetPath);
+  if (operation.area === "permissions" && operation.to === "codex") {
+    backupPath(plan, codexRulesPath(operation.targetPath));
+  }
 
   if (operation.to === "claude") {
     mergeIntoClaudeSettings(operation.targetPath, operation.sourcePath, operation.from, operation.area, operation.itemNames ?? []);
@@ -482,6 +519,22 @@ function applyMergeSettingsItems(plan, operation) {
   plan.results.push({
     status: "applied",
     message: `merged ${operation.area} item(s): ${(operation.itemNames ?? []).join(", ")}`
+  });
+}
+
+function applyMergeMcpServers(plan, operation) {
+  mkdirSync(dirname(operation.targetPath), { recursive: true });
+  backupPath(plan, operation.targetPath);
+
+  if (operation.to === "codex") {
+    mergeMcpIntoCodex(operation.targetPath, operation.sourcePath, operation.from, operation.serverNames ?? []);
+  } else {
+    mergeMcpIntoClaude(operation.targetPath, operation.sourcePath, operation.from, operation.serverNames ?? []);
+  }
+
+  plan.results.push({
+    status: "applied",
+    message: `merged MCP servers ${operation.from} -> ${operation.to}: ${(operation.serverNames ?? []).join(", ")}`
   });
 }
 
@@ -523,6 +576,11 @@ function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNa
 
   if (area === "permissions" && sourceHost === "claude") {
     nextText = applyCodexNativePermissionMapping(nextText, itemNames);
+    writeCodexPermissionRules(codexRulesPath(targetPath), itemNames);
+  }
+
+  if (area === "hooks" && sourceHost === "claude") {
+    nextText = applyCodexNativeHookMapping(nextText, sourceValues, itemNames);
   }
 
   writeFileSync(targetPath, nextText);
@@ -668,9 +726,11 @@ function applyCodexNativePermissionMapping(text, itemNames) {
     nextText = setTomlRootString(nextText, "sandbox_mode", "workspace-write");
   }
 
-  if (values.some((value) => isCommandLikePermission(value))) {
+  if (values.some((value) => isCommandLikePermission(value) && !value.startsWith("Bash(") && value !== "Bash" && !value.startsWith("mcp__"))) {
     nextText = setTomlRootString(nextText, "approval_policy", "on-request");
   }
+
+  nextText = applyCodexMcpToolApprovals(nextText, itemNames);
 
   return nextText;
 }
@@ -694,6 +754,273 @@ function setTomlRootString(text, key, value) {
   }
 
   return `${line}\n${text}`;
+}
+
+function setTomlTableBoolean(text, table, key, value) {
+  const tableLine = `[${table}]`;
+  const valueLine = `${key} = ${value ? "true" : "false"}`;
+  const tablePattern = new RegExp(`^\\[${escapeRegExp(table)}\\]\\n([\\s\\S]*?)(?=^\\[|$)`, "m");
+  const match = text.match(tablePattern);
+
+  if (!match) {
+    return `${text.replace(/\s*$/, "")}\n\n${tableLine}\n${valueLine}\n`;
+  }
+
+  const body = match[1];
+  const keyPattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*$`, "m");
+  const nextBody = keyPattern.test(body)
+    ? body.replace(keyPattern, valueLine)
+    : `${body.replace(/\s*$/, "")}\n${valueLine}\n`;
+
+  return text.replace(tablePattern, `${tableLine}\n${nextBody}`);
+}
+
+function applyCodexMcpToolApprovals(text, itemNames) {
+  let nextText = text;
+
+  for (const itemName of itemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+    const mcp = parseMcpPermission(value);
+    if (!mcp) continue;
+
+    const approvalMode = bucket === "deny" ? "deny" : bucket === "ask" ? "prompt" : "approve";
+    nextText = setTomlMcpToolApproval(nextText, mcp.server, mcp.tool, approvalMode);
+  }
+
+  return nextText;
+}
+
+function setTomlMcpToolApproval(text, server, tool, approvalMode) {
+  const table = `[mcp_servers.${server}.tools.${tool}]`;
+  const line = `approval_mode = ${JSON.stringify(approvalMode)}`;
+  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\.tools\\.${escapeRegExp(tool)}\\]\\n([\\s\\S]*?)(?=^\\[|$)`, "m");
+  const match = text.match(tablePattern);
+
+  if (!match) {
+    return `${text.replace(/\s*$/, "")}\n\n${table}\n${line}\n`;
+  }
+
+  const body = match[1];
+  const approvalPattern = /^approval_mode\s*=.*$/m;
+  const nextBody = approvalPattern.test(body)
+    ? body.replace(approvalPattern, line)
+    : `${body.replace(/\s*$/, "")}\n${line}\n`;
+
+  return text.replace(tablePattern, `${table}\n${nextBody}`);
+}
+
+function parseMcpPermission(value) {
+  const match = value.match(/^mcp__([^_]+(?:_[^_]+)*)__([^_].*)$/);
+  if (!match) return null;
+  return { server: match[1].replaceAll("_", "-"), tool: match[2] };
+}
+
+function writeCodexPermissionRules(path, itemNames) {
+  const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
+  const lines = [];
+
+  for (const itemName of itemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+    const rule = codexPrefixRuleForPermission(bucket, value);
+    if (!rule) continue;
+    lines.push(rule);
+  }
+
+  if (lines.length === 0) return;
+
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, replaceTextBlock(existing, "permissions-rules", uniqueStrings(lines).join("\n")));
+}
+
+function replaceTextBlock(text, name, body) {
+  const begin = `# BEGIN ai-config-sync ${name}`;
+  const end = `# END ai-config-sync ${name}`;
+  const block = `${begin}\n${body}\n${end}`;
+  const pattern = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m");
+
+  if (pattern.test(text)) {
+    return text.replace(pattern, block);
+  }
+
+  return `${text.replace(/\s*$/, "")}\n\n${block}\n`;
+}
+
+function codexPrefixRuleForPermission(bucket, value) {
+  const pattern = bashPattern(value);
+  if (!pattern) return null;
+
+  if (pattern.risky) {
+    return `# skipped risky Claude permission ${JSON.stringify(value)}; review before creating a prefix_rule`;
+  }
+
+  const decision = bucket === "deny" ? "forbidden" : bucket === "ask" ? "prompt" : "allow";
+  return `prefix_rule(pattern=${JSON.stringify(pattern.parts)}, decision=${JSON.stringify(decision)}, justification=${JSON.stringify(`Migrated from Claude ${bucket} permission ${value}.`)})`;
+}
+
+function bashPattern(value) {
+  if (value === "Bash") return { risky: true, parts: [] };
+  const match = value.match(/^Bash\((.*)\)$/);
+  if (!match) return null;
+
+  const raw = match[1].trim().replace(/:\*$/, " *").replace(/\s+\*$/, "");
+  const parts = raw.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { risky: true, parts };
+
+  const riskyCommands = new Set(["bash", "zsh", "sh", "python", "python3", "node", "rm", "sudo", "chmod", "chown", "curl", "wget"]);
+  return {
+    risky: riskyCommands.has(parts[0]),
+    parts
+  };
+}
+
+function applyCodexNativeHookMapping(text, sourceValues, itemNames) {
+  const hookLines = [];
+
+  for (const itemName of itemNames) {
+    const groups = sourceValues[itemName];
+    if (!Array.isArray(groups)) continue;
+
+    for (const group of groups) {
+      const commandHooks = Array.isArray(group.hooks)
+        ? group.hooks.filter((hook) => hook?.type === "command" && typeof hook.command === "string")
+        : [];
+      if (commandHooks.length === 0) continue;
+
+      hookLines.push(`[[hooks.${itemName}]]`);
+      if (typeof group.matcher === "string") {
+        hookLines.push(`matcher = ${JSON.stringify(group.matcher)}`);
+      }
+
+      for (const hook of commandHooks) {
+        hookLines.push(`[[hooks.${itemName}.hooks]]`);
+        hookLines.push('type = "command"');
+        hookLines.push(`command = ${JSON.stringify(hook.command)}`);
+        if (Number.isInteger(hook.timeout)) hookLines.push(`timeout = ${hook.timeout}`);
+        if (typeof hook.statusMessage === "string") {
+          hookLines.push(`statusMessage = ${JSON.stringify(hook.statusMessage)}`);
+        }
+      }
+    }
+  }
+
+  if (hookLines.length === 0) return text;
+
+  const withFeature = setTomlTableBoolean(text, "features", "codex_hooks", true);
+  return replaceTextBlock(withFeature, "native-hooks", hookLines.join("\n"));
+}
+
+function codexRulesPath(configPath) {
+  return join(dirname(configPath), "rules/default.rules");
+}
+
+function mergeMcpIntoCodex(targetPath, sourcePath, sourceHost, serverNames) {
+  const sourceServers = pickServers(sourceHost === "claude"
+    ? readClaudeMcpServers(sourcePath)
+    : readCodexMcpServers(sourcePath), serverNames);
+  const targetServers = readCodexMcpServers(targetPath);
+  const merged = { ...targetServers, ...sourceServers };
+  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+
+  writeFileSync(targetPath, replaceTextBlock(text, "mcp-servers", renderCodexMcpServers(merged)));
+}
+
+function mergeMcpIntoClaude(targetPath, sourcePath, sourceHost, serverNames) {
+  const sourceServers = pickServers(sourceHost === "codex"
+    ? readCodexMcpServers(sourcePath)
+    : readClaudeMcpServers(sourcePath), serverNames);
+  const target = readJsonFile(targetPath, {});
+  target.mcpServers = { ...(target.mcpServers ?? {}), ...sourceServers };
+  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
+}
+
+function pickServers(servers, names) {
+  if (!names.length) return servers;
+  return Object.fromEntries(Object.entries(servers).filter(([name]) => names.includes(name)));
+}
+
+function readClaudeMcpServers(path) {
+  const data = readJsonFile(path, {});
+  return normalizeMcpServers(data.mcpServers ?? data.servers ?? {});
+}
+
+function readCodexMcpServers(path) {
+  if (!existsSync(path)) return {};
+  const text = readFileSync(path, "utf8");
+  const servers = {};
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[|$)/gm;
+
+  for (const match of text.matchAll(tablePattern)) {
+    const server = {};
+    const body = match[2];
+    const command = body.match(/^command\s*=\s*"([^"]*)"/m);
+    const url = body.match(/^url\s*=\s*"([^"]*)"/m);
+    const args = body.match(/^args\s*=\s*(\[.*\])/m);
+    const env = body.match(/^env\s*=\s*(\{.*\})/m);
+
+    if (command) server.command = command[1];
+    if (url) server.url = url[1];
+    if (args) server.args = parseJsonLike(args[1], []);
+    if (env) server.env = parseInlineTomlObject(env[1]);
+    servers[match[1]] = server;
+  }
+
+  return normalizeMcpServers(servers);
+}
+
+function normalizeMcpServers(servers) {
+  return Object.fromEntries(
+    Object.entries(servers)
+      .filter(([name, value]) => name && value && typeof value === "object")
+      .map(([name, value]) => [name, {
+        ...(typeof value.command === "string" ? { command: value.command } : {}),
+        ...(typeof value.url === "string" ? { url: value.url } : {}),
+        ...(Array.isArray(value.args) ? { args: value.args.filter((item) => typeof item === "string") } : {}),
+        ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {})
+      }])
+  );
+}
+
+function safeEnv(env) {
+  return Object.fromEntries(
+    Object.entries(env)
+      .filter(([key, value]) => typeof value === "string" && !isSecretEnvKey(key))
+  );
+}
+
+function isSecretEnvKey(key) {
+  return /(TOKEN|KEY|SECRET|PASSWORD|CREDENTIAL|AUTH)/i.test(key);
+}
+
+function renderCodexMcpServers(servers) {
+  const lines = [];
+
+  for (const [name, server] of Object.entries(servers).sort(([left], [right]) => left.localeCompare(right))) {
+    lines.push(`[mcp_servers.${name}]`);
+    if (server.command) lines.push(`command = ${JSON.stringify(server.command)}`);
+    if (server.url) lines.push(`url = ${JSON.stringify(server.url)}`);
+    if (server.args?.length) lines.push(`args = ${JSON.stringify(server.args)}`);
+    if (server.env && Object.keys(server.env).length > 0) {
+      lines.push(`env = { ${Object.entries(server.env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ")} }`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function parseJsonLike(value, fallback) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function parseInlineTomlObject(value) {
+  const env = {};
+  for (const match of value.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"([^"]*)"/g)) {
+    env[match[1]] = match[2];
+  }
+  return env;
 }
 
 function permissionKey(itemName) {
@@ -728,9 +1055,9 @@ function diffScope(scope) {
 
   compareFile(entries, scope, "instructions", paths.claude.instructions, paths.codex.instructions);
   compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills);
-  compareFile(entries, scope, "mcp", paths.claude.mcp, paths.codex.mcp);
+  compareMcpServers(entries, scope, paths.claude.mcp, paths.codex.mcp);
 
-  if (scope === "global") {
+  if (paths.claude.settings && paths.codex.settings) {
     compareSettingsItems(entries, scope, "permissions", paths.claude.settings, paths.codex.settings);
     compareSettingsItems(entries, scope, "hooks", paths.claude.settings, paths.codex.settings);
   }
@@ -749,7 +1076,7 @@ function globalPaths() {
     codex: {
       instructions: `${home}/.codex/AGENTS.md`,
       skills: `${home}/.agents/skills`,
-      mcp: firstExisting([`${home}/.codex/.mcp.json`, `${home}/.codex/mcp.json`, `${home}/.agents/plugins/marketplace.json`]),
+      mcp: `${home}/.codex/config.toml`,
       settings: `${home}/.codex/config.toml`
     }
   };
@@ -760,12 +1087,14 @@ function projectPaths(root) {
     claude: {
       instructions: `${root}/CLAUDE.md`,
       skills: `${root}/.claude/skills`,
-      mcp: firstExisting([`${root}/.claude/mcp.json`, `${root}/.mcp.json`])
+      mcp: firstExisting([`${root}/.claude/mcp.json`, `${root}/.mcp.json`]),
+      settings: `${root}/.claude/settings.json`
     },
     codex: {
       instructions: `${root}/AGENTS.md`,
       skills: firstExisting([`${root}/.agents/skills`, `${root}/.codex/skills`]),
-      mcp: firstExisting([`${root}/.codex/.mcp.json`, `${root}/.codex/mcp.json`, `${root}/.mcp.json`])
+      mcp: `${root}/.codex/config.toml`,
+      settings: `${root}/.codex/config.toml`
     }
   };
 }
@@ -836,6 +1165,28 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
     codexPath: codexDir,
     claude: `${claude.length} skill(s)`,
     codex: `${codex.length} skill(s)`,
+    missingInCodex,
+    missingInClaude
+  });
+}
+
+function compareMcpServers(entries, scope, claudePath, codexPath) {
+  const claudeServers = Object.keys(readClaudeMcpServers(claudePath)).sort();
+  const codexServers = Object.keys(readCodexMcpServers(codexPath)).sort();
+  const missingInCodex = claudeServers.filter((name) => !codexServers.includes(name));
+  const missingInClaude = codexServers.filter((name) => !claudeServers.includes(name));
+
+  if (missingInCodex.length === 0 && missingInClaude.length === 0) return;
+
+  entries.push({
+    scope,
+    area: "mcp",
+    risk: "safe",
+    summary: "MCP servers differ",
+    claudePath,
+    codexPath,
+    claude: `${claudeServers.length} server(s)`,
+    codex: `${codexServers.length} server(s)`,
     missingInCodex,
     missingInClaude
   });
@@ -913,15 +1264,56 @@ function codexSettingsItems(area, path) {
     for (const match of text.matchAll(/^\s*(approval_policy|approvals_reviewer|sandbox_mode)\s*=/gm)) {
       items.push(match[1]);
     }
+    for (const item of codexRulePermissionItems(codexRulesPath(path))) {
+      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+    }
+    for (const item of codexMcpApprovalItems(text)) {
+      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+    }
   }
 
   if (area === "hooks") {
     for (const match of text.matchAll(/^\s*#\s*hooks\.([A-Za-z0-9_-]+)/gm)) {
       items.push(match[1]);
     }
+    for (const match of text.matchAll(/^\s*\[\[hooks\.([A-Za-z0-9_-]+)\]\]/gm)) {
+      items.push(match[1]);
+    }
   }
 
   return uniqueStrings(items);
+}
+
+function codexRulePermissionItems(path) {
+  if (!existsSync(path)) return [];
+  const text = readFileSync(path, "utf8");
+  const items = [];
+
+  for (const match of text.matchAll(/prefix_rule\(pattern=(\[[^\)]*?\]),\s*decision="(allow|prompt|forbidden)"/g)) {
+    const parts = parseJsonLike(match[1], []);
+    if (!Array.isArray(parts) || parts.some((part) => typeof part !== "string")) continue;
+
+    const bucket = match[2] === "forbidden" ? "deny" : match[2] === "prompt" ? "ask" : "allow";
+    const value = `Bash(${parts.join(" ")}:*)`;
+    items.push(`${bucket}:${value}`);
+  }
+
+  return items;
+}
+
+function codexMcpApprovalItems(text) {
+  const items = [];
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\.tools\.([^\]]+)\]\n([\s\S]*?)(?=^\[|$)/gm;
+
+  for (const match of text.matchAll(tablePattern)) {
+    const approval = match[3].match(/^approval_mode\s*=\s*"([^"]+)"/m);
+    if (!approval) continue;
+
+    const bucket = approval[1] === "deny" ? "deny" : approval[1] === "prompt" ? "ask" : "allow";
+    items.push(`${bucket}:mcp__${match[1].replaceAll("-", "_")}__${match[2]}`);
+  }
+
+  return items;
 }
 
 function uniqueStrings(values) {

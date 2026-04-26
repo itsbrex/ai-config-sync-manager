@@ -34,4 +34,35 @@ By default, status checks both global and current project scopes. Use `--scope g
 
 `/config-manager:sync` calls the bundled `bin/ai-config-sync sync --dry-run` by default. Apply mode must create backups and ask for confirmation before writing.
 
-Manual review entries are shown in the dry-run diff and require explicit approval before any write.
+Manual review entries are shown in the dry-run diff. In the MVP, `sync --apply` applies mapped manual items after the user explicitly runs apply mode; a future `--force-manual` flag can restore per-item confirmation.
+
+## Full Mapping Workflow
+
+Reference: `docs/maximal-one-to-one-mapping.md`
+
+### Pending Work
+
+1. Document the execution workflow before implementation.
+2. Apply project and global diff checks for settings-backed areas, not only files and skills.
+3. Convert Claude `Bash(...)` permissions to Codex `rules/*.rules` `prefix_rule()` entries.
+4. Convert Claude MCP tool permissions to Codex per-tool MCP approval settings.
+5. Convert MCP server definitions structurally instead of copying raw files.
+6. Convert command hooks to Codex native hook TOML where the event/handler is supported.
+7. Keep unsupported fields as managed metadata and show them in `status`.
+8. Run the workflow: `status`, targeted `sync --dry-run`, `check`, and `build:dist`.
+
+### Execution Order
+
+```text
+1. Update workflow docs.
+2. Implement native mapping in this order:
+   permissions -> MCP -> hooks -> project/global status.
+3. Run status to verify area/item diff visibility.
+4. Run sync dry-run with a focused selector.
+5. Run npm check and dist build.
+6. Commit the verified changes.
+```
+
+### MVP Rule
+
+Do not auto-allow broad or destructive commands while migrating permissions. If an item cannot be mapped safely, preserve it as metadata and keep it visible in `status`.

@@ -12,15 +12,21 @@
     },
     "mcp": {
       "risk": "safe",
-      "mapping": "MCP server definitions"
+      "mapping": "Claude MCP server definitions to Codex [mcp_servers.*] tables"
     },
     "permissions": {
       "risk": "manual",
-      "mapping": "Claude permission rules require Codex approval/sandbox review"
+      "mapping": "Claude permissions to Codex sandbox, rules/*.rules prefix_rule, and MCP tool approvals",
+      "nativeTargets": {
+        "Bash(<pattern>)": "rules/default.rules prefix_rule(pattern=[...], decision=allow|prompt|forbidden)",
+        "mcp__server__tool": "config.toml [mcp_servers.<server>.tools.<tool>] approval_mode",
+        "Write/Edit/MultiEdit": "config.toml sandbox_mode = workspace-write",
+        "WebFetch/WebSearch/Agent": "config.toml approval_policy = on-request plus managed metadata"
+      }
     },
     "hooks": {
       "risk": "manual",
-      "mapping": "Hook events need host-specific conversion"
+      "mapping": "Claude command hooks to Codex native hook TOML; unsupported handlers remain metadata"
     },
     "commands": {
       "risk": "partial",

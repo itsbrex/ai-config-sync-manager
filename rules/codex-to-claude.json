@@ -12,15 +12,20 @@
     },
     "mcp": {
       "risk": "safe",
-      "mapping": "MCP server definitions"
+      "mapping": "Codex [mcp_servers.*] tables to Claude mcpServers"
     },
     "permissions": {
       "risk": "manual",
-      "mapping": "Codex approval/sandbox policy requires Claude permission rule review"
+      "mapping": "Codex prefix_rule, sandbox, and MCP tool approvals to Claude permissions where reversible",
+      "nativeSources": {
+        "rules/default.rules prefix_rule": "Bash(<pattern>) allow/ask/deny",
+        "mcp_servers.<server>.tools.<tool>.approval_mode": "mcp__server__tool allow/ask/deny",
+        "sandbox_mode = workspace-write": "Write/Edit/MultiEdit review item"
+      }
     },
     "hooks": {
       "risk": "manual",
-      "mapping": "Hook events need host-specific conversion"
+      "mapping": "Codex native command hooks to Claude hooks where event/handler is reversible"
     },
     "commands": {
       "risk": "partial",
