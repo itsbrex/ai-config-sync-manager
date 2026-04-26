@@ -140,6 +140,7 @@ config-manager-connect
 - Support `CLAUDE.md` <-> `AGENTS.md`, skills, and MCP diffs.
 - Support partial sync selectors with `--include area[,area:item]` and `--exclude area[,area:item]` for itemized areas including `skills`, `permissions`, and `hooks`.
 - Patch/merge selected `permissions` and `hooks` items instead of copying the whole settings file.
+- Map supported Claude permission items to Codex native settings where possible.
 - Report permissions and hooks with risk labels before apply.
 
 ## Implementation Order
@@ -163,7 +164,7 @@ feat: scaffold ai config sync manager plan
 
 ## Future Work
 
-- Add schema-aware conversion for permissions, hooks, custom commands, and host-specific MCP formats.
+- Add deeper schema-aware conversion for hooks, custom commands, and host-specific MCP formats.
 - Add richer project-scope detection for nested repositories and monorepos.
 - Add published install docs for Claude marketplace, Codex plugin, and npm package usage.
 - Add automated regression tests for connect, status, dry-run, apply, and backup behavior.

@@ -39,6 +39,6 @@ The bundled CLI now scans real global/project config diffs, previews sync plans,
 ./bin/ai-config-sync sync --from codex --to claude
 ```
 
-Selectors use `area` or `area:item` syntax. `--include` narrows the plan first, then `--exclude` removes matching areas or items. Item selectors are supported for itemized areas such as `skills`, `permissions`, and `hooks`. `permissions` and `hooks` are patched item-by-item instead of copying the whole settings file.
+Selectors use `area` or `area:item` syntax. `--include` narrows the plan first, then `--exclude` removes matching areas or items. Item selectors are supported for itemized areas such as `skills`, `permissions`, and `hooks`. `permissions` and `hooks` are patched item-by-item instead of copying the whole settings file. Claude permissions are also mapped to Codex native settings where possible, for example `Write` -> `sandbox_mode = "workspace-write"` and command-like permissions -> `approval_policy = "on-request"`.
 
 `npm install -g` is optional. Plugin and local installs should call the bundled CLI through `AI_CONFIG_SYNC_ROOT` or the repository-local `bin/ai-config-sync` path.

@@ -166,14 +166,17 @@ function parseSelector(raw) {
   const value = raw.trim();
   if (!value) return null;
 
-  const [area, ...itemParts] = value.split(":");
-  if (!area || itemParts.length > 1) {
+  const separator = value.indexOf(":");
+  const area = separator === -1 ? value : value.slice(0, separator);
+  const item = separator === -1 ? null : value.slice(separator + 1);
+
+  if (!area || item === "") {
     throw new Error(`Invalid selector: ${raw}. Use area or area:item.`);
   }
 
   return {
     area,
-    item: itemParts[0] || null
+    item
   };
 }
 
@@ -516,7 +519,13 @@ function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNa
     ? claudeManagedValues(area, sourcePath, itemNames)
     : codexManagedValues(area, sourcePath);
   const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
-  writeFileSync(targetPath, replaceManagedBlock(text, area, sourceValues, itemNames));
+  let nextText = replaceManagedBlock(text, area, sourceValues, itemNames);
+
+  if (area === "permissions" && sourceHost === "claude") {
+    nextText = applyCodexNativePermissionMapping(nextText, itemNames);
+  }
+
+  writeFileSync(targetPath, nextText);
 }
 
 function claudeManagedValues(area, sourcePath, itemNames) {
@@ -649,6 +658,42 @@ function parsePermissionItem(itemName) {
     return { bucket: maybeBucket, value: rest.join(":") };
   }
   return { bucket: "allow", value: itemName };
+}
+
+function applyCodexNativePermissionMapping(text, itemNames) {
+  let nextText = text;
+  const values = itemNames.map((itemName) => parsePermissionItem(itemName).value);
+
+  if (values.some((value) => ["Write", "Edit", "MultiEdit"].includes(value))) {
+    nextText = setTomlRootString(nextText, "sandbox_mode", "workspace-write");
+  }
+
+  if (values.some((value) => isCommandLikePermission(value))) {
+    nextText = setTomlRootString(nextText, "approval_policy", "on-request");
+  }
+
+  return nextText;
+}
+
+function isCommandLikePermission(value) {
+  return value === "Bash"
+    || value.startsWith("Bash(")
+    || value === "WebFetch"
+    || value === "WebSearch"
+    || value === "Agent"
+    || value === "SendMessage"
+    || value.startsWith("mcp__");
+}
+
+function setTomlRootString(text, key, value) {
+  const line = `${key} = ${JSON.stringify(value)}`;
+  const pattern = new RegExp(`^${escapeRegExp(key)}\\s*=.*$`, "m");
+
+  if (pattern.test(text)) {
+    return text.replace(pattern, line);
+  }
+
+  return `${line}\n${text}`;
 }
 
 function permissionKey(itemName) {
