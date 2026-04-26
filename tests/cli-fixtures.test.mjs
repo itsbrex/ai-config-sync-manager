@@ -64,6 +64,34 @@ test("status supports item selectors for MCP servers", () => {
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
 });
 
+test("status reports same-name skill content drift as a manual conflict", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
+  mkdirSync(join(fixture.project, ".agents/skills/review"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\nClaude version\n");
+  writeFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "# Review\nCodex version\n");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "skills");
+  assert.equal(report.entries[0].risk, "manual");
+  assert.deepEqual(report.entries[0].conflicts, ["review"]);
+});
+
+test("status keeps missing skills as safe copy candidates", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\n");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "skills");
+  assert.equal(report.entries[0].risk, "safe");
+  assert.deepEqual(report.entries[0].missingInCodex, ["review"]);
+});
+
 test("sync apply maps Bash permissions, MCP tool approvals, and creates backups", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });

@@ -125,10 +125,11 @@ function renderStatus(report) {
 }
 
 function statusItems(entry) {
-  if (entry.missingInCodex || entry.missingInClaude) {
+  if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
     return [
       ...(entry.missingInCodex ?? []).map((name) => `missing-in-codex: ${name}`),
-      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${name}`)
+      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${name}`),
+      ...(entry.conflicts ?? []).map((name) => `conflict: ${name}`)
     ];
   }
 
@@ -207,7 +208,7 @@ function selectorMatchesEntry(selector, entry) {
 }
 
 function filterEntryItems(entry, selectors) {
-  if (!entry.missingInCodex && !entry.missingInClaude) return entry;
+  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts) return entry;
 
   const includes = selectors.include.filter((selector) => selector.area === entry.area && selector.item);
   const excludes = selectors.exclude.filter((selector) => selector.area === entry.area && selector.item);
@@ -217,8 +218,13 @@ function filterEntryItems(entry, selectors) {
 
   filtered.missingInCodex = filterItems(entry.missingInCodex ?? [], includeItems, excludeItems);
   filtered.missingInClaude = filterItems(entry.missingInClaude ?? [], includeItems, excludeItems);
+  filtered.conflicts = filterItems(entry.conflicts ?? [], includeItems, excludeItems);
 
-  if (filtered.missingInCodex.length === 0 && filtered.missingInClaude.length === 0) return null;
+  if (
+    filtered.missingInCodex.length === 0
+    && filtered.missingInClaude.length === 0
+    && filtered.conflicts.length === 0
+  ) return null;
   return filtered;
 }
 
@@ -230,8 +236,8 @@ function filterItems(items, includeItems, excludeItems) {
 }
 
 function entryItems(entry) {
-  if (entry.missingInCodex || entry.missingInClaude) {
-    return [...(entry.missingInCodex ?? []), ...(entry.missingInClaude ?? [])];
+  if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
+    return [...(entry.missingInCodex ?? []), ...(entry.missingInClaude ?? []), ...(entry.conflicts ?? [])];
   }
 
   return [entry.area];
@@ -1262,21 +1268,38 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
   const codex = skillNames(codexDir);
   const missingInCodex = claude.filter((name) => !codex.includes(name));
   const missingInClaude = codex.filter((name) => !claude.includes(name));
+  const conflicts = claude
+    .filter((name) => codex.includes(name))
+    .filter((name) => directoryHash(join(claudeDir, name)) !== directoryHash(join(codexDir, name)));
 
-  if (missingInCodex.length === 0 && missingInClaude.length === 0) return;
+  if (missingInCodex.length > 0 || missingInClaude.length > 0) {
+    entries.push({
+      scope,
+      area: "skills",
+      risk: "safe",
+      summary: "skills missing in one host",
+      claudePath: claudeDir,
+      codexPath: codexDir,
+      claude: `${claude.length} skill(s)`,
+      codex: `${codex.length} skill(s)`,
+      missingInCodex,
+      missingInClaude
+    });
+  }
 
-  entries.push({
-    scope,
-    area: "skills",
-    risk: "safe",
-    summary: "skills differ",
-    claudePath: claudeDir,
-    codexPath: codexDir,
-    claude: `${claude.length} skill(s)`,
-    codex: `${codex.length} skill(s)`,
-    missingInCodex,
-    missingInClaude
-  });
+  if (conflicts.length > 0) {
+    entries.push({
+      scope,
+      area: "skills",
+      risk: "manual",
+      summary: "skills conflict",
+      claudePath: claudeDir,
+      codexPath: codexDir,
+      claude: `${claude.length} skill(s)`,
+      codex: `${codex.length} skill(s)`,
+      conflicts
+    });
+  }
 }
 
 function compareMcpServers(entries, scope, claudePath, codexPath) {
@@ -1445,6 +1468,39 @@ function fileState(path) {
   const content = readFileSync(path);
   const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
   return { exists: true, hash, summary: `${content.length} bytes sha256:${hash}` };
+}
+
+function directoryHash(path) {
+  if (!existsSync(path)) return "missing";
+  const hash = createHash("sha256");
+
+  for (const file of directoryFiles(path)) {
+    hash.update(file);
+    hash.update(readFileSync(join(path, file)));
+  }
+
+  return hash.digest("hex").slice(0, 12);
+}
+
+function directoryFiles(root, prefix = "") {
+  if (!existsSync(root)) return [];
+
+  return readdirSync(root, { withFileTypes: true })
+    .flatMap((entry) => {
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const absolute = join(root, entry.name);
+
+      if (entry.isDirectory()) {
+        return directoryFiles(absolute, relative);
+      }
+
+      if (entry.isFile()) {
+        return [relative];
+      }
+
+      return [];
+    })
+    .sort();
 }
 
 function label(area) {

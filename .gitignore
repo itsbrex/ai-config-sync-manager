@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .DS_Store
+.claude/*
+!.claude/docs/
+.claude/docs/*
+!.claude/docs/*.md

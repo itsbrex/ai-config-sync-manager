@@ -55,7 +55,7 @@ AI Config Sync Manager/
     claude-to-codex.json
     codex-to-claude.json
 
-  docs/
+  .claude/docs/
     architecture.md
     config-mapping.md
     workflow.md

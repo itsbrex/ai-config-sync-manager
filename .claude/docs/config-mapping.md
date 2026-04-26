@@ -14,6 +14,14 @@
 | --- | --- |
 | Commands | Claude slash commands may become Codex skills or script wrappers. |
 
+## Skills Policy
+
+Missing skills are copied directory-by-directory. Same-name skills with different content are reported as manual conflicts. Deletes and overwrites are outside the MVP and must be reviewed explicitly.
+
+## Agents And Commands Policy
+
+Standalone Claude `agents/*.md` and Codex agent definitions are outside the MVP until the Codex agent schema is confirmed. Slash command conversion is partial and manual-review only: command bodies may become Codex skills, plugin commands, or scripts, but the CLI should not auto-write converted commands yet.
+
 ## Manual
 
 | Area | Note |

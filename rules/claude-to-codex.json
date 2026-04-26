@@ -8,7 +8,13 @@
     },
     "skills": {
       "risk": "safe",
-      "mapping": "Claude skills to Codex skills"
+      "mapping": "Claude skills to Codex skills",
+      "policy": {
+        "missingInTarget": "copy",
+        "sameNameDifferentContent": "manual-conflict",
+        "delete": "not-in-mvp",
+        "overwrite": "not-in-mvp"
+      }
     },
     "mcp": {
       "risk": "safe",
@@ -30,7 +36,7 @@
     },
     "commands": {
       "risk": "partial",
-      "mapping": "Claude slash commands may become Codex skills or scripts"
+      "mapping": "Claude slash commands may become Codex skills or plugin commands; conversion remains manual-review until the target command schema is confirmed"
     }
   }
 }
