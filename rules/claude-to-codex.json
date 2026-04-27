@@ -25,9 +25,12 @@
       "mapping": "Claude permissions to Codex sandbox, rules/*.rules prefix_rule, and MCP tool approvals",
       "nativeTargets": {
         "Bash(<pattern>)": "rules/default.rules prefix_rule(pattern=[...], decision=allow|prompt|forbidden)",
-        "mcp__server__tool": "config.toml [mcp_servers.<server>.tools.<tool>] approval_mode",
+        "mcp__server__tool allow": "config.toml [mcp_servers.<server>] enabled_tools = [...] plus per-tool approval when needed",
+        "mcp__server__tool deny": "config.toml [mcp_servers.<server>] disabled_tools = [...]",
         "Write/Edit/MultiEdit": "config.toml sandbox_mode = workspace-write",
-        "WebFetch/WebSearch/Agent": "config.toml approval_policy = on-request plus managed metadata"
+        "WebSearch": "config.toml web_search = live",
+        "WebFetch": "config.toml web_search = live plus managed metadata when URL-fetch semantics need preservation",
+        "Agent": "agents.* or managed metadata"
       }
     },
     "hooks": {

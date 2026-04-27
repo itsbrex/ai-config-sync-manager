@@ -1778,10 +1778,16 @@ function codexSettingsItems(area, path) {
     for (const match of text.matchAll(/^\s*(approval_policy|approvals_reviewer|sandbox_mode)\s*=/gm)) {
       items.push(match[1]);
     }
+    for (const item of codexWebSearchPermissionItems(text)) {
+      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+    }
     for (const item of codexRulePermissionItems(codexRulesPath(path))) {
       items.push(item, item.replace(/^(allow|ask|deny):/, ""));
     }
     for (const item of codexMcpApprovalItems(text)) {
+      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+    }
+    for (const item of codexMcpToolListItems(text)) {
       items.push(item, item.replace(/^(allow|ask|deny):/, ""));
     }
   }
@@ -1796,6 +1802,12 @@ function codexSettingsItems(area, path) {
   }
 
   return uniqueStrings(items);
+}
+
+function codexWebSearchPermissionItems(text) {
+  const match = text.match(/^\s*web_search\s*=\s*"([^"]+)"/m);
+  if (!match || match[1] !== "live") return [];
+  return ["allow:WebSearch"];
 }
 
 function codexRulePermissionItems(path) {
@@ -1817,7 +1829,7 @@ function codexRulePermissionItems(path) {
 
 function codexMcpApprovalItems(text) {
   const items = [];
-  const tablePattern = /^\[mcp_servers\.([^\].]+)\.tools\.([^\]]+)\]\n([\s\S]*?)(?=^\[|$)/gm;
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\.tools\.([^\]]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
     const approval = match[3].match(/^approval_mode\s*=\s*"([^"]+)"/m);
@@ -1828,6 +1840,32 @@ function codexMcpApprovalItems(text) {
   }
 
   return items;
+}
+
+function codexMcpToolListItems(text) {
+  const items = [];
+  const tablePattern = /^\[mcp_servers\.([^\]]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
+
+  for (const match of text.matchAll(tablePattern)) {
+    const server = match[1].replaceAll("-", "_");
+    for (const tool of parseTomlStringArray(match[2], "enabled_tools")) {
+      items.push(`allow:mcp__${server}__${tool}`);
+    }
+    for (const tool of parseTomlStringArray(match[2], "disabled_tools")) {
+      items.push(`deny:mcp__${server}__${tool}`);
+    }
+  }
+
+  return items;
+}
+
+function parseTomlStringArray(text, key) {
+  const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(\\[[^\\]]*\\])`, "m");
+  const match = text.match(pattern);
+  if (!match) return [];
+
+  const values = parseJsonLike(match[1], []);
+  return Array.isArray(values) ? values.filter((value) => typeof value === "string") : [];
 }
 
 function uniqueStrings(values) {

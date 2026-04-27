@@ -349,12 +349,19 @@ test("sync apply keeps unsupported permission mappings as managed metadata", () 
   assert.match(rules, /prefix_rule\(pattern=\[\], decision="allow"/);
 });
 
-test("sync apply converts Codex prefix rules and MCP approvals back to Claude permissions", () => {
+test("sync apply converts Codex native permissions back to Claude permissions", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
   writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    'web_search = "live"',
+    "",
+    "[mcp_servers.github]",
+    'command = "github-mcp-server"',
+    'enabled_tools = ["search_repositories", "get_issue"]',
+    'disabled_tools = ["delete_repository"]',
+    "",
     "[mcp_servers.notion.tools.search]",
     'approval_mode = "approve"',
     ""
@@ -373,13 +380,14 @@ test("sync apply converts Codex prefix rules and MCP approvals back to Claude pe
     "--scope",
     "project",
     "--include",
-    "permissions:Bash(npm run check:*),permissions:mcp__notion__search",
+    "permissions:Bash(npm run check:*),permissions:mcp__notion__search,permissions:WebSearch,permissions:mcp__github__search_repositories,permissions:mcp__github__delete_repository",
     "--apply"
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
   assert.deepEqual(settings.permissions.ask, ["Bash(npm run check:*)"]);
-  assert.deepEqual(settings.permissions.allow, ["mcp__notion__search"]);
+  assert.deepEqual(settings.permissions.allow, ["WebSearch", "mcp__github__search_repositories", "mcp__notion__search"]);
+  assert.deepEqual(settings.permissions.deny, ["mcp__github__delete_repository"]);
 });
 
 test("sync apply merges MCP servers without secret-like env values", () => {

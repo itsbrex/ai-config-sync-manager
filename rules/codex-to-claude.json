@@ -22,11 +22,15 @@
     },
     "permissions": {
       "risk": "manual",
-      "mapping": "Codex prefix_rule, sandbox, and MCP tool approvals to Claude permissions where reversible",
+      "mapping": "Codex web_search, prefix_rule, sandbox, MCP enabled/disabled tools, and MCP tool approvals to Claude permissions where reversible",
       "nativeSources": {
+        "web_search = live": "WebSearch allow",
         "rules/default.rules prefix_rule": "Bash(<pattern>) allow/ask/deny",
+        "mcp_servers.<server>.enabled_tools": "mcp__server__tool allow",
+        "mcp_servers.<server>.disabled_tools": "mcp__server__tool deny",
         "mcp_servers.<server>.tools.<tool>.approval_mode": "mcp__server__tool allow/ask/deny",
-        "sandbox_mode = workspace-write": "Write/Edit/MultiEdit review item"
+        "sandbox_mode = workspace-write": "Write/Edit/MultiEdit review item",
+        "sandbox_workspace_write.network_access = true": "WebFetch review item"
       }
     },
     "hooks": {

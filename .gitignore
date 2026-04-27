@@ -40,8 +40,5 @@ desktop.ini
 tmp/
 *.tmp
 
-# Claude harness — track only top-level docs/*.md
-.claude/*
-!.claude/docs/
-.claude/docs/*
-!.claude/docs/*.md
+# Agent
+.claude/
