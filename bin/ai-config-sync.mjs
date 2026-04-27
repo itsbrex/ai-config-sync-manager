@@ -1562,6 +1562,10 @@ function readCodexMcpServerDetails(path) {
     return path.reduce((servers, item) => ({ ...servers, ...readCodexMcpServerDetails(item) }), {});
   }
   if (!existsSync(path)) return {};
+  if (path.endsWith(".json")) {
+    const data = readJsonFile(path, {});
+    return normalizeMcpServerDetails(data.mcpServers ?? data.servers ?? {});
+  }
   const text = readFileSync(path, "utf8");
   const servers = {};
   const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[mcp_servers\.|(?![\s\S]))/gm;
@@ -1597,6 +1601,10 @@ function readCodexMcpServers(path) {
     return path.reduce((servers, item) => ({ ...servers, ...readCodexMcpServers(item) }), {});
   }
   if (!existsSync(path)) return {};
+  if (path.endsWith(".json")) {
+    const data = readJsonFile(path, {});
+    return normalizeMcpServers(data.mcpServers ?? data.servers ?? {});
+  }
   const text = readFileSync(path, "utf8");
   const servers = {};
   const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[mcp_servers\.|(?![\s\S]))/gm;
@@ -1787,7 +1795,7 @@ function globalPaths() {
       instructionPaths: [`${home}/.claude/CLAUDE.md`, `${home}/.claude/settings.json`],
       skills: `${home}/.claude/skills`,
       mcp: `${home}/.claude/mcp.json`,
-      mcpPaths: [`${home}/.claude/mcp.json`, `${home}/.claude.json`, `${home}/.mcp.json`],
+      mcpPaths: [`${home}/.claude/mcp.json`, `${home}/.claude/settings.json`, `${home}/.claude.json`, `${home}/.mcp.json`],
       settings: `${home}/.claude/settings.json`
     },
     codex: {
@@ -1795,7 +1803,7 @@ function globalPaths() {
       instructionPaths: [`${home}/.codex/AGENTS.md`, `${home}/.codex/config.toml`],
       skills: `${home}/.agents/skills`,
       mcp: `${home}/.codex/config.toml`,
-      mcpPaths: [`${home}/.codex/config.toml`],
+      mcpPaths: [`${home}/.codex/config.toml`, `${home}/.codex/mcp.json`, `${home}/.codex/settings.json`, `${home}/.mcp.json`],
       settings: `${home}/.codex/config.toml`
     }
   };
@@ -1808,7 +1816,7 @@ function projectPaths(root) {
       instructionPaths: [`${root}/CLAUDE.md`, `${root}/.claude/settings.json`],
       skills: `${root}/.claude/skills`,
       mcp: firstExisting([`${root}/.claude/mcp.json`, `${root}/.mcp.json`]),
-      mcpPaths: [`${root}/.claude/mcp.json`, `${root}/.mcp.json`],
+      mcpPaths: [`${root}/.claude/mcp.json`, `${root}/.claude/settings.json`, `${root}/.mcp.json`],
       settings: `${root}/.claude/settings.json`
     },
     codex: {
@@ -1816,7 +1824,7 @@ function projectPaths(root) {
       instructionPaths: [`${root}/AGENTS.md`, `${root}/.codex/config.toml`],
       skills: firstExisting([`${root}/.agents/skills`, `${root}/.codex/skills`]),
       mcp: `${root}/.codex/config.toml`,
-      mcpPaths: [`${root}/.codex/config.toml`],
+      mcpPaths: [`${root}/.codex/config.toml`, `${root}/.codex/mcp.json`, `${root}/.codex/settings.json`, `${root}/.mcp.json`],
       settings: `${root}/.codex/config.toml`
     }
   };

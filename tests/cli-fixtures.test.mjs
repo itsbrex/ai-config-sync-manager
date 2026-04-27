@@ -86,6 +86,53 @@ test("global MCP status reads Claude servers from configurable global paths", ()
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
 });
 
+test("global MCP status reads Claude settings and Codex JSON MCP paths", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude/settings.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeJson(join(fixture.home, ".codex/mcp.json"), {
+    mcpServers: {
+      github: { command: "github-mcp-server" }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "mcp");
+  assert.deepEqual(report.entries[0].claudeMcpPaths, [join(fixture.home, ".claude/settings.json")]);
+  assert.deepEqual(report.entries[0].codexMcpPaths, [join(fixture.home, ".codex/config.toml"), join(fixture.home, ".codex/mcp.json")]);
+  assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
+  assert.deepEqual(report.entries[0].missingInClaude, ["github"]);
+});
+
+test("project MCP status reads Codex JSON MCP path", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeJson(join(fixture.project, ".codex/mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "mcp");
+  const projectRoot = realpathSync(fixture.project);
+  assert.deepEqual(report.entries[0].codexMcpPaths, [join(projectRoot, ".codex/config.toml"), join(projectRoot, ".codex/mcp.json")]);
+  assert.deepEqual(report.entries[0].missingInClaude, ["notion"]);
+});
+
 test("global MCP sync can copy from secondary Claude MCP path", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
