@@ -1775,10 +1775,10 @@ function codexSettingsItems(area, path) {
     for (const match of text.matchAll(/^\s*#\s*permissions\.(allow|deny|ask)\s*=\s*"([^"]+)"/gm)) {
       items.push(match[2], `${match[1]}:${match[2]}`);
     }
-    for (const match of text.matchAll(/^\s*(approval_policy|approvals_reviewer|sandbox_mode)\s*=/gm)) {
-      items.push(match[1]);
-    }
     for (const item of codexWebSearchPermissionItems(text)) {
+      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+    }
+    for (const item of codexSandboxPermissionItems(text)) {
       items.push(item, item.replace(/^(allow|ask|deny):/, ""));
     }
     for (const item of codexRulePermissionItems(codexRulesPath(path))) {
@@ -1808,6 +1808,15 @@ function codexWebSearchPermissionItems(text) {
   const match = text.match(/^\s*web_search\s*=\s*"([^"]+)"/m);
   if (!match || match[1] !== "live") return [];
   return ["allow:WebSearch"];
+}
+
+function codexSandboxPermissionItems(text) {
+  const sandbox = text.match(/^\s*sandbox_mode\s*=\s*"([^"]+)"/m);
+  if (sandbox?.[1] === "workspace-write") {
+    return ["allow:Write", "allow:Edit", "allow:MultiEdit"];
+  }
+
+  return [];
 }
 
 function codexRulePermissionItems(path) {

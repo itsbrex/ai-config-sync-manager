@@ -355,6 +355,8 @@ test("sync apply converts Codex native permissions back to Claude permissions", 
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
   writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    'approval_policy = "never"',
+    'sandbox_mode = "workspace-write"',
     'web_search = "live"',
     "",
     "[mcp_servers.github]",
@@ -380,14 +382,15 @@ test("sync apply converts Codex native permissions back to Claude permissions", 
     "--scope",
     "project",
     "--include",
-    "permissions:Bash(npm run check:*),permissions:mcp__notion__search,permissions:WebSearch,permissions:mcp__github__search_repositories,permissions:mcp__github__delete_repository",
+    "permissions:Bash(npm run check:*),permissions:mcp__notion__search,permissions:WebSearch,permissions:mcp__github__search_repositories,permissions:mcp__github__delete_repository,permissions:Write,permissions:Edit,permissions:MultiEdit",
     "--apply"
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
   assert.deepEqual(settings.permissions.ask, ["Bash(npm run check:*)"]);
-  assert.deepEqual(settings.permissions.allow, ["WebSearch", "mcp__github__search_repositories", "mcp__notion__search"]);
+  assert.deepEqual(settings.permissions.allow, ["Edit", "MultiEdit", "WebSearch", "Write", "mcp__github__search_repositories", "mcp__notion__search"]);
   assert.deepEqual(settings.permissions.deny, ["mcp__github__delete_repository"]);
+  assert.ok(!settings.permissions.allow.includes("approval_policy"));
 });
 
 test("sync apply merges MCP servers without secret-like env values", () => {
