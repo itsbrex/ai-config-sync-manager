@@ -66,6 +66,76 @@ test("status supports item selectors for MCP servers", () => {
   assert.deepEqual(report.entries[0].itemQualities, { notion: "exact" });
 });
 
+test("global MCP status reads Claude servers from configurable global paths", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp:notion", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "mcp");
+  assert.equal(report.entries[0].claudePath, join(fixture.home, ".claude/mcp.json"));
+  assert.deepEqual(report.entries[0].claudeMcpPaths, [join(fixture.home, ".claude.json")]);
+  assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
+});
+
+test("global MCP sync can copy from secondary Claude MCP path", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, ["sync", "--scope", "global", "--include", "mcp:notion", "--apply"]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(output, /merged MCP servers claude -> codex: notion/);
+  assert.match(config, /\[mcp_servers\.notion\]/);
+  assert.match(config, /args = \["notion-mcp"\]/);
+});
+
+test("global instructions status reads Claude settings instructions", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude/settings.json"), { instructions: "claude settings instructions" });
+  writeFileSync(join(fixture.home, ".codex/AGENTS.md"), "codex instructions\n");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "instructions", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "instructions");
+  assert.equal(report.entries[0].claudePath, join(fixture.home, ".claude/CLAUDE.md"));
+  assert.deepEqual(report.entries[0].claudeInstructionPaths, [join(fixture.home, ".claude/settings.json#instructions")]);
+  assert.match(report.entries[0].claude, /1 source\(s\) sha256:/);
+});
+
+test("global instructions status reads Codex config instructions", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(join(fixture.home, ".claude/CLAUDE.md"), "claude instructions\n");
+  writeFileSync(join(fixture.home, ".codex/config.toml"), 'instructions = "codex config instructions"\n');
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "instructions", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "instructions");
+  assert.deepEqual(report.entries[0].codexInstructionPaths, [join(fixture.home, ".codex/config.toml#instructions")]);
+  assert.match(report.entries[0].codex, /1 source\(s\) sha256:/);
+});
+
 test("status supports compact and tree output formats", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });

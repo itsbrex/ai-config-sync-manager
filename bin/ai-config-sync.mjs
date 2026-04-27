@@ -445,6 +445,8 @@ function createDeleteOperation(entry, from, to, itemNames, options) {
     to,
     sourcePath,
     targetPath,
+    sourceMcpPaths: from === "claude" ? entry.claudeMcpPaths : entry.codexMcpPaths,
+    targetMcpPaths: to === "claude" ? entry.claudeMcpPaths : entry.codexMcpPaths,
     itemNames,
     serverNames: entry.area === "mcp" ? itemNames : undefined,
     itemQualities: operationItemQualities(entry, itemNames),
@@ -495,7 +497,10 @@ function createOperation(entry, from, to, options = {}) {
   }
 
   if (entry.area === "mcp") {
-    if (!existsSync(sourcePath)) {
+    const sourceMcpPaths = from === "claude" ? entry.claudeMcpPaths ?? [sourcePath] : entry.codexMcpPaths ?? [sourcePath];
+    const targetMcpPaths = to === "claude" ? entry.claudeMcpPaths ?? [targetPath] : entry.codexMcpPaths ?? [targetPath];
+
+    if (!mcpSourceExists(sourceMcpPaths)) {
       return {
         scope: entry.scope,
         area: entry.area,
@@ -517,9 +522,11 @@ function createOperation(entry, from, to, options = {}) {
       to,
       sourcePath,
       targetPath,
+      sourceMcpPaths,
+      targetMcpPaths,
       serverNames: directionalItems(entry, to),
       itemQualities: operationItemQualities(entry, directionalItems(entry, to)),
-      patchPreview: mcpPatchPreview(sourcePath, targetPath, from, to, directionalItems(entry, to)),
+      patchPreview: mcpPatchPreview(sourceMcpPaths, targetMcpPaths, from, to, directionalItems(entry, to)),
       backupRequired: true,
       approvalRequired: false
     };
@@ -860,9 +867,9 @@ function applyMergeMcpServers(plan, operation) {
   backupPath(plan, operation.targetPath);
 
   if (operation.to === "codex") {
-    mergeMcpIntoCodex(operation.targetPath, operation.sourcePath, operation.from, operation.serverNames ?? []);
+    mergeMcpIntoCodex(operation.targetPath, operation.sourceMcpPaths ?? operation.sourcePath, operation.from, operation.serverNames ?? []);
   } else {
-    mergeMcpIntoClaude(operation.targetPath, operation.sourcePath, operation.from, operation.serverNames ?? []);
+    mergeMcpIntoClaude(operation.targetPath, operation.sourceMcpPaths ?? operation.sourcePath, operation.from, operation.serverNames ?? []);
   }
 
   plan.results.push({
@@ -1543,11 +1550,17 @@ function mcpServerChanges(source, target) {
 }
 
 function readClaudeMcpServerDetails(path) {
+  if (Array.isArray(path)) {
+    return path.reduce((servers, item) => ({ ...servers, ...readClaudeMcpServerDetails(item) }), {});
+  }
   const data = readJsonFile(path, {});
   return normalizeMcpServerDetails(data.mcpServers ?? data.servers ?? {});
 }
 
 function readCodexMcpServerDetails(path) {
+  if (Array.isArray(path)) {
+    return path.reduce((servers, item) => ({ ...servers, ...readCodexMcpServerDetails(item) }), {});
+  }
   if (!existsSync(path)) return {};
   const text = readFileSync(path, "utf8");
   const servers = {};
@@ -1572,11 +1585,17 @@ function readCodexMcpServerDetails(path) {
 }
 
 function readClaudeMcpServers(path) {
+  if (Array.isArray(path)) {
+    return path.reduce((servers, item) => ({ ...servers, ...readClaudeMcpServers(item) }), {});
+  }
   const data = readJsonFile(path, {});
   return normalizeMcpServers(data.mcpServers ?? data.servers ?? {});
 }
 
 function readCodexMcpServers(path) {
+  if (Array.isArray(path)) {
+    return path.reduce((servers, item) => ({ ...servers, ...readCodexMcpServers(item) }), {});
+  }
   if (!existsSync(path)) return {};
   const text = readFileSync(path, "utf8");
   const servers = {};
@@ -1702,9 +1721,9 @@ function diffScope(scope) {
   const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
   const entries = [];
 
-  compareFile(entries, scope, "instructions", paths.claude.instructions, paths.codex.instructions);
+  compareInstructions(entries, scope, paths.claude.instructions, paths.codex.instructions, paths.claude.instructionPaths, paths.codex.instructionPaths);
   compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills);
-  compareMcpServers(entries, scope, paths.claude.mcp, paths.codex.mcp);
+  compareMcpServers(entries, scope, paths.claude.mcp, paths.codex.mcp, paths.claude.mcpPaths, paths.codex.mcpPaths);
 
   if (paths.claude.settings && paths.codex.settings) {
     compareSettingsItems(entries, scope, "permissions", paths.claude.settings, paths.codex.settings);
@@ -1746,8 +1765,8 @@ function createSyncState(scope) {
     updatedAt: new Date().toISOString(),
     areas: {
       mcp: {
-        claude: Object.keys(readClaudeMcpServers(paths.claude.mcp)).sort(),
-        codex: Object.keys(readCodexMcpServers(paths.codex.mcp)).sort()
+        claude: Object.keys(readClaudeMcpServers(paths.claude.mcpPaths ?? paths.claude.mcp)).sort(),
+        codex: Object.keys(readCodexMcpServers(paths.codex.mcpPaths ?? paths.codex.mcp)).sort()
       },
       permissions: {
         claude: settingsItems("claude", "permissions", paths.claude.settings),
@@ -1765,14 +1784,18 @@ function globalPaths() {
   return {
     claude: {
       instructions: `${home}/.claude/CLAUDE.md`,
+      instructionPaths: [`${home}/.claude/CLAUDE.md`, `${home}/.claude/settings.json`],
       skills: `${home}/.claude/skills`,
       mcp: `${home}/.claude/mcp.json`,
+      mcpPaths: [`${home}/.claude/mcp.json`, `${home}/.claude.json`, `${home}/.mcp.json`],
       settings: `${home}/.claude/settings.json`
     },
     codex: {
       instructions: `${home}/.codex/AGENTS.md`,
+      instructionPaths: [`${home}/.codex/AGENTS.md`, `${home}/.codex/config.toml`],
       skills: `${home}/.agents/skills`,
       mcp: `${home}/.codex/config.toml`,
+      mcpPaths: [`${home}/.codex/config.toml`],
       settings: `${home}/.codex/config.toml`
     }
   };
@@ -1782,14 +1805,18 @@ function projectPaths(root) {
   return {
     claude: {
       instructions: `${root}/CLAUDE.md`,
+      instructionPaths: [`${root}/CLAUDE.md`, `${root}/.claude/settings.json`],
       skills: `${root}/.claude/skills`,
       mcp: firstExisting([`${root}/.claude/mcp.json`, `${root}/.mcp.json`]),
+      mcpPaths: [`${root}/.claude/mcp.json`, `${root}/.mcp.json`],
       settings: `${root}/.claude/settings.json`
     },
     codex: {
       instructions: `${root}/AGENTS.md`,
+      instructionPaths: [`${root}/AGENTS.md`, `${root}/.codex/config.toml`],
       skills: firstExisting([`${root}/.agents/skills`, `${root}/.codex/skills`]),
       mcp: `${root}/.codex/config.toml`,
+      mcpPaths: [`${root}/.codex/config.toml`],
       settings: `${root}/.codex/config.toml`
     }
   };
@@ -1797,6 +1824,38 @@ function projectPaths(root) {
 
 function firstExisting(paths) {
   return paths.find((path) => existsSync(path)) ?? paths[0];
+}
+
+function existingPaths(paths) {
+  const list = Array.isArray(paths) ? paths : [paths];
+  return list.filter((path) => existsSync(path));
+}
+
+function mcpSourceExists(paths) {
+  return existingPaths(paths).length > 0;
+}
+
+function compareInstructions(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {
+  const claude = instructionState("claude", claudePaths);
+  const codex = instructionState("codex", codexPaths);
+
+  if (!claude.exists && !codex.exists) return;
+
+  if (claude.hash !== codex.hash) {
+    entries.push({
+      scope,
+      area: "instructions",
+      risk: "safe",
+      summary: "Instructions differ",
+      claudePath,
+      codexPath,
+      claudeInstructionPaths: claude.paths,
+      codexInstructionPaths: codex.paths,
+      claude: claude.summary,
+      codex: codex.summary,
+      mappingQuality: "equivalent"
+    });
+  }
 }
 
 function compareFile(entries, scope, area, claudePath, codexPath) {
@@ -1887,9 +1946,9 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
   }
 }
 
-function compareMcpServers(entries, scope, claudePath, codexPath) {
-  const claudeServers = Object.keys(readClaudeMcpServers(claudePath)).sort();
-  const codexServers = Object.keys(readCodexMcpServers(codexPath)).sort();
+function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {
+  const claudeServers = Object.keys(readClaudeMcpServers(claudePaths)).sort();
+  const codexServers = Object.keys(readCodexMcpServers(codexPaths)).sort();
   const missingInCodex = claudeServers.filter((name) => !codexServers.includes(name));
   const missingInClaude = codexServers.filter((name) => !claudeServers.includes(name));
 
@@ -1902,6 +1961,8 @@ function compareMcpServers(entries, scope, claudePath, codexPath) {
     summary: "MCP servers differ",
     claudePath,
     codexPath,
+    claudeMcpPaths: existingPaths(claudePaths),
+    codexMcpPaths: existingPaths(codexPaths),
     claude: `${claudeServers.length} server(s)`,
     codex: `${codexServers.length} server(s)`,
     missingInCodex,
@@ -2123,6 +2184,75 @@ function fileState(path) {
   const content = readFileSync(path);
   const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
   return { exists: true, hash, summary: `${content.length} bytes sha256:${hash}` };
+}
+
+function instructionState(host, paths) {
+  const sources = instructionSources(host, paths);
+  if (sources.length === 0) return { exists: false, hash: "missing", summary: "missing", paths: [] };
+
+  const content = sources
+    .map((source) => `${source.path}\n${source.content}`)
+    .join("\n--- ai-config-sync instruction source ---\n");
+  const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
+  return {
+    exists: true,
+    hash,
+    summary: `${sources.length} source(s) sha256:${hash}`,
+    paths: sources.map((source) => source.path)
+  };
+}
+
+function instructionSources(host, paths) {
+  const list = Array.isArray(paths) ? paths : [paths];
+  return list.flatMap((path) => instructionSource(host, path)).filter(Boolean);
+}
+
+function instructionSource(host, path) {
+  if (!path || !existsSync(path)) return [];
+  if (path.endsWith(".json")) return jsonInstructionSources(host, path);
+  if (path.endsWith(".toml")) return tomlInstructionSources(path);
+  return [{ path, content: readFileSync(path, "utf8") }];
+}
+
+function jsonInstructionSources(host, path) {
+  const data = readJsonFile(path, {});
+  const values = [];
+
+  for (const key of ["instructions", "instruction", "systemPrompt", "system_prompt", "appendSystemPrompt", "append_system_prompt"]) {
+    const value = data[key];
+    if (typeof value === "string" && value.trim()) {
+      values.push({ path: `${path}#${key}`, content: value });
+    }
+  }
+
+  if (host === "codex") {
+    for (const key of ["developer_instructions", "user_instructions"]) {
+      const value = data[key];
+      if (typeof value === "string" && value.trim()) {
+        values.push({ path: `${path}#${key}`, content: value });
+      }
+    }
+  }
+
+  return values;
+}
+
+function tomlInstructionSources(path) {
+  const text = readFileSync(path, "utf8");
+  const values = [];
+
+  for (const key of ["instructions", "instruction", "developer_instructions", "user_instructions"]) {
+    const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+)$`, "m");
+    const match = text.match(pattern);
+    if (!match) continue;
+
+    const value = parseTomlScalar(match[1]);
+    if (typeof value === "string" && value.trim()) {
+      values.push({ path: `${path}#${key}`, content: value });
+    }
+  }
+
+  return values;
 }
 
 function directoryHash(path) {
