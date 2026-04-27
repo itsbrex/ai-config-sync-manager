@@ -217,6 +217,7 @@ test("sync supports JSON plan output", () => {
   ]));
 
   assert.equal(plan.mode, "dry-run");
+  assert.equal(plan.route, "auto");
   assert.equal(plan.confirm, false);
   assert.equal(plan.requiresConfirmation, false);
   assert.equal(plan.operations.length, 1);
@@ -225,6 +226,122 @@ test("sync supports JSON plan output", () => {
   assert.deepEqual(plan.operations[0].itemQualities, { notion: "exact" });
   assert.deepEqual(plan.results, []);
 });
+
+test("default sync plans Codex-only config toward Claude", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    "[mcp_servers.notion]",
+    'command = "npx"',
+    'args = ["notion-mcp"]',
+    ""
+  ].join("\n"));
+
+  const plan = JSON.parse(runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--plan-json"
+  ]));
+
+  assert.equal(plan.route, "auto");
+  assert.equal(plan.operations.length, 1);
+  assert.equal(plan.operations[0].from, "codex");
+  assert.equal(plan.operations[0].to, "claude");
+  assert.deepEqual(plan.operations[0].serverNames, ["notion"]);
+});
+
+test("default sync applies Codex-only config to Claude", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    "[mcp_servers.notion]",
+    'command = "npx"',
+    'args = ["notion-mcp"]',
+    ""
+  ].join("\n"));
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--apply"
+  ]);
+  const mcp = JSON.parse(readFileSync(join(fixture.project, ".claude/mcp.json"), "utf8"));
+
+  assert.match(output, /merged MCP servers codex -> claude: notion/);
+  assert.deepEqual(mcp.mcpServers.notion, { command: "npx", args: ["notion-mcp"] });
+});
+
+test("default sync propagates Codex deletion to Claude after baseline", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    "[mcp_servers.notion]",
+    'command = "npx"',
+    'args = ["notion-mcp"]',
+    ""
+  ].join("\n"));
+
+  runCli(fixture, ["sync", "--scope", "project", "--apply"]);
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--apply"
+  ]);
+  const mcp = JSON.parse(readFileSync(join(fixture.project, ".claude/mcp.json"), "utf8"));
+
+  assert.match(output, /deleted mcp item\(s\) from claude: notion/);
+  assert.deepEqual(mcp.mcpServers, {});
+});
+
+test("default sync propagates Claude addition to Codex after baseline", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  runCli(fixture, ["sync", "--scope", "project", "--apply"]);
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--apply"
+  ]);
+  const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+
+  assert.match(output, /merged MCP servers claude -> codex: notion/);
+  assert.match(config, /\[mcp_servers\.notion\]/);
+});
+
 
 test("sync confirm flag marks apply plans as requiring confirmation", () => {
   const fixture = createFixture();

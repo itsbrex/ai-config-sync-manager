@@ -345,13 +345,17 @@ function directionalItems(entry, to) {
 
 function createSyncPlan(options, mode) {
   const entries = filterEntries(diffScope(options.scope), options.selectors);
-  const operations = entries.map((entry) => createOperation(entry, options.from, options.to, options)).filter(Boolean);
+  const baseline = readSyncState(options.scope);
+  const operations = entries.flatMap((entry) => createOperations(entry, { ...options, baseline })).filter(Boolean);
 
   return {
     from: options.from,
     to: options.to,
+    route: options.routeExplicit ? "explicit" : "auto",
     scope: options.scope,
     mode,
+    statePath: syncStatePath(options.scope),
+    hasBaseline: Boolean(baseline),
     include: renderSelectors(options.selectors.include),
     exclude: renderSelectors(options.selectors.exclude),
     canApply: true,
@@ -360,6 +364,92 @@ function createSyncPlan(options, mode) {
     backupRoot: `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`,
     operations,
     results: []
+  };
+}
+
+function createOperations(entry, options) {
+  if (options.routeExplicit) {
+    return [createOperation(entry, options.from, options.to, options)];
+  }
+
+  if (options.baseline) {
+    return createBaselineOperations(entry, options.baseline, options);
+  }
+
+  const operations = [];
+  if ((entry.missingInCodex ?? []).length > 0) {
+    operations.push(createOperation(entry, "claude", "codex", options));
+  }
+  if ((entry.missingInClaude ?? []).length > 0) {
+    operations.push(createOperation(entry, "codex", "claude", options));
+  }
+
+  return operations;
+}
+
+function createBaselineOperations(entry, baseline, options) {
+  const operations = [];
+  const areaBaseline = baseline.areas?.[entry.area];
+
+  for (const item of entry.missingInCodex ?? []) {
+    if (areaBaseline?.codex?.includes(item)) {
+      operations.push(createDeleteOperation(entry, "codex", "claude", [item], options));
+    } else {
+      operations.push(createOperationForItems(entry, "claude", "codex", [item], options));
+    }
+  }
+
+  for (const item of entry.missingInClaude ?? []) {
+    if (areaBaseline?.claude?.includes(item)) {
+      operations.push(createDeleteOperation(entry, "claude", "codex", [item], options));
+    } else {
+      operations.push(createOperationForItems(entry, "codex", "claude", [item], options));
+    }
+  }
+
+  return operations;
+}
+
+function createOperationForItems(entry, from, to, itemNames, options) {
+  const scoped = {
+    ...entry,
+    missingInCodex: to === "codex" ? itemNames : [],
+    missingInClaude: to === "claude" ? itemNames : []
+  };
+  return createOperation(scoped, from, to, options);
+}
+
+function createDeleteOperation(entry, from, to, itemNames, options) {
+  if (!["mcp", "permissions", "hooks"].includes(entry.area)) {
+    return {
+      scope: entry.scope,
+      area: entry.area,
+      risk: "manual",
+      action: "delete-items",
+      from,
+      to,
+      itemNames,
+      backupRequired: true,
+      approvalRequired: true
+    };
+  }
+
+  const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
+  const sourcePath = from === "claude" ? entry.claudePath : entry.codexPath;
+  return {
+    scope: entry.scope,
+    area: entry.area,
+    risk: entry.risk,
+    action: "delete-items",
+    from,
+    to,
+    sourcePath,
+    targetPath,
+    itemNames,
+    serverNames: entry.area === "mcp" ? itemNames : undefined,
+    itemQualities: operationItemQualities(entry, itemNames),
+    backupRequired: true,
+    approvalRequired: false
   };
 }
 
@@ -579,7 +669,7 @@ function hookPatchPreview(from, to, sourcePath, itemNames) {
 function renderSyncPlan(plan) {
   const lines = [
     "AI Config Sync Manager sync",
-    `Route: ${plan.from} -> ${plan.to}`,
+    `Route: ${plan.route === "auto" ? "auto (diff-directed)" : `${plan.from} -> ${plan.to}`}`,
     `Scope: ${plan.scope}`,
     `Mode: ${plan.mode}`,
     `Include: ${plan.include.length ? plan.include.join(", ") : "all"}`,
@@ -687,6 +777,8 @@ function applySyncPlan(plan) {
         applyMergeSettingsItems(plan, operation);
       } else if (operation.action === "merge-mcp-servers") {
         applyMergeMcpServers(plan, operation);
+      } else if (operation.action === "delete-items") {
+        applyDeleteItems(plan, operation);
       } else {
         plan.results.push({
           status: "skipped",
@@ -703,6 +795,10 @@ function applySyncPlan(plan) {
 
   if (plan.results.length === 0) {
     plan.results.push({ status: "noop", message: "No operations to apply" });
+  }
+
+  if (plan.results.every((result) => result.status === "applied" || result.status === "noop")) {
+    writeSyncState(plan.scope);
   }
 }
 
@@ -772,6 +868,36 @@ function applyMergeMcpServers(plan, operation) {
   plan.results.push({
     status: "applied",
     message: `merged MCP servers ${operation.from} -> ${operation.to}: ${(operation.serverNames ?? []).join(", ")}`
+  });
+}
+
+function applyDeleteItems(plan, operation) {
+  mkdirSync(dirname(operation.targetPath), { recursive: true });
+  backupPath(plan, operation.targetPath);
+
+  if (operation.area === "mcp") {
+    if (operation.to === "claude") {
+      deleteClaudeMcpServers(operation.targetPath, operation.serverNames ?? []);
+    } else {
+      deleteCodexMcpServers(operation.targetPath, operation.serverNames ?? []);
+    }
+  } else if (operation.area === "permissions") {
+    if (operation.to === "claude") {
+      deleteClaudePermissions(operation.targetPath, operation.itemNames ?? []);
+    } else {
+      deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
+    }
+  } else if (operation.area === "hooks") {
+    if (operation.to === "claude") {
+      deleteClaudeHooks(operation.targetPath, operation.itemNames ?? []);
+    } else {
+      deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
+    }
+  }
+
+  plan.results.push({
+    status: "applied",
+    message: `deleted ${operation.area} item(s) from ${operation.to}: ${(operation.itemNames ?? []).join(", ")}`
   });
 }
 
@@ -1304,6 +1430,59 @@ function mergeMcpIntoClaude(targetPath, sourcePath, sourceHost, serverNames) {
   writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
 }
 
+function deleteClaudeMcpServers(targetPath, serverNames) {
+  const target = readJsonFile(targetPath, {});
+  target.mcpServers ??= {};
+  for (const name of serverNames) {
+    delete target.mcpServers[name];
+  }
+  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
+}
+
+function deleteCodexMcpServers(targetPath, serverNames) {
+  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  let nextText = text;
+
+  for (const name of serverNames) {
+    const serverPattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`, "gm");
+    const toolsPattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(name)}\\.tools\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`, "gm");
+    nextText = nextText.replace(serverPattern, "").replace(toolsPattern, "");
+  }
+
+  writeFileSync(targetPath, nextText.replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "\n"));
+}
+
+function deleteClaudePermissions(targetPath, itemNames) {
+  const target = readJsonFile(targetPath, {});
+  target.permissions ??= {};
+
+  for (const itemName of itemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+    const list = Array.isArray(target.permissions[bucket]) ? target.permissions[bucket] : [];
+    target.permissions[bucket] = list.filter((item) => item !== value);
+  }
+
+  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
+}
+
+function deleteClaudeHooks(targetPath, itemNames) {
+  const target = readJsonFile(targetPath, {});
+  target.hooks ??= {};
+
+  for (const itemName of itemNames) {
+    delete target.hooks[itemName];
+  }
+
+  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
+}
+
+function deleteCodexManagedItems(targetPath, area, itemNames) {
+  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  const emptyValues = {};
+  const nextText = replaceManagedBlock(text, area, emptyValues, itemNames, { dropMissingSelected: true });
+  writeFileSync(targetPath, nextText);
+}
+
 function pickServers(servers, names) {
   if (!names.length) return servers;
   return Object.fromEntries(Object.entries(servers).filter(([name]) => names.includes(name)));
@@ -1372,7 +1551,7 @@ function readCodexMcpServerDetails(path) {
   if (!existsSync(path)) return {};
   const text = readFileSync(path, "utf8");
   const servers = {};
-  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[|$)/gm;
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[mcp_servers\.|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
     const server = {};
@@ -1401,7 +1580,7 @@ function readCodexMcpServers(path) {
   if (!existsSync(path)) return {};
   const text = readFileSync(path, "utf8");
   const servers = {};
-  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[|$)/gm;
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[mcp_servers\.|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
     const server = {};
@@ -1533,6 +1712,53 @@ function diffScope(scope) {
   }
 
   return entries;
+}
+
+function syncStatePath(scope) {
+  const name = scope === "global"
+    ? "global"
+    : `project-${createHash("sha256").update(resolve(process.cwd())).digest("hex").slice(0, 16)}`;
+  return `${home}/.ai-config-sync-manager/state/${name}.json`;
+}
+
+function readSyncState(scope) {
+  const path = syncStatePath(scope);
+  if (!existsSync(path)) return null;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function writeSyncState(scope) {
+  const path = syncStatePath(scope);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(createSyncState(scope), null, 2)}\n`);
+}
+
+function createSyncState(scope) {
+  const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
+  return {
+    version: 1,
+    scope,
+    root: scope === "global" ? home : resolve(process.cwd()),
+    updatedAt: new Date().toISOString(),
+    areas: {
+      mcp: {
+        claude: Object.keys(readClaudeMcpServers(paths.claude.mcp)).sort(),
+        codex: Object.keys(readCodexMcpServers(paths.codex.mcp)).sort()
+      },
+      permissions: {
+        claude: settingsItems("claude", "permissions", paths.claude.settings),
+        codex: settingsItems("codex", "permissions", paths.codex.settings)
+      },
+      hooks: {
+        claude: settingsItems("claude", "hooks", paths.claude.settings),
+        codex: settingsItems("codex", "hooks", paths.codex.settings)
+      }
+    }
+  };
 }
 
 function globalPaths() {
@@ -2104,6 +2330,7 @@ function formatPathState(path) {
 function parseSync(argv) {
   let from = "claude";
   let to = "codex";
+  let routeExplicit = false;
   let dryRun = false;
   let apply = false;
   let confirm = false;
@@ -2125,6 +2352,7 @@ function parseSync(argv) {
     } else if (token === "--from" || token === "--to") {
       const value = argv[index + 1];
       if (!hosts.has(value)) throw new Error(`Missing or invalid value for ${token}`);
+      routeExplicit = true;
       if (token === "--from") from = value;
       if (token === "--to") to = value;
       index += 1;
@@ -2142,7 +2370,7 @@ function parseSync(argv) {
   if (dryRun && apply) throw new Error("Choose either --dry-run or --apply, not both.");
   if (from === to) throw new Error("--from and --to must be different hosts.");
 
-  return { from, to, apply, confirm, planJson, scope, selectors };
+  return { from, to, routeExplicit, apply, confirm, planJson, scope, selectors };
 }
 
 function parseScopes(value, allowAll) {
