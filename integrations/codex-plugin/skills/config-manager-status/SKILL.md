@@ -15,6 +15,9 @@ Use this skill when the user asks for config sync status, host detection, or Cla
 - Use `--scope global`, `--scope project`, or `--scope all` only when the user asks to narrow the report.
 - Use `--include area[,area:item]` and `--exclude area[,area:item]` when the user asks for a filtered diff. Item selectors are supported for itemized areas such as `skills`, `permissions`, and `hooks`.
 - Use `"$AI_CONFIG_SYNC_ROOT/bin/ai-config-sync" status --json` only when structured output is needed for follow-up automation.
+- Print the CLI output as-is for user-facing status. Do not rewrite it into a different summary format.
+- The CLI may collapse 10+ item diffs per scope/area into counts such as `+12`, `-3`, `~10`, or `!2`; when that happens, tell the user to open the printed detail file for the full item list and before/after previews.
+- Preserve the CLI's concrete item/source details when relaying status. Do not collapse items into vague phrases such as "content differs" or "missing skills" without the detail-file pointer.
 - Do not infer sync state by editing or scanning config files directly when the CLI is available.
 - If the bundled CLI is unavailable, report that the plugin repository must be installed or `AI_CONFIG_SYNC_ROOT` must point to it.
 

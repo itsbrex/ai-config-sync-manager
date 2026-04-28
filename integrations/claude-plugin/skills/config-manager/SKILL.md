@@ -12,6 +12,8 @@ AI Config Sync Manager is an OSS workflow for keeping AI assistant configuration
 - Resolve the bundled CLI first: `AI_CONFIG_SYNC_ROOT="${AI_CONFIG_SYNC_ROOT:-$HOME/.ai-config-sync-manager}"`.
 - Prefer `"$AI_CONFIG_SYNC_ROOT/bin/ai-config-sync" ... --dry-run` before any write.
 - Status checks both global and current project scopes by default.
+- Print status CLI output as-is. Do not rewrite Codex and Claude status into different summary formats.
+- If status prints a detail file path, point the user to that file for full item lists and before/after previews.
 - Manual review means show the diff and require explicit approval before apply.
 - Verify backups before applying changes.
 - Require manual confirmation before running commands that modify Claude configuration.

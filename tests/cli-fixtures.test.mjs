@@ -40,6 +40,12 @@ function backupRoot(output) {
   return match[1];
 }
 
+function statusDetailPath(output) {
+  const match = output.match(/^Detail file: (.+)$/m);
+  assert.ok(match, "status output should include a detail file path");
+  return match[1];
+}
+
 test("status supports item selectors for MCP servers", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
@@ -165,6 +171,10 @@ test("global instructions status reads Claude settings instructions", () => {
   assert.equal(report.entries[0].area, "instructions");
   assert.equal(report.entries[0].claudePath, join(fixture.home, ".claude/CLAUDE.md"));
   assert.deepEqual(report.entries[0].claudeInstructionPaths, [join(fixture.home, ".claude/settings.json#instructions")]);
+  assert.deepEqual(report.entries[0].claudeInstructionCheckedPaths, [
+    join(fixture.home, ".claude/CLAUDE.md"),
+    join(fixture.home, ".claude/settings.json")
+  ]);
   assert.match(report.entries[0].claude, /1 source\(s\) sha256:/);
 });
 
@@ -199,8 +209,71 @@ test("status supports compact and tree output formats", () => {
 
   assert.match(compact, /^status: 1 diff\(s\) detected for project scope\./);
   assert.match(compact, /project\/mcp \[safe\] missing-in-codex: notion \[exact\]/);
+  assert.match(compact, /details: Claude has it; Codex missing\./);
   assert.match(tree, /project\/\n  mcp\/\n    \[safe\] MCP servers differ/);
   assert.match(tree, /missing-in-codex: notion \[exact\]/);
+  assert.match(tree, /details: Claude has it; Codex missing\./);
+});
+
+test("default status prints grouped apply-ready diff status", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion"]);
+
+  assert.match(output, /Result:/);
+  assert.match(output, /- 1 safe item\(s\)/);
+  assert.match(output, /Diff status:/);
+  assert.match(output, /codex:/);
+  assert.match(output, /project\/mcp: \+notion \[exact\] \(missing in Codex, safe\)/);
+  assert.match(output, /details: Claude has it; Codex missing\./);
+  assert.match(output, /action: copy Claude -> Codex/);
+  assert.match(output, /apply: ai-config-sync sync --scope project --include mcp:notion --apply/);
+  assert.match(output, /Detail file: /);
+  assert.match(readFileSync(statusDetailPath(output), "utf8"), /project\/mcp: \+notion \[exact\]/);
+});
+
+test("default status details content differs sources", () => {
+  const fixture = createFixture();
+  writeFileSync(join(fixture.project, "CLAUDE.md"), "claude instructions\n");
+  writeFileSync(join(fixture.project, "AGENTS.md"), "codex instructions\n");
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "instructions"]);
+
+  assert.match(output, /review:/);
+  assert.match(output, /project\/instructions: ~instructions \[equivalent\] \(content differs, safe\)/);
+  assert.match(output, /details: Default sync updates Codex from Claude\. Claude: sources: .*CLAUDE\.md; checked: .*CLAUDE\.md, .*\.claude\/settings\.json \(1 source\(s\) sha256:/);
+  assert.match(output, /Codex: sources: .*AGENTS\.md; checked: .*AGENTS\.md, .*\.codex\/config\.toml \(1 source\(s\) sha256:/);
+  assert.match(output, /diff:/);
+  assert.match(output, /- Codex current L1: codex instructions/);
+  assert.match(output, /\+ After apply from Claude L1: claude instructions/);
+});
+
+test("default status collapses large area diffs and writes full detail file", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills"), { recursive: true });
+  mkdirSync(join(fixture.project, ".agents/skills"), { recursive: true });
+
+  for (let index = 0; index < 12; index += 1) {
+    const skill = `skill-${index}`;
+    mkdirSync(join(fixture.project, ".claude/skills", skill), { recursive: true });
+    writeFileSync(join(fixture.project, ".claude/skills", skill, "SKILL.md"), `# ${skill}\n`);
+  }
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills"]);
+  const detail = readFileSync(statusDetailPath(output), "utf8");
+
+  assert.match(output, /project\/skills: \+12 \(12 diff\(s\), safe\)/);
+  assert.match(output, /hidden because this area has 10\+ item diffs/);
+  assert.doesNotMatch(output, /skill-11 \[exact\]/);
+  assert.match(detail, /project\/skills: \+skill-11 \[exact\] \(missing in Codex, safe\)/);
 });
 
 test("status labels permission mapping quality per item", () => {
@@ -267,6 +340,13 @@ test("status reports same-name skill content drift as a manual conflict", () => 
   assert.equal(report.entries[0].area, "skills");
   assert.equal(report.entries[0].risk, "manual");
   assert.deepEqual(report.entries[0].conflicts, ["review"]);
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:review"]);
+  assert.match(output, /project\/skills: !review \[unsupported\] \(conflict, manual\)/);
+  assert.match(output, /action: sync area/);
+  assert.match(output, /apply: ai-config-sync sync --scope project --include skills:review --apply/);
+  assert.match(output, /- Codex current L2: Codex version/);
+  assert.match(output, /\+ After apply from Claude L2: Claude version/);
 });
 
 test("status keeps missing skills as safe copy candidates", () => {
@@ -311,6 +391,138 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
   assert.doesNotMatch(config, /# permissions\.allow/);
   assert.match(rules, /prefix_rule\(pattern=\["npm","run","check"\], decision="allow"/);
   assert.ok(existsSync(join(backupRoot(output), realpathSync(fixture.project), ".codex/config.toml")));
+});
+
+test("sync apply without scope applies global and project scopes", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude/mcp.json"), {
+    mcpServers: {
+      globalNotion: { command: "npx", args: ["global-notion-mcp"] }
+    }
+  });
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      projectNotion: { command: "npx", args: ["project-notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, ["sync", "--include", "mcp", "--apply"]);
+  const globalConfig = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+  const projectConfig = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+
+  assert.match(output, /Scope: global/);
+  assert.match(output, /Scope: project/);
+  assert.match(globalConfig, /\[mcp_servers\.globalNotion\]/);
+  assert.match(projectConfig, /\[mcp_servers\.projectNotion\]/);
+});
+
+test("sync dry-run without scope plans global and project scopes", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude/mcp.json"), {
+    mcpServers: {
+      globalNotion: { command: "npx", args: ["global-notion-mcp"] }
+    }
+  });
+  writeJson(join(fixture.project, ".claude/mcp.json"), {
+    mcpServers: {
+      projectNotion: { command: "npx", args: ["project-notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const plan = JSON.parse(runCli(fixture, ["sync", "--include", "mcp", "--plan-json"]));
+
+  assert.deepEqual(plan.scopes, ["global", "project"]);
+  assert.equal(plan.plans.length, 2);
+  assert.equal(plan.plans[0].mode, "dry-run");
+  assert.equal(plan.plans[0].scope, "global");
+  assert.equal(plan.plans[1].scope, "project");
+});
+
+test("default sync plans equivalent instruction content diffs", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), { instructions: "claude settings instructions" });
+  writeFileSync(join(fixture.project, "AGENTS.md"), "codex instructions\n");
+
+  const plan = JSON.parse(runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "instructions",
+    "--plan-json"
+  ]));
+
+  assert.equal(plan.operations.length, 1);
+  assert.equal(plan.operations[0].risk, "safe");
+  assert.equal(plan.operations[0].action, "write-instructions");
+  assert.equal(plan.operations[0].approvalRequired, false);
+  assert.equal(plan.operations[0].targetPath, join(realpathSync(fixture.project), "AGENTS.md"));
+  assert.equal(plan.operations[0].content, "claude settings instructions");
+  assert.deepEqual(plan.operations[0].changePreview, [
+    "- Codex current L1: codex instructions",
+    "+ After apply from Claude L1: claude settings instructions"
+  ]);
+});
+
+test("sync apply writes equivalent instruction content diffs", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), { instructions: "claude settings instructions" });
+  writeFileSync(join(fixture.project, "AGENTS.md"), "codex instructions\n");
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "instructions",
+    "--apply"
+  ]);
+  const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
+
+  assert.match(output, /wrote instructions/);
+  assert.equal(agents, "claude settings instructions\n");
+});
+
+test("sync apply replaces manual skill conflicts without per-operation approval", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
+  mkdirSync(join(fixture.project, ".agents/skills/review"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\nClaude version\n");
+  writeFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "# Review\nCodex version\n");
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:review",
+    "--apply"
+  ]);
+  const skill = readFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "utf8");
+
+  assert.match(output, /\[manual\] project\/skills: copy-missing-skills/);
+  assert.match(output, /Approval required: no/);
+  assert.match(output, /Change preview:/);
+  assert.match(output, /review: target will be replaced from Claude/);
+  assert.match(output, /- Target current L2: Codex version/);
+  assert.match(output, /\+ After apply from Claude L2: Claude version/);
+  assert.match(output, /replaced skill review/);
+  assert.equal(skill, "# Review\nClaude version\n");
 });
 
 test("sync supports JSON plan output", () => {

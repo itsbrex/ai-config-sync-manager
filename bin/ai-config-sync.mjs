@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   symlinkSync,
   writeFileSync
 } from "node:fs";
@@ -56,25 +57,37 @@ async function main() {
     } else {
       const options = parseSync(argv);
       const mode = options.apply ? "apply" : "dry-run";
-      const plan = createSyncPlan(options, mode);
+      const plans = createSyncPlans(options, mode);
       if (options.confirm && !options.planJson) {
-        console.log(renderSyncPlan(plan));
+        console.log(renderSyncPlans(plans));
         if (await confirmApply()) {
-          applySyncPlan(plan);
+          for (const plan of plans) applySyncPlan(plan);
         } else {
-          plan.results.push({ status: "cancelled", message: "Confirmation declined" });
+          for (const plan of plans) plan.results.push({ status: "cancelled", message: "Confirmation declined" });
         }
-        console.log(renderApplyResults(plan));
+        console.log(renderApplyResults(plans));
       } else if (mode === "apply") {
-        applySyncPlan(plan);
-        console.log(options.planJson ? JSON.stringify(plan, null, 2) : renderSyncPlan(plan));
+        for (const plan of plans) applySyncPlan(plan);
+        console.log(options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans));
       } else {
-        console.log(options.planJson ? JSON.stringify(plan, null, 2) : renderSyncPlan(plan));
+        console.log(options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans));
       }
     }
   } else {
     printHelp();
   }
+}
+
+function createSyncPlans(options, mode) {
+  return options.scopes.map((scope) => createSyncPlan({ ...options, scope }, mode));
+}
+
+function formatPlanOutput(plans) {
+  return plans.length === 1 ? plans[0] : {
+    mode: plans[0]?.mode ?? "dry-run",
+    scopes: plans.map((plan) => plan.scope),
+    plans
+  };
 }
 
 function parseStatus(argv) {
@@ -130,6 +143,7 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
 function renderStatus(report, format = "default") {
   if (format === "compact") return renderCompactStatus(report);
   if (format === "tree") return renderTreeStatus(report);
+  const detailPath = report.entries.length > 0 ? writeStatusDetailFile(report) : null;
 
   const lines = [
     "AI Config Sync Manager status",
@@ -139,26 +153,282 @@ function renderStatus(report, format = "default") {
     report.summary
   ];
 
-  for (const [scope, scopeEntries] of groupBy(report.entries, "scope")) {
+  if (report.entries.length > 0) {
     lines.push("");
-    lines.push(`Scope: ${scope}`);
-
-    for (const [area, areaEntries] of groupBy(scopeEntries, "area")) {
-      lines.push(`  Area: ${area}`);
-
-      for (const entry of areaEntries) {
-        lines.push(`    [${entry.risk}] ${entry.summary}`);
-        lines.push(`      Claude: ${entry.claudePath} (${entry.claude})`);
-        lines.push(`      Codex:  ${entry.codexPath} (${entry.codex})`);
-
-        for (const item of statusItems(entry)) {
-          lines.push(`      - ${item}`);
-        }
-      }
+    lines.push(renderStatusResult(report.entries));
+    lines.push("");
+    lines.push("Diff status:");
+    lines.push(renderDiffStatus(report.entries));
+    lines.push("");
+    if (detailPath) {
+      lines.push(`Detail file: ${detailPath}`);
+      lines.push("Open the detail file for the full item list and before/after diff preview.");
+      lines.push("");
     }
+    lines.push("Run a listed command with --dry-run first when risk is manual.");
   }
 
   return lines.join("\n");
+}
+
+function renderStatusList(entries) {
+  const rows = statusTableRows(entries);
+  return rows.map((row, index) => [
+    `${index + 1}. ${row.scope}/${row.area} [${row.risk}]`,
+    `   change: ${row.change}`,
+    `   item: ${row.item}`,
+    `   details: ${row.details}`,
+    `   action: ${row.action}`,
+    `   apply: ${row.command}`
+  ].join("\n")).join("\n\n");
+}
+
+function renderStatusResult(entries) {
+  const rows = statusTableRows(entries);
+  const safeCount = rows.filter((row) => row.risk === "safe").length;
+  const manualCount = rows.filter((row) => row.risk !== "safe").length;
+
+  return [
+    "Result:",
+    `  - ${safeCount} safe item(s)`,
+    `  - ${manualCount} manual-risk item(s)`
+  ].join("\n");
+}
+
+function renderDiffStatus(entries) {
+  const rows = statusTableRows(entries);
+  const groups = [
+    ["claude", rows.filter((row) => row.target === "claude")],
+    ["codex", rows.filter((row) => row.target === "codex")],
+    ["review", rows.filter((row) => row.target === "review")]
+  ].filter(([, groupRows]) => groupRows.length > 0);
+
+  return groups.map(([target, groupRows]) => [
+    `  ${target}:`,
+    ...renderDiffStatusRows(groupRows)
+  ].join("\n")).join("\n");
+}
+
+function renderDiffStatusRows(rows) {
+  return groupRowsForDisplay(rows).flatMap((group) => {
+    if (group.rows.length < 10) return group.rows.map(renderDiffStatusRow);
+    return [renderDiffStatusSummaryRow(group)];
+  });
+}
+
+function groupRowsForDisplay(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    const key = `${row.scope}/${row.area}`;
+    const group = groups.get(key) ?? { scope: row.scope, area: row.area, rows: [] };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+}
+
+function renderDiffStatusSummaryRow(group) {
+  const counts = countRowSymbols(group.rows);
+  const risk = group.rows.some((row) => row.risk !== "safe") ? "manual-risk" : "safe";
+  return [
+    `    - ${group.scope}/${group.area}: ${formatSymbolCounts(counts)} (${group.rows.length} diff(s), ${risk})`,
+    "      details: hidden because this area has 10+ item diffs; see detail file for all items and before/after previews",
+    `      apply: ai-config-sync sync --scope ${group.scope} --include ${group.area} --apply`
+  ].join("\n");
+}
+
+function countRowSymbols(rows) {
+  return rows.reduce((counts, row) => {
+    counts[row.symbol] = (counts[row.symbol] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
+function formatSymbolCounts(counts) {
+  return ["+", "-", "~", "!"]
+    .filter((symbol) => counts[symbol])
+    .map((symbol) => `${symbol}${counts[symbol]}`)
+    .join(", ");
+}
+
+function renderDiffStatusRow(row) {
+  const lines = [
+    `    - ${row.scope}/${row.area}: ${row.symbol}${row.item} (${row.change}, ${row.risk})`,
+    `      details: ${row.details}`,
+    `      action: ${row.action}`,
+    `      apply: ${row.command}`
+  ];
+
+  if (row.preview?.length) {
+    lines.push("      diff:");
+    for (const line of row.preview) lines.push(`        ${line}`);
+  }
+
+  return lines.join("\n");
+}
+
+function writeStatusDetailFile(report) {
+  const detailPath = statusDetailPath();
+  const rows = statusTableRows(report.entries);
+  const lines = [
+    "AI Config Sync Manager status detail",
+    `Scopes: ${report.scopes.join(", ")}`,
+    `Include: ${report.include.length ? report.include.join(", ") : "all"}`,
+    `Exclude: ${report.exclude.length ? report.exclude.join(", ") : "none"}`,
+    report.summary,
+    ""
+  ];
+
+  for (const [target, targetRows] of [
+    ["claude", rows.filter((row) => row.target === "claude")],
+    ["codex", rows.filter((row) => row.target === "codex")],
+    ["review", rows.filter((row) => row.target === "review")]
+  ]) {
+    if (targetRows.length === 0) continue;
+    lines.push(`${target}:`);
+    for (const row of targetRows) {
+      lines.push(renderDiffStatusRow(row).replace(/^    /gm, "  "));
+    }
+    lines.push("");
+  }
+
+  mkdirSync(dirname(detailPath), { recursive: true });
+  writeFileSync(detailPath, `${lines.join("\n").trimEnd()}\n`);
+  return detailPath;
+}
+
+function statusDetailPath() {
+  const stamp = new Date().toISOString().replaceAll(":", "-");
+  return `${home}/.ai-config-sync-manager/status-details/${stamp}.txt`;
+}
+
+function statusTableRows(entries) {
+  return entries.flatMap((entry) => {
+    const rows = [];
+
+    for (const item of entry.missingInCodex ?? []) {
+      rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex", item)));
+    }
+
+    for (const item of entry.missingInClaude ?? []) {
+      rows.push(statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude", item)));
+    }
+
+    for (const item of entry.conflicts ?? []) {
+      rows.push(statusTableRow(entry, "conflict", item, "sync area"));
+    }
+
+    if (rows.length === 0) {
+      rows.push(statusTableRow(entry, "content differs", entry.area, "sync area"));
+    }
+
+    return rows;
+  });
+}
+
+function statusTableRow(entry, change, item, action) {
+  const selector = statusSelector(entry.area, item);
+  const command = action === "manual review"
+    ? "manual review"
+    : `ai-config-sync sync --scope ${entry.scope} --include ${shellQuote(selector)} --apply`;
+
+  return {
+    scope: entry.scope,
+    area: entry.area,
+    risk: entry.risk,
+    change,
+    item: statusDisplayItem(entry, item),
+    action,
+    command,
+    details: statusDetails(entry, change),
+    preview: statusPreview(entry, change, item),
+    target: statusTarget(change, action),
+    symbol: statusSymbol(change, action)
+  };
+}
+
+function statusDisplayItem(entry, item) {
+  const quality = entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")] ?? entry.mappingQuality;
+  return quality ? `${item} [${quality}]` : item;
+}
+
+function statusTarget(change, action) {
+  if (action === "copy Claude -> Codex" || action === "delete from Codex") return "codex";
+  if (action === "copy Codex -> Claude" || action === "delete from Claude") return "claude";
+  if (change === "missing in Codex") return "codex";
+  if (change === "missing in Claude") return "claude";
+  return "review";
+}
+
+function statusSymbol(change, action) {
+  if (action.startsWith("copy ")) return "+";
+  if (action.startsWith("delete ")) return "-";
+  if (change === "conflict") return "!";
+  return "~";
+}
+
+function statusDetails(entry, change) {
+  if (change === "missing in Codex") return `Claude has it; Codex missing. Claude: ${statusPathSummary(entry, "claude")} -> Codex: ${statusPathSummary(entry, "codex")}`;
+  if (change === "missing in Claude") return `Codex has it; Claude missing. Codex: ${statusPathSummary(entry, "codex")} -> Claude: ${statusPathSummary(entry, "claude")}`;
+  if (change === "conflict") return `Both hosts have this item with different content. Default sync updates Codex from Claude. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
+  return `Default sync updates Codex from Claude. Claude: ${statusPathSummary(entry, "claude")} (${entry.claude}); Codex: ${statusPathSummary(entry, "codex")} (${entry.codex})`;
+}
+
+function statusPreview(entry, change, item) {
+  if (change === "content differs" && entry.area === "instructions") {
+    return contentChangePreview("Codex current", entry.codexInstructionContent ?? "", "After apply from Claude", entry.claudeInstructionContent ?? "");
+  }
+
+  if (change === "conflict" && entry.area === "skills") {
+    const claude = skillPreviewContent(entry.claudePath, item);
+    const codex = skillPreviewContent(entry.codexPath, item);
+    return contentChangePreview("Codex current", codex, "After apply from Claude", claude);
+  }
+
+  return [];
+}
+
+function statusPathSummary(entry, host) {
+  if (host === "claude") {
+    return instructionPathSummary(entry.claudeInstructionPaths, entry.claudeInstructionCheckedPaths)
+      ?? firstStatusPath(entry.claudeMcpPaths)
+      ?? entry.claudePath;
+  }
+
+  return instructionPathSummary(entry.codexInstructionPaths, entry.codexInstructionCheckedPaths)
+    ?? firstStatusPath(entry.codexMcpPaths)
+    ?? entry.codexPath;
+}
+
+function instructionPathSummary(sourcePaths, checkedPaths) {
+  if (!Array.isArray(checkedPaths) || checkedPaths.length === 0) return firstStatusPath(sourcePaths);
+  const sources = Array.isArray(sourcePaths) && sourcePaths.length > 0
+    ? sourcePaths.join(", ")
+    : "none";
+  return `sources: ${sources}; checked: ${checkedPaths.join(", ")}`;
+}
+
+function firstStatusPath(paths) {
+  return Array.isArray(paths) && paths.length > 0 ? paths[0] : null;
+}
+
+function statusAction(entry, missingTarget, item) {
+  const baseline = readSyncState(entry.scope);
+  const baselineItems = baseline?.areas?.[entry.area]?.[missingTarget] ?? [];
+  if (missingTarget === "codex") {
+    return baselineItems.includes(item) ? "delete from Claude" : "copy Claude -> Codex";
+  }
+  return baselineItems.includes(item) ? "delete from Codex" : "copy Codex -> Claude";
+}
+
+function statusSelector(area, item) {
+  if (!item || item === area) return area;
+  return `${area}:${item}`;
+}
+
+function shellQuote(value) {
+  if (/^[A-Za-z0-9_./:=,-]+$/.test(value)) return value;
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function renderCompactStatus(report) {
@@ -201,13 +471,13 @@ function renderTreeStatus(report) {
 function statusItems(entry) {
   if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
     return [
-      ...(entry.missingInCodex ?? []).map((name) => `missing-in-codex: ${formatQualityItem(entry, name)}`),
-      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${formatQualityItem(entry, name)}`),
-      ...(entry.conflicts ?? []).map((name) => `conflict: ${formatQualityItem(entry, name)}`)
+      ...(entry.missingInCodex ?? []).map((name) => `missing-in-codex: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Codex")}`),
+      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Claude")}`),
+      ...(entry.conflicts ?? []).map((name) => `conflict: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "conflict")}`)
     ];
   }
 
-  return [`${entry.area}: claude=${entry.claude}, codex=${entry.codex} [${entry.mappingQuality ?? "unsupported"}]`];
+  return [`${entry.area}: claude=${entry.claude}, codex=${entry.codex} [${entry.mappingQuality ?? "unsupported"}] | details: ${statusDetails(entry, "content differs")}`];
 }
 
 function formatQualityItem(entry, item) {
@@ -383,6 +653,9 @@ function createOperations(entry, options) {
   if ((entry.missingInClaude ?? []).length > 0) {
     operations.push(createOperation(entry, "codex", "claude", options));
   }
+  if ((entry.conflicts ?? []).length > 0 || operations.length === 0) {
+    operations.push(createOperation(entry, options.from, options.to, options));
+  }
 
   return operations;
 }
@@ -405,6 +678,9 @@ function createBaselineOperations(entry, baseline, options) {
     } else {
       operations.push(createOperationForItems(entry, "codex", "claude", [item], options));
     }
+  }
+  if ((entry.conflicts ?? []).length > 0 || operations.length === 0) {
+    operations.push(createOperation(entry, options.from, options.to, options));
   }
 
   return operations;
@@ -447,12 +723,12 @@ function createDeleteOperation(entry, from, to, itemNames, options) {
     targetPath,
     sourceMcpPaths: from === "claude" ? entry.claudeMcpPaths : entry.codexMcpPaths,
     targetMcpPaths: to === "claude" ? entry.claudeMcpPaths : entry.codexMcpPaths,
-    itemNames,
-    serverNames: entry.area === "mcp" ? itemNames : undefined,
-    itemQualities: operationItemQualities(entry, itemNames),
-    backupRequired: true,
-    approvalRequired: false
-  };
+      itemNames,
+      serverNames: entry.area === "mcp" ? itemNames : undefined,
+      itemQualities: operationItemQualities(entry, itemNames),
+      backupRequired: true,
+      approvalRequired: false
+    };
 }
 
 function createOperation(entry, from, to, options = {}) {
@@ -533,7 +809,8 @@ function createOperation(entry, from, to, options = {}) {
   }
 
   if (entry.area === "instructions") {
-    if (!existsSync(sourcePath)) {
+    const instructionContent = from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    if (!existsSync(sourcePath) && !instructionContent) {
       return {
         scope: entry.scope,
         area: entry.area,
@@ -550,9 +827,16 @@ function createOperation(entry, from, to, options = {}) {
       scope: entry.scope,
       area: entry.area,
       risk: entry.risk,
-      action: "copy-file",
+      action: instructionContent ? "write-instructions" : "copy-file",
       sourcePath,
       targetPath,
+      content: instructionContent,
+      changePreview: contentChangePreview(
+        `${toLabel(to)} current`,
+        to === "claude" ? entry.claudeInstructionContent ?? "" : entry.codexInstructionContent ?? "",
+        `After apply from ${fromLabel(from)}`,
+        instructionContent ?? fileText(sourcePath)
+      ),
       backupRequired: true,
       approvalRequired: false
     };
@@ -560,6 +844,8 @@ function createOperation(entry, from, to, options = {}) {
 
   if (entry.area === "skills") {
     const missing = to === "claude" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
+    const conflicts = entry.conflicts ?? [];
+    const skillNames = [...missing, ...conflicts];
     return {
       scope: entry.scope,
       area: entry.area,
@@ -567,10 +853,12 @@ function createOperation(entry, from, to, options = {}) {
       action: "copy-missing-skills",
       sourcePath,
       targetPath,
-      skillNames: missing,
-      itemQualities: operationItemQualities(entry, missing),
+      skillNames,
+      overwriteSkillNames: conflicts,
+      itemQualities: operationItemQualities(entry, skillNames),
+      changePreview: skillChangePreview(sourcePath, targetPath, conflicts, from),
       backupRequired: true,
-      approvalRequired: entry.risk !== "safe"
+      approvalRequired: false
     };
   }
 
@@ -582,7 +870,7 @@ function createOperation(entry, from, to, options = {}) {
     sourcePath,
     targetPath,
     backupRequired: true,
-    approvalRequired: true
+    approvalRequired: false
   };
 }
 
@@ -719,6 +1007,12 @@ function renderSyncPlan(plan) {
         }
       }
     }
+    if (operation.changePreview?.length) {
+      lines.push("  Change preview:");
+      for (const line of operation.changePreview) {
+        lines.push(`    ${line}`);
+      }
+    }
     if (operation.skillNames && operation.skillNames.length === 0) {
       lines.push("  Skills: none missing in target direction");
     }
@@ -738,10 +1032,17 @@ function renderSyncPlan(plan) {
   return lines.join("\n");
 }
 
-function renderApplyResults(plan) {
+function renderSyncPlans(plans) {
+  return plans.map(renderSyncPlan).join("\n\n");
+}
+
+function renderApplyResults(plans) {
   const lines = ["", "Apply results:"];
-  for (const result of plan.results) {
-    lines.push(`  ${result.status}: ${result.message}`);
+  for (const plan of plans) {
+    lines.push(`  Scope: ${plan.scope}`);
+    for (const result of plan.results) {
+      lines.push(`    ${result.status}: ${result.message}`);
+    }
   }
   return lines.join("\n");
 }
@@ -763,6 +1064,68 @@ function formatOperationItems(operation, items) {
   });
 }
 
+function toLabel(host) {
+  return host === "claude" ? "Claude" : "Codex";
+}
+
+function fromLabel(host) {
+  return toLabel(host);
+}
+
+function fileText(path) {
+  return existsSync(path) ? readFileSync(path, "utf8") : "";
+}
+
+function skillChangePreview(sourcePath, targetPath, skillNames, from) {
+  const lines = [];
+  for (const skillName of skillNames) {
+    const source = skillPreviewContent(sourcePath, skillName);
+    const target = skillPreviewContent(targetPath, skillName);
+    lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
+    lines.push(...contentChangePreview("Target current", target, `After apply from ${fromLabel(from)}`, source).map((line) => `  ${line}`));
+  }
+  return lines;
+}
+
+function skillPreviewContent(basePath, skillName) {
+  const skillPath = join(basePath, skillName);
+  const skillMd = join(skillPath, "SKILL.md");
+  if (existsSync(skillMd)) return readFileSync(skillMd, "utf8");
+  if (existsSync(skillPath) && !lstatSync(skillPath).isDirectory()) return readFileSync(skillPath, "utf8");
+  return "";
+}
+
+function contentChangePreview(beforeLabel, before, afterLabel, after) {
+  const beforeLines = previewLines(before);
+  const afterLines = previewLines(after);
+  const maxLines = Math.max(beforeLines.length, afterLines.length);
+  const changes = [];
+
+  for (let index = 0; index < maxLines; index += 1) {
+    if (beforeLines[index] === afterLines[index]) continue;
+    changes.push(`- ${beforeLabel} L${index + 1}: ${previewLine(beforeLines[index])}`);
+    changes.push(`+ ${afterLabel} L${index + 1}: ${previewLine(afterLines[index])}`);
+    if (changes.length >= 12) {
+      changes.push(`... ${Math.max(0, maxLines - index - 1)} more line(s) not shown`);
+      break;
+    }
+  }
+
+  return changes.length > 0 ? changes : ["No line-level preview available."];
+}
+
+function previewLines(value) {
+  const lines = String(value ?? "").split(/\r?\n/);
+  if (lines.length > 1 && lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function previewLine(value) {
+  if (value === undefined) return "<missing>";
+  if (value === "") return "<blank>";
+  return value.length > 140 ? `${value.slice(0, 137)}...` : value;
+}
+
 function applySyncPlan(plan) {
   mkdirSync(plan.backupRoot, { recursive: true });
 
@@ -778,6 +1141,8 @@ function applySyncPlan(plan) {
     try {
       if (operation.action === "copy-file") {
         applyCopyFile(plan, operation);
+      } else if (operation.action === "write-instructions") {
+        applyWriteInstructions(plan, operation);
       } else if (operation.action === "copy-missing-skills") {
         applyCopyMissingSkills(plan, operation);
       } else if (operation.action === "merge-settings-items") {
@@ -821,8 +1186,16 @@ function applyCopyFile(plan, operation) {
   plan.results.push({ status: "applied", message: `copied ${operation.sourcePath} -> ${operation.targetPath}` });
 }
 
+function applyWriteInstructions(plan, operation) {
+  mkdirSync(dirname(operation.targetPath), { recursive: true });
+  backupPath(plan, operation.targetPath);
+  writeFileSync(operation.targetPath, operation.content.endsWith("\n") ? operation.content : `${operation.content}\n`);
+  plan.results.push({ status: "applied", message: `wrote instructions ${operation.sourcePath} -> ${operation.targetPath}` });
+}
+
 function applyCopyMissingSkills(plan, operation) {
   mkdirSync(operation.targetPath, { recursive: true });
+  const overwrite = new Set(operation.overwriteSkillNames ?? []);
 
   for (const skillName of operation.skillNames ?? []) {
     const source = join(operation.sourcePath, skillName);
@@ -834,12 +1207,16 @@ function applyCopyMissingSkills(plan, operation) {
     }
 
     if (existsSync(target)) {
-      plan.results.push({ status: "skipped", message: `skill already exists: ${target}` });
-      continue;
+      if (!overwrite.has(skillName)) {
+        plan.results.push({ status: "skipped", message: `skill already exists: ${target}` });
+        continue;
+      }
+      backupPath(plan, target);
+      rmSync(target, { recursive: true, force: true });
     }
 
     cpSync(source, target, { recursive: true, dereference: false });
-    plan.results.push({ status: "applied", message: `copied skill ${skillName}` });
+    plan.results.push({ status: "applied", message: `${overwrite.has(skillName) ? "replaced" : "copied"} skill ${skillName}` });
   }
 }
 
@@ -1859,6 +2236,10 @@ function compareInstructions(entries, scope, claudePath, codexPath, claudePaths 
       codexPath,
       claudeInstructionPaths: claude.paths,
       codexInstructionPaths: codex.paths,
+      claudeInstructionCheckedPaths: claude.checkedPaths,
+      codexInstructionCheckedPaths: codex.checkedPaths,
+      claudeInstructionContent: claude.content,
+      codexInstructionContent: codex.content,
       claude: claude.summary,
       codex: codex.summary,
       mappingQuality: "equivalent"
@@ -2195,18 +2576,21 @@ function fileState(path) {
 }
 
 function instructionState(host, paths) {
+  const checkedPaths = Array.isArray(paths) ? paths : [paths];
   const sources = instructionSources(host, paths);
-  if (sources.length === 0) return { exists: false, hash: "missing", summary: "missing", paths: [] };
+  if (sources.length === 0) return { exists: false, hash: "missing", summary: "missing", paths: [], checkedPaths, content: "" };
 
   const content = sources
-    .map((source) => `${source.path}\n${source.content}`)
+    .map((source) => source.content)
     .join("\n--- ai-config-sync instruction source ---\n");
   const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
   return {
     exists: true,
     hash,
     summary: `${sources.length} source(s) sha256:${hash}`,
-    paths: sources.map((source) => source.path)
+    paths: sources.map((source) => source.path),
+    checkedPaths,
+    content
   };
 }
 
@@ -2473,7 +2857,7 @@ function parseSync(argv) {
   let apply = false;
   let confirm = false;
   let planJson = false;
-  let scope = "project";
+  let scope = null;
   const selectors = emptySelectors();
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -2495,7 +2879,7 @@ function parseSync(argv) {
       if (token === "--to") to = value;
       index += 1;
     } else if (token === "--scope") {
-      scope = parseScopes(argv[index + 1], false)[0];
+      scope = parseScopes(argv[index + 1], true);
       index += 1;
     } else if (token === "--include" || token === "--exclude") {
       addSelectors(selectors, token, argv[index + 1]);
@@ -2508,7 +2892,8 @@ function parseSync(argv) {
   if (dryRun && apply) throw new Error("Choose either --dry-run or --apply, not both.");
   if (from === to) throw new Error("--from and --to must be different hosts.");
 
-  return { from, to, routeExplicit, apply, confirm, planJson, scope, selectors };
+  const scopes = scope ?? ["global", "project"];
+  return { from, to, routeExplicit, apply, confirm, planJson, scope: scopes[0], scopes, selectors };
 }
 
 function parseScopes(value, allowAll) {
@@ -2539,8 +2924,8 @@ function printHelp() {
   ai-config-sync sync --dry-run
   ai-config-sync sync --help
   ai-config-sync sync --plan-json
-  ai-config-sync sync --scope global|project --dry-run
-  ai-config-sync sync --scope global|project --apply
+  ai-config-sync sync --scope global|project|all --dry-run
+  ai-config-sync sync --scope global|project|all --apply
   ai-config-sync sync --include instructions,skills:foo,mcp:notion --exclude permissions:Bash --dry-run
   ai-config-sync sync --from claude --to codex
   ai-config-sync sync --from codex --to claude`);
@@ -2585,10 +2970,13 @@ Options:
   --plan-json                    Print the sync plan as JSON
   --from claude|codex            Source host
   --to claude|codex              Target host
-  --scope global|project         Limit sync scope
+  --scope global|project|all     Limit sync scope
   --include area[:item][,...]    Include only selected areas or items
   --exclude area[:item][,...]    Exclude selected areas or items
   -h, --help                     Show sync help
+
+Defaults:
+  sync without --scope            Uses global and project scopes
 
 Examples:
   ai-config-sync sync --scope project --include mcp:notion --dry-run

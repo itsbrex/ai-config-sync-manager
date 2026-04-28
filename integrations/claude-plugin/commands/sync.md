@@ -1,6 +1,6 @@
 ---
 description: Preview or apply Claude/Codex configuration sync through AI Config Sync Manager.
-argument-hint: '[--scope global|project] [--from claude|codex --to claude|codex] [--include area[,area:item]] [--exclude area[,area:item]] [--apply]'
+argument-hint: '[--scope global|project|all] [--from claude|codex --to claude|codex] [--include area[,area:item]] [--exclude area[,area:item]] [--apply]'
 allowed-tools: Bash(*)
 ---
 
@@ -12,7 +12,8 @@ Before applying changes:
 
 - Review every planned file change.
 - Ensure backups will be created.
-- Require manual confirmation.
+- Use `--confirm` when an interactive approval gate is required.
+- Manual-risk entries are plan candidates; `--apply` executes the planned operations after backups.
 - Summarize the CLI output exactly; do not call a target an overwrite unless the CLI reports that the target exists.
 
 Apply only after confirmation:
