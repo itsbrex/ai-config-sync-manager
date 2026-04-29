@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Host-specific target templates for generic host surfaces. Product/workflow-specific vocabularies such as gstack commands should be supplied by a project/local override.",
+  "templates": [
+    {
+      "id": "delegation-surface",
+      "aliases": {
+        "claude": ["Task tool", "Task-tool delegation", "Claude subagent delegation"],
+        "codex": ["spawn_agent", "sub-agent delegation", "Codex worker/explorer delegation"]
+      },
+      "target": {
+        "claude": "Claude Task-tool delegation",
+        "codex": "Codex spawn_agent delegation"
+      }
+    },
+    {
+      "id": "command-surface",
+      "aliases": {
+        "claude": ["Claude slash command", "Claude plugin command"],
+        "codex": ["Codex skill command", "Codex plugin command"]
+      },
+      "target": {
+        "claude": "Claude slash command",
+        "codex": "Codex skill command"
+      }
+    },
+    {
+      "id": "skill-surface",
+      "aliases": {
+        "claude": ["Claude skill file", "Claude skill directory"],
+        "codex": ["Codex skill file", "Codex skill directory"]
+      },
+      "target": {
+        "claude": "Claude skill",
+        "codex": "Codex skill"
+      }
+    },
+    {
+      "id": "hook-surface",
+      "aliases": {
+        "claude": ["Claude hook handler", "Claude command hook"],
+        "codex": ["Codex native hook", "Codex command hook"]
+      },
+      "target": {
+        "claude": "Claude hook handler",
+        "codex": "Codex native hook"
+      }
+    }
+  ]
+}

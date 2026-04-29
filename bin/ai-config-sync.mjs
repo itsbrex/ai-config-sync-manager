@@ -9,14 +9,11 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  symlinkSync,
   writeFileSync
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import { stdin as input, stdout as output } from "node:process";
-import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const hosts = new Set(["claude", "codex"]);
@@ -58,19 +55,24 @@ async function main() {
       const options = parseSync(argv);
       const mode = options.apply ? "apply" : "dry-run";
       const plans = createSyncPlans(options, mode);
-      if (options.confirm && !options.planJson) {
-        console.log(renderSyncPlans(plans));
-        if (await confirmApply()) {
-          for (const plan of plans) applySyncPlan(plan);
-        } else {
-          for (const plan of plans) plan.results.push({ status: "cancelled", message: "Confirmation declined" });
-        }
-        console.log(renderApplyResults(plans));
-      } else if (mode === "apply") {
+      if (mode === "apply") {
         for (const plan of plans) applySyncPlan(plan);
-        console.log(options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans));
+      }
+      console.log(options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans));
+    }
+  } else if (command === "reference") {
+    if (isHelp(argv)) {
+      printReferenceHelp();
+    } else {
+      const { output } = parseReference(argv);
+      const markdown = generateReferenceMarkdown();
+      if (output) {
+        const resolved = resolve(expandHome(output));
+        mkdirSync(dirname(resolved), { recursive: true });
+        writeFileSync(resolved, markdown.endsWith("\n") ? markdown : `${markdown}\n`);
+        console.log(`Reference written to ${resolved}`);
       } else {
-        console.log(options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans));
+        console.log(markdown);
       }
     }
   } else {
@@ -119,18 +121,31 @@ function parseStatus(argv) {
   return { format, json, scopes, selectors };
 }
 
+function defaultSyncDirection() {
+  const sessionHost = process.env.AI_CONFIG_SYNC_HOST === "codex" ? "codex" : "claude";
+  return sessionHost === "codex"
+    ? { from: "codex", to: "claude" }
+    : { from: "claude", to: "codex" };
+}
+
 function createStatusReport(scopes, selectors = emptySelectors()) {
-  const entries = filterEntries(
+  const direction = defaultSyncDirection();
+  const filtered = filterIgnoredEntries(filterEntries(
     scopes.flatMap((scope) => diffScope(scope)),
     selectors
-  );
+  ));
+  const entries = filtered.entries;
 
   return {
-    source: "claude",
-    target: "codex",
+    source: direction.from,
+    target: direction.to,
+    direction,
     scopes,
     include: renderSelectors(selectors.include),
     exclude: renderSelectors(selectors.exclude),
+    statusIgnorePath: filtered.path,
+    statusIgnoreRules: filtered.rules ?? [],
+    statusIgnored: filtered.ignored,
     scaffold: false,
     entries,
     summary:
@@ -147,9 +162,11 @@ function renderStatus(report, format = "default") {
 
   const lines = [
     "AI Config Sync Manager status",
+    `Default sync direction: ${report.direction.from} -> ${report.direction.to} (override with --from/--to or AI_CONFIG_SYNC_HOST)`,
     `Scopes: ${report.scopes.join(", ")}`,
     `Include: ${report.include.length ? report.include.join(", ") : "all"}`,
     `Exclude: ${report.exclude.length ? report.exclude.join(", ") : "none"}`,
+    formatStatusIgnoreLine(report.statusIgnorePath, report.statusIgnoreRules, report.statusIgnored),
     report.summary
   ];
 
@@ -251,6 +268,36 @@ function formatSymbolCounts(counts) {
     .join(", ");
 }
 
+function formatIgnoreRule(rule) {
+  if (typeof rule === "string") return rule;
+  if (rule && typeof rule === "object") return JSON.stringify(rule);
+  return String(rule);
+}
+
+function formatIgnoreRulesSegment(rules) {
+  if (!Array.isArray(rules) || rules.length === 0) return "";
+  return ` rules: [${rules.map(formatIgnoreRule).join(", ")}]`;
+}
+
+function formatStatusIgnoreLine(path, rules, ignored) {
+  return `Status ignore: ${path}${formatIgnoreRulesSegment(rules)} (${ignored} hidden)`;
+}
+
+function formatPlanIgnoreLine(path, rules, ignored) {
+  return `Ignore: ${path}${formatIgnoreRulesSegment(rules)} (${ignored} hidden)`;
+}
+
+function formatCompactIgnoreSegment(rules, ignored) {
+  const parts = [];
+  if (Array.isArray(rules) && rules.length > 0) {
+    parts.push(`ignore_rules=${rules.map(formatIgnoreRule).join(",")}`);
+  }
+  if (typeof ignored === "number" && ignored > 0) {
+    parts.push(`hidden=${ignored}`);
+  }
+  return parts.length > 0 ? ` ${parts.join(" ")}` : "";
+}
+
 function renderDiffStatusRow(row) {
   const lines = [
     `    - ${row.scope}/${row.area}: ${row.symbol}${row.item} (${row.change}, ${row.risk})`,
@@ -272,6 +319,7 @@ function writeStatusDetailFile(report) {
   const rows = statusTableRows(report.entries);
   const lines = [
     "AI Config Sync Manager status detail",
+    `Default sync direction: ${report.direction.from} -> ${report.direction.to}`,
     `Scopes: ${report.scopes.join(", ")}`,
     `Include: ${report.include.length ? report.include.join(", ") : "all"}`,
     `Exclude: ${report.exclude.length ? report.exclude.join(", ") : "none"}`,
@@ -307,11 +355,11 @@ function statusTableRows(entries) {
     const rows = [];
 
     for (const item of entry.missingInCodex ?? []) {
-      rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex", item)));
+      rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex")));
     }
 
     for (const item of entry.missingInClaude ?? []) {
-      rows.push(statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude", item)));
+      rows.push(statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude")));
     }
 
     for (const item of entry.conflicts ?? []) {
@@ -368,21 +416,47 @@ function statusSymbol(change, action) {
 }
 
 function statusDetails(entry, change) {
+  const { from, to } = defaultSyncDirection();
+  const fromLabel = from === "claude" ? "Claude" : "Codex";
+  const toLabel = to === "claude" ? "Claude" : "Codex";
   if (change === "missing in Codex") return `Claude has it; Codex missing. Claude: ${statusPathSummary(entry, "claude")} -> Codex: ${statusPathSummary(entry, "codex")}`;
   if (change === "missing in Claude") return `Codex has it; Claude missing. Codex: ${statusPathSummary(entry, "codex")} -> Claude: ${statusPathSummary(entry, "claude")}`;
-  if (change === "conflict") return `Both hosts have this item with different content. Default sync updates Codex from Claude. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
-  return `Default sync updates Codex from Claude. Claude: ${statusPathSummary(entry, "claude")} (${entry.claude}); Codex: ${statusPathSummary(entry, "codex")} (${entry.codex})`;
+  if (change === "conflict") return `Both hosts have this item with different content. Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
+  return `Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")} (${entry.claude}); Codex: ${statusPathSummary(entry, "codex")} (${entry.codex})`;
 }
 
 function statusPreview(entry, change, item) {
+  const { from, to } = defaultSyncDirection();
+  const fromLabel = from === "claude" ? "Claude" : "Codex";
+  const toLabel = to === "claude" ? "Claude" : "Codex";
+
   if (change === "content differs" && entry.area === "instructions") {
-    return contentChangePreview("Codex current", entry.codexInstructionContent ?? "", "After apply from Claude", entry.claudeInstructionContent ?? "");
+    const targetContent = to === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    const sourceContent = from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    return contentChangePreview(
+      `${toLabel} current`,
+      targetContent ?? "",
+      `After apply from ${fromLabel}`,
+      transformTextForHost(sourceContent ?? "", from, to)
+    );
   }
 
   if (change === "conflict" && entry.area === "skills") {
-    const claude = skillPreviewContent(entry.claudePath, item);
-    const codex = skillPreviewContent(entry.codexPath, item);
-    return contentChangePreview("Codex current", codex, "After apply from Claude", claude);
+    const targetContent = skillPreviewContent(to === "claude" ? entry.claudePath : entry.codexPath, item);
+    const sourceContent = transformTextForHost(
+      skillPreviewContent(from === "claude" ? entry.claudePath : entry.codexPath, item),
+      from,
+      to
+    );
+    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent);
+  }
+
+  if (change === "conflict" && entry.area === "agents") {
+    const targetContent = agentPreviewContent(to === "claude" ? entry.claudePath : entry.codexPath, item, to);
+    const sourceContent = from === "claude"
+      ? transformTextForHost(agentPreviewContent(entry.claudePath, item, "claude"), "claude", "codex")
+      : transformTextForHost(stripAgentMigrationPreamble(agentPreviewContent(entry.codexPath, item, "codex")), "codex", "claude");
+    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent);
   }
 
   return [];
@@ -412,13 +486,12 @@ function firstStatusPath(paths) {
   return Array.isArray(paths) && paths.length > 0 ? paths[0] : null;
 }
 
-function statusAction(entry, missingTarget, item) {
-  const baseline = readSyncState(entry.scope);
-  const baselineItems = baseline?.areas?.[entry.area]?.[missingTarget] ?? [];
-  if (missingTarget === "codex") {
-    return baselineItems.includes(item) ? "delete from Claude" : "copy Claude -> Codex";
+function statusAction(entry, missingTarget) {
+  const { from, to } = defaultSyncDirection();
+  if (missingTarget === to) {
+    return `copy ${toLabel(from)} -> ${toLabel(to)}`;
   }
-  return baselineItems.includes(item) ? "delete from Codex" : "copy Codex -> Claude";
+  return `delete from ${toLabel(to)}`;
 }
 
 function statusSelector(area, item) {
@@ -434,7 +507,7 @@ function shellQuote(value) {
 function renderCompactStatus(report) {
   const lines = [
     `status: ${report.summary}`,
-    `scopes=${report.scopes.join(",")} include=${report.include.length ? report.include.join(",") : "all"} exclude=${report.exclude.length ? report.exclude.join(",") : "none"}`
+    `direction=${report.direction.from}->${report.direction.to} scopes=${report.scopes.join(",")} include=${report.include.length ? report.include.join(",") : "all"} exclude=${report.exclude.length ? report.exclude.join(",") : "none"}${formatCompactIgnoreSegment(report.statusIgnoreRules, report.statusIgnored)}`
   ];
 
   for (const entry of report.entries) {
@@ -447,8 +520,16 @@ function renderCompactStatus(report) {
 function renderTreeStatus(report) {
   const lines = [
     "AI Config Sync Manager status",
-    report.summary
+    `Default sync direction: ${report.direction.from} -> ${report.direction.to}`
   ];
+
+  const hasIgnoreRules = Array.isArray(report.statusIgnoreRules) && report.statusIgnoreRules.length > 0;
+  const hasHidden = typeof report.statusIgnored === "number" && report.statusIgnored > 0;
+  if (report.statusIgnorePath && (hasIgnoreRules || hasHidden)) {
+    lines.push(formatStatusIgnoreLine(report.statusIgnorePath, report.statusIgnoreRules, report.statusIgnored));
+  }
+
+  lines.push(report.summary);
 
   for (const [scope, scopeEntries] of groupBy(report.entries, "scope")) {
     lines.push(`${scope}/`);
@@ -541,6 +622,155 @@ function filterEntries(entries, selectors) {
     .filter((entry) => entry && !isExcluded(entry, selectors.exclude));
 }
 
+function filterIgnoredEntries(entries) {
+  const source = ignoreListSource();
+  const rules = Array.isArray(source.data.exclude) ? source.data.exclude : [];
+  if (rules.length === 0) return { entries, ignored: 0, path: source.path, rules: [] };
+
+  let ignored = 0;
+  const filteredEntries = [];
+
+  for (const entry of entries) {
+    const filtered = filterIgnoredEntry(entry, rules);
+    if (!filtered) {
+      ignored += entryItems(entry).length;
+    } else {
+      ignored += entryItems(entry).length - entryItems(filtered).length;
+      filteredEntries.push(filtered);
+    }
+  }
+
+  return { entries: filteredEntries, ignored, path: source.path, rules };
+}
+
+function filterIgnoredEntry(entry, rules) {
+  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts) {
+    return ignoreRulesMatchEntry(rules, entry, entry.area) ? null : entry;
+  }
+
+  const filtered = { ...entry };
+  filtered.missingInCodex = (entry.missingInCodex ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
+  filtered.missingInClaude = (entry.missingInClaude ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
+  filtered.conflicts = (entry.conflicts ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
+  filtered.itemQualities = filterItemQualities(entry.itemQualities ?? {}, [
+    ...filtered.missingInCodex,
+    ...filtered.missingInClaude,
+    ...filtered.conflicts
+  ]);
+
+  if (
+    filtered.missingInCodex.length === 0
+    && filtered.missingInClaude.length === 0
+    && filtered.conflicts.length === 0
+  ) return null;
+  return filtered;
+}
+
+function ignoreRulesMatchEntry(rules, entry, item) {
+  return rules.some((rule) => ignoreRuleMatchesEntry(rule, entry, item));
+}
+
+function ignoreRuleMatchesEntry(rule, entry, item) {
+  const normalized = normalizeIgnoreRule(rule);
+  if (!normalized) return false;
+  if (normalized.scope && normalized.scope !== entry.scope) return false;
+  if (normalized.area && normalized.area !== entry.area) return false;
+  if (normalized.item && !itemMatchesSelector(item, normalized.item)) return false;
+  if (normalized.host && normalized.host !== "claude" && normalized.host !== "codex") return false;
+  if (!normalized.path) return true;
+
+  return entryRulePaths(entry, item, normalized.host).some((path) => pathMatchesIgnoreRule(path, normalized.path));
+}
+
+function normalizeIgnoreRule(rule) {
+  if (typeof rule === "string" && rule.trim()) return parseIgnoreStringRule(rule.trim());
+  if (!rule || typeof rule !== "object") return null;
+  return {
+    scope: typeof rule.scope === "string" ? rule.scope : null,
+    area: typeof rule.area === "string" ? rule.area : null,
+    item: typeof rule.item === "string" ? rule.item : null,
+    host: typeof rule.host === "string" ? rule.host : null,
+    path: typeof rule.path === "string" ? rule.path : null
+  };
+}
+
+function parseIgnoreStringRule(value) {
+  const selector = value.includes(":") && !value.includes("/") ? parseSelector(value) : null;
+  return selector
+    ? { scope: null, area: selector.area, item: selector.item, host: null, path: null }
+    : { scope: null, area: null, item: null, host: null, path: value };
+}
+
+function entryRulePaths(entry, item, host) {
+  const paths = [];
+  if (!host || host === "claude") {
+    paths.push(entry.claudePath, ...(entry.claudeInstructionPaths ?? []), ...(entry.claudeInstructionCheckedPaths ?? []), ...(entry.claudeMcpPaths ?? []));
+    if (entry.area === "skills" && item) paths.push(join(entry.claudePath, item), join(entry.claudePath, item, "SKILL.md"));
+    if (entry.area === "agents" && item) paths.push(join(entry.claudePath, `${item}.md`));
+  }
+  if (!host || host === "codex") {
+    paths.push(entry.codexPath, ...(entry.codexInstructionPaths ?? []), ...(entry.codexInstructionCheckedPaths ?? []), ...(entry.codexMcpPaths ?? []));
+    if (entry.area === "skills" && item) paths.push(join(entry.codexPath, item), join(entry.codexPath, item, "SKILL.md"));
+    if (entry.area === "agents" && item) {
+      const flat = item.includes("/") ? item.split("/").pop() : item;
+      paths.push(join(entry.codexPath, `${flat}.toml`));
+    }
+  }
+  return uniqueStrings(paths.filter(Boolean));
+}
+
+function pathMatchesIgnoreRule(path, pattern) {
+  const normalizedPath = path.replaceAll("\\", "/");
+  const normalizedPattern = expandHome(pattern).replaceAll("\\", "/");
+  if (normalizedPath === normalizedPattern || normalizedPath.endsWith(normalizedPattern)) return true;
+  if (!/[*?]/.test(normalizedPattern)) return false;
+  return globToRegExp(normalizedPattern).test(normalizedPath);
+}
+
+function expandHome(value) {
+  return value.startsWith("~/") ? `${home}/${value.slice(2)}` : value;
+}
+
+function globToRegExp(glob) {
+  let pattern = "";
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index];
+    if (char === "*") {
+      if (glob[index + 1] === "*") {
+        pattern += ".*";
+        index += 1;
+      } else {
+        pattern += "[^/]*";
+      }
+    } else if (char === "?") {
+      pattern += "[^/]";
+    } else {
+      pattern += escapeRegExp(char);
+    }
+  }
+  return new RegExp(`^${pattern}$`);
+}
+
+function ignoreListSource() {
+  for (const path of ignoreListCandidates()) {
+    if (existsSync(path)) return { path, data: readJsonFile(path, { exclude: [] }) };
+  }
+  return { path: projectIgnoreListPath(), data: { exclude: [] } };
+}
+
+function ignoreListCandidates() {
+  return [
+    projectIgnoreListPath(),
+    join(resolve(process.cwd()), "rules/status-ignore.json"),
+    `${home}/.ai-config-sync-manager/rules/status-ignore.json`,
+    join(runtimeRoot, "rules/status-ignore.json")
+  ];
+}
+
+function projectIgnoreListPath() {
+  return join(resolve(process.cwd()), ".ai-config-sync-manager/status-ignore.json");
+}
+
 function isIncluded(entry, include) {
   if (include.length === 0) return true;
   return include.some((selector) => selectorMatchesEntry(selector, entry));
@@ -614,9 +844,13 @@ function directionalItems(entry, to) {
 }
 
 function createSyncPlan(options, mode) {
-  const entries = filterEntries(diffScope(options.scope), options.selectors);
+  const filtered = filterIgnoredEntries(filterEntries(diffScope(options.scope), options.selectors));
+  const entries = filtered.entries;
   const baseline = readSyncState(options.scope);
-  const operations = entries.flatMap((entry) => createOperations(entry, { ...options, baseline })).filter(Boolean);
+  const callArchive = [];
+  const operationOptions = { ...options, callArchive };
+  const operations = entries.flatMap((entry) => createOperations(entry, operationOptions)).filter(Boolean);
+  const backupRoot = `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`;
 
   return {
     from: options.from,
@@ -628,59 +862,35 @@ function createSyncPlan(options, mode) {
     hasBaseline: Boolean(baseline),
     include: renderSelectors(options.selectors.include),
     exclude: renderSelectors(options.selectors.exclude),
+    ignorePath: filtered.path,
+    ignoreRules: filtered.rules ?? [],
+    ignored: filtered.ignored,
     canApply: true,
-    confirm: options.confirm,
-    requiresConfirmation: options.apply && options.confirm,
-    backupRoot: `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`,
+    backupRoot,
+    callArchive,
+    callArchivePath: join(backupRoot, "unsupported-calls.json"),
     operations,
     results: []
   };
 }
 
 function createOperations(entry, options) {
-  if (options.routeExplicit) {
-    return [createOperation(entry, options.from, options.to, options)];
-  }
-
-  if (options.baseline) {
-    return createBaselineOperations(entry, options.baseline, options);
-  }
-
+  const { from, to } = options;
+  const missingInTarget = to === "codex" ? entry.missingInCodex ?? [] : entry.missingInClaude ?? [];
+  const missingInSource = to === "codex" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
+  const conflicts = entry.conflicts ?? [];
   const operations = [];
-  if ((entry.missingInCodex ?? []).length > 0) {
-    operations.push(createOperation(entry, "claude", "codex", options));
-  }
-  if ((entry.missingInClaude ?? []).length > 0) {
-    operations.push(createOperation(entry, "codex", "claude", options));
-  }
-  if ((entry.conflicts ?? []).length > 0 || operations.length === 0) {
-    operations.push(createOperation(entry, options.from, options.to, options));
+
+  if (missingInTarget.length > 0) {
+    operations.push(createOperationForItems(entry, from, to, missingInTarget, options));
   }
 
-  return operations;
-}
-
-function createBaselineOperations(entry, baseline, options) {
-  const operations = [];
-  const areaBaseline = baseline.areas?.[entry.area];
-
-  for (const item of entry.missingInCodex ?? []) {
-    if (areaBaseline?.codex?.includes(item)) {
-      operations.push(createDeleteOperation(entry, "codex", "claude", [item], options));
-    } else {
-      operations.push(createOperationForItems(entry, "claude", "codex", [item], options));
-    }
+  if (missingInSource.length > 0) {
+    operations.push(createDeleteOperation(entry, from, to, missingInSource, options));
   }
 
-  for (const item of entry.missingInClaude ?? []) {
-    if (areaBaseline?.claude?.includes(item)) {
-      operations.push(createDeleteOperation(entry, "claude", "codex", [item], options));
-    } else {
-      operations.push(createOperationForItems(entry, "codex", "claude", [item], options));
-    }
-  }
-  if ((entry.conflicts ?? []).length > 0 || operations.length === 0) {
-    operations.push(createOperation(entry, options.from, options.to, options));
+  if (conflicts.length > 0 || operations.length === 0) {
+    operations.push(createOperation(entry, from, to, options));
   }
 
   return operations;
@@ -696,7 +906,8 @@ function createOperationForItems(entry, from, to, itemNames, options) {
 }
 
 function createDeleteOperation(entry, from, to, itemNames, options) {
-  if (!["mcp", "permissions", "hooks"].includes(entry.area)) {
+  const deletableAreas = ["mcp", "permissions", "hooks", "skills", "agents"];
+  if (!deletableAreas.includes(entry.area)) {
     return {
       scope: entry.scope,
       area: entry.area,
@@ -712,6 +923,9 @@ function createDeleteOperation(entry, from, to, itemNames, options) {
 
   const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
   const sourcePath = from === "claude" ? entry.claudePath : entry.codexPath;
+  const skillTargetIndex = entry.area === "skills"
+    ? (to === "claude" ? entry.claudeSkillIndex ?? {} : entry.codexSkillIndex ?? {})
+    : undefined;
   return {
     scope: entry.scope,
     area: entry.area,
@@ -723,12 +937,15 @@ function createDeleteOperation(entry, from, to, itemNames, options) {
     targetPath,
     sourceMcpPaths: from === "claude" ? entry.claudeMcpPaths : entry.codexMcpPaths,
     targetMcpPaths: to === "claude" ? entry.claudeMcpPaths : entry.codexMcpPaths,
-      itemNames,
-      serverNames: entry.area === "mcp" ? itemNames : undefined,
-      itemQualities: operationItemQualities(entry, itemNames),
-      backupRequired: true,
-      approvalRequired: false
-    };
+    itemNames,
+    serverNames: entry.area === "mcp" ? itemNames : undefined,
+    skillNames: entry.area === "skills" ? itemNames : undefined,
+    skillTargetIndex,
+    agentNames: entry.area === "agents" ? itemNames : undefined,
+    itemQualities: operationItemQualities(entry, itemNames),
+    backupRequired: true,
+    approvalRequired: false
+  };
 }
 
 function createOperation(entry, from, to, options = {}) {
@@ -809,7 +1026,12 @@ function createOperation(entry, from, to, options = {}) {
   }
 
   if (entry.area === "instructions") {
-    const instructionContent = from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    const instructionContent = transformTextForHost(
+      from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent,
+      from,
+      to,
+      { callArchive: options.callArchive }
+    );
     if (!existsSync(sourcePath) && !instructionContent) {
       return {
         scope: entry.scope,
@@ -831,6 +1053,8 @@ function createOperation(entry, from, to, options = {}) {
       sourcePath,
       targetPath,
       content: instructionContent,
+      termMappingPath: terminologyMapPath(),
+      targetTemplatePath: targetTemplatePath(),
       changePreview: contentChangePreview(
         `${toLabel(to)} current`,
         to === "claude" ? entry.claudeInstructionContent ?? "" : entry.codexInstructionContent ?? "",
@@ -846,17 +1070,50 @@ function createOperation(entry, from, to, options = {}) {
     const missing = to === "claude" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
     const conflicts = entry.conflicts ?? [];
     const skillNames = [...missing, ...conflicts];
+    const sourceIndex = from === "claude" ? entry.claudeSkillIndex ?? {} : entry.codexSkillIndex ?? {};
     return {
       scope: entry.scope,
       area: entry.area,
       risk: entry.risk,
       action: "copy-missing-skills",
+      from,
+      to,
       sourcePath,
       targetPath,
       skillNames,
+      skillSourceIndex: sourceIndex,
       overwriteSkillNames: conflicts,
       itemQualities: operationItemQualities(entry, skillNames),
-      changePreview: skillChangePreview(sourcePath, targetPath, conflicts, from),
+      termMappingPath: terminologyMapPath(),
+      targetTemplatePath: targetTemplatePath(),
+      changePreview: skillChangePreview(sourcePath, targetPath, conflicts, from, sourceIndex),
+      backupRequired: true,
+      approvalRequired: false
+    };
+  }
+
+  if (entry.area === "agents") {
+    const missing = to === "claude" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
+    const conflicts = entry.conflicts ?? [];
+    const agentNames = [...missing, ...conflicts];
+    if (agentNames.length === 0) return null;
+
+    return {
+      scope: entry.scope,
+      area: entry.area,
+      risk: entry.risk,
+      action: "merge-agents",
+      from,
+      to,
+      sourcePath,
+      targetPath,
+      agentNames,
+      overwriteAgentNames: conflicts,
+      itemQualities: operationItemQualities(entry, agentNames),
+      agentsMapPath: agentsMapPath(),
+      termMappingPath: terminologyMapPath(),
+      targetTemplatePath: targetTemplatePath(),
+      changePreview: agentChangePreview(sourcePath, targetPath, conflicts, from, to),
       backupRequired: true,
       approvalRequired: false
     };
@@ -964,11 +1221,12 @@ function hookPatchPreview(from, to, sourcePath, itemNames) {
 function renderSyncPlan(plan) {
   const lines = [
     "AI Config Sync Manager sync",
-    `Route: ${plan.route === "auto" ? "auto (diff-directed)" : `${plan.from} -> ${plan.to}`}`,
+    `Route: ${plan.route === "auto" ? `auto (diff-directed, default ${plan.from} -> ${plan.to})` : `${plan.from} -> ${plan.to}`}`,
     `Scope: ${plan.scope}`,
     `Mode: ${plan.mode}`,
     `Include: ${plan.include.length ? plan.include.join(", ") : "all"}`,
     `Exclude: ${plan.exclude.length ? plan.exclude.join(", ") : "none"}`,
+    formatPlanIgnoreLine(plan.ignorePath, plan.ignoreRules, plan.ignored),
     `Backup root: ${plan.backupRoot}`
   ];
 
@@ -991,6 +1249,12 @@ function renderSyncPlan(plan) {
     }
     if (operation.serverNames?.length) {
       lines.push(`  MCP servers: ${formatOperationItems(operation, operation.serverNames).join(", ")}`);
+    }
+    if (operation.termMappingPath) {
+      lines.push(`  Term mapping: ${operation.termMappingPath}`);
+    }
+    if (operation.targetTemplatePath) {
+      lines.push(`  Target templates: ${operation.targetTemplatePath}`);
     }
     if (operation.reviewNotes?.length) {
       lines.push("  Review notes:");
@@ -1024,6 +1288,9 @@ function renderSyncPlan(plan) {
     for (const result of plan.results) {
       lines.push(`  ${result.status}: ${result.message}`);
     }
+    if (Array.isArray(plan.callArchive) && plan.callArchive.length > 0) {
+      lines.push(`Calls archive: ${plan.callArchivePath}`);
+    }
   } else {
     lines.push("");
     lines.push("Dry-run only. No files were modified.");
@@ -1036,32 +1303,848 @@ function renderSyncPlans(plans) {
   return plans.map(renderSyncPlan).join("\n\n");
 }
 
-function renderApplyResults(plans) {
-  const lines = ["", "Apply results:"];
-  for (const plan of plans) {
-    lines.push(`  Scope: ${plan.scope}`);
-    for (const result of plan.results) {
-      lines.push(`    ${result.status}: ${result.message}`);
-    }
-  }
-  return lines.join("\n");
-}
-
-async function confirmApply() {
-  const rl = createInterface({ input, output });
-  try {
-    const answer = await rl.question("Apply this sync plan? Type yes to continue: ");
-    return answer.trim().toLowerCase() === "yes";
-  } finally {
-    rl.close();
-  }
-}
 
 function formatOperationItems(operation, items) {
   return items.map((item) => {
     const quality = operation.itemQualities?.[item] ?? operation.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
     return quality ? `${item} [${quality}]` : item;
   });
+}
+
+function terminologyMapPath() {
+  return terminologyMapSource().path;
+}
+
+function targetTemplatePath() {
+  return targetTemplateSource().path;
+}
+
+function terminologyMapSource() {
+  for (const path of terminologyMapCandidates()) {
+    if (existsSync(path)) return { path, data: readJsonFile(path, { rules: [] }) };
+  }
+  return { path: join(runtimeRoot, "rules/terminology-map.json"), data: { rules: [] } };
+}
+
+function terminologyMapCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/terminology-map.json"),
+    `${home}/.ai-config-sync-manager/rules/terminology-map.json`,
+    join(runtimeRoot, "rules/terminology-map.json")
+  ];
+}
+
+function targetTemplateSource() {
+  for (const path of targetTemplateCandidates()) {
+    if (existsSync(path)) return { path, data: readJsonFile(path, { templates: [] }) };
+  }
+  return { path: join(runtimeRoot, "rules/host-target-templates.json"), data: { templates: [] } };
+}
+
+function targetTemplateCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/host-target-templates.json"),
+    `${home}/.ai-config-sync-manager/rules/host-target-templates.json`,
+    join(runtimeRoot, "rules/host-target-templates.json")
+  ];
+}
+
+function transformTextForHost(value, from, to, options = {}) {
+  return applyTermMappings(
+    applyTargetTemplates(
+      applyCallTransforms(value, from, to, options.callArchive),
+      from,
+      to
+    ),
+    from,
+    to
+  );
+}
+
+function callTemplatesPath() {
+  return callTemplatesSource().path;
+}
+
+function callTemplatesData() {
+  return callTemplatesSource().data;
+}
+
+function callTemplatesSource() {
+  for (const path of callTemplatesCandidates()) {
+    if (existsSync(path)) {
+      return { path, data: readJsonFile(path, { supported: [], unsupported: [] }) };
+    }
+  }
+  return {
+    path: join(runtimeRoot, "rules/call-templates.json"),
+    data: { supported: [], unsupported: [] }
+  };
+}
+
+function callTemplatesCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/call-templates.json"),
+    `${home}/.ai-config-sync-manager/rules/call-templates.json`,
+    join(runtimeRoot, "rules/call-templates.json")
+  ];
+}
+
+function applyCallTransforms(value, from, to, archive) {
+  const text = String(value ?? "");
+  if (!text || from === to) return text;
+
+  const data = callTemplatesData();
+  const supported = Array.isArray(data?.supported) ? data.supported : [];
+  const unsupported = Array.isArray(data?.unsupported) ? data.unsupported : [];
+
+  if (from === "claude" && to === "codex") {
+    return applyClaudeToCodexCallTransforms(text, supported, unsupported, archive);
+  }
+  if (from === "codex" && to === "claude") {
+    return applyCodexToClaudeCallTransforms(text, supported, unsupported, archive);
+  }
+  return text;
+}
+
+function applyClaudeToCodexCallTransforms(text, supported, unsupported, archive) {
+  let working = text;
+  for (const rule of supported) {
+    if (typeof rule?.claude_call !== "string" || !rule.claude_call) continue;
+    working = transformClaudeCallsForward(working, rule, archive);
+  }
+  for (const rule of unsupported) {
+    if (typeof rule?.claude_call !== "string" || !rule.claude_call) continue;
+    working = stripClaudeCallsForward(working, rule, archive);
+  }
+  return working;
+}
+
+function applyCodexToClaudeCallTransforms(text, supported, unsupported, archive) {
+  let working = text;
+  for (const rule of supported) {
+    if (typeof rule?.codex_marker !== "string" || !rule.codex_marker) continue;
+    working = transformCodexProseReverse(working, rule, archive);
+  }
+  for (const rule of unsupported) {
+    if (typeof rule?.codex_marker !== "string" || !rule.codex_marker) continue;
+    working = restoreStrippedCallsReverse(working, rule, archive);
+  }
+  return working;
+}
+
+function transformClaudeCallsForward(text, rule, archive) {
+  const callName = rule.claude_call;
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const match = findCallStart(text, callName, cursor);
+    if (match === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+
+    const openParen = text.indexOf("(", match + callName.length);
+    if (openParen === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+
+    const closeParen = findMatchingClose(text, openParen);
+    if (closeParen === -1) {
+      result += text.slice(cursor, match);
+      result += emitManualReviewComment(callName, "unterminated call expression");
+      result += text.slice(match);
+      pushArchiveEntry(archive, {
+        direction: "claude->codex",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: text.slice(match),
+        fields: null,
+        reason: "unterminated call expression"
+      });
+      break;
+    }
+
+    const argText = text.slice(openParen + 1, closeParen);
+    const fullCall = text.slice(match, closeParen + 1);
+    const parsed = parseSingleObjectArgument(argText);
+
+    result += text.slice(cursor, match);
+
+    if (!parsed.ok) {
+      result += emitManualReviewComment(callName, parsed.reason);
+      result += fullCall;
+      pushArchiveEntry(archive, {
+        direction: "claude->codex",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: fullCall,
+        fields: null,
+        reason: parsed.reason
+      });
+      cursor = closeParen + 1;
+      continue;
+    }
+
+    const aliasedFields = renameFieldKeys(parsed.fields, rule.field_aliases?.claude_to_codex);
+    const rendered = renderCodexTemplate(rule.codex_template, aliasedFields);
+    const markerPayload = JSON.stringify({ call: callName, fields: parsed.fields });
+    const marker = `<!-- ${rule.codex_marker} ${markerPayload} -->`;
+    result += `${marker}\n${rendered}`;
+    pushArchiveEntry(archive, {
+      direction: "claude->codex",
+      rule_id: rule.id ?? null,
+      call: callName,
+      action: "transformed",
+      original: fullCall,
+      fields: parsed.fields,
+      reason: null
+    });
+    cursor = closeParen + 1;
+  }
+
+  return result;
+}
+
+function stripClaudeCallsForward(text, rule, archive) {
+  const callName = rule.claude_call;
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const match = findCallStart(text, callName, cursor);
+    if (match === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+
+    const openParen = text.indexOf("(", match + callName.length);
+    if (openParen === -1) {
+      result += text.slice(cursor);
+      break;
+    }
+
+    const closeParen = findMatchingClose(text, openParen);
+    if (closeParen === -1) {
+      result += text.slice(cursor, match);
+      result += emitManualReviewComment(callName, "unterminated call expression");
+      result += text.slice(match);
+      pushArchiveEntry(archive, {
+        direction: "claude->codex",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: text.slice(match),
+        fields: null,
+        reason: "unterminated call expression"
+      });
+      break;
+    }
+
+    const argText = text.slice(openParen + 1, closeParen);
+    const fullCall = text.slice(match, closeParen + 1);
+    const parsed = parseSingleObjectArgument(argText);
+
+    result += text.slice(cursor, match);
+
+    if (!parsed.ok) {
+      result += emitManualReviewComment(callName, parsed.reason);
+      result += fullCall;
+      pushArchiveEntry(archive, {
+        direction: "claude->codex",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: fullCall,
+        fields: null,
+        reason: parsed.reason
+      });
+      cursor = closeParen + 1;
+      continue;
+    }
+
+    const reason = typeof rule.reason === "string" ? rule.reason : "";
+    const markerPayload = JSON.stringify({
+      call: callName,
+      fields: parsed.fields,
+      reason
+    });
+    result += `<!-- ${rule.codex_marker} ${markerPayload} -->`;
+    pushArchiveEntry(archive, {
+      direction: "claude->codex",
+      rule_id: rule.id ?? null,
+      call: callName,
+      action: "stripped",
+      original: fullCall,
+      fields: parsed.fields,
+      reason: reason || null
+    });
+    cursor = closeParen + 1;
+  }
+
+  return result;
+}
+
+function transformCodexProseReverse(text, rule, archive) {
+  const marker = rule.codex_marker;
+  const escaped = escapeRegExp(marker);
+  const markerPattern = new RegExp(`<!--\\s*${escaped}\\s+(\\{[\\s\\S]*?\\})\\s*-->`, "g");
+  let result = "";
+  let cursor = 0;
+
+  for (const match of text.matchAll(markerPattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    result += text.slice(cursor, start);
+
+    const payload = parseMarkerPayload(match[1]);
+    if (!payload.ok) {
+      result += match[0];
+      pushArchiveEntry(archive, {
+        direction: "codex->claude",
+        rule_id: rule.id ?? null,
+        call: null,
+        action: "manual-review",
+        original: match[0],
+        fields: null,
+        reason: payload.reason
+      });
+      cursor = end;
+      continue;
+    }
+
+    const callName = typeof payload.value.call === "string" ? payload.value.call : null;
+    const fields = payload.value.fields;
+    if (!callName || !fields || typeof fields !== "object") {
+      result += match[0];
+      pushArchiveEntry(archive, {
+        direction: "codex->claude",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: match[0],
+        fields: fields ?? null,
+        reason: "marker payload missing call or fields"
+      });
+      cursor = end;
+      continue;
+    }
+
+    const proseEnd = findReverseProseBlockEnd(text, end, marker, rule, fields);
+    if (proseEnd === -1) {
+      result += emitManualReviewComment(callName, "could not delimit rendered prose");
+      result += match[0];
+      pushArchiveEntry(archive, {
+        direction: "codex->claude",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: match[0],
+        fields,
+        reason: "could not delimit rendered prose"
+      });
+      cursor = end;
+      continue;
+    }
+
+    const aliased = renameFieldKeys(fields, rule.field_aliases?.codex_to_claude);
+    const reconstruction = `${callName}(${formatObjectLiteral(aliased)})`;
+    result += reconstruction;
+    pushArchiveEntry(archive, {
+      direction: "codex->claude",
+      rule_id: rule.id ?? null,
+      call: callName,
+      action: "restored",
+      original: text.slice(start, proseEnd),
+      fields,
+      reason: null
+    });
+    cursor = proseEnd;
+  }
+
+  result += text.slice(cursor);
+  return result;
+}
+
+function restoreStrippedCallsReverse(text, rule, archive) {
+  const marker = rule.codex_marker;
+  const escaped = escapeRegExp(marker);
+  const markerPattern = new RegExp(`<!--\\s*${escaped}\\s+(\\{[\\s\\S]*?\\})\\s*-->`, "g");
+  let result = "";
+  let cursor = 0;
+
+  for (const match of text.matchAll(markerPattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    result += text.slice(cursor, start);
+
+    const payload = parseMarkerPayload(match[1]);
+    if (!payload.ok) {
+      result += match[0];
+      pushArchiveEntry(archive, {
+        direction: "codex->claude",
+        rule_id: rule.id ?? null,
+        call: null,
+        action: "manual-review",
+        original: match[0],
+        fields: null,
+        reason: payload.reason
+      });
+      cursor = end;
+      continue;
+    }
+
+    const callName = typeof payload.value.call === "string" ? payload.value.call : null;
+    const fields = payload.value.fields;
+    if (!callName || !fields || typeof fields !== "object") {
+      result += match[0];
+      pushArchiveEntry(archive, {
+        direction: "codex->claude",
+        rule_id: rule.id ?? null,
+        call: callName,
+        action: "manual-review",
+        original: match[0],
+        fields: fields ?? null,
+        reason: "marker payload missing call or fields"
+      });
+      cursor = end;
+      continue;
+    }
+
+    if (rule.claude_call && callName !== rule.claude_call) {
+      result += match[0];
+      cursor = end;
+      continue;
+    }
+
+    const reconstruction = `${callName}(${formatObjectLiteral(fields)})`;
+    result += reconstruction;
+    pushArchiveEntry(archive, {
+      direction: "codex->claude",
+      rule_id: rule.id ?? null,
+      call: callName,
+      action: "restored",
+      original: match[0],
+      fields,
+      reason: null
+    });
+    cursor = end;
+  }
+
+  result += text.slice(cursor);
+  return result;
+}
+
+function findCallStart(text, callName, fromIndex) {
+  const escaped = escapeRegExp(callName);
+  const pattern = new RegExp(`(^|[^A-Za-z0-9_$])${escaped}\\s*\\(`, "g");
+  pattern.lastIndex = fromIndex;
+  const match = pattern.exec(text);
+  if (!match) return -1;
+  return match.index + match[1].length;
+}
+
+function findMatchingClose(text, openParen) {
+  const length = text.length;
+  let depth = 0;
+  let index = openParen;
+
+  while (index < length) {
+    const ch = text[index];
+
+    if (ch === '"' || ch === "'" || ch === "`") {
+      index = skipStringLiteral(text, index);
+      if (index === -1) return -1;
+      continue;
+    }
+
+    if (ch === "(" || ch === "{" || ch === "[") {
+      depth += 1;
+      index += 1;
+      continue;
+    }
+
+    if (ch === ")" || ch === "}" || ch === "]") {
+      depth -= 1;
+      if (depth === 0 && ch === ")") return index;
+      if (depth < 0) return -1;
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return -1;
+}
+
+function skipStringLiteral(text, start) {
+  const quote = text[start];
+  let index = start + 1;
+  while (index < text.length) {
+    const ch = text[index];
+    if (ch === "\\") {
+      index += 2;
+      continue;
+    }
+    if (ch === quote) return index + 1;
+    index += 1;
+  }
+  return -1;
+}
+
+function parseSingleObjectArgument(argText) {
+  const trimmed = argText.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+    return { ok: false, reason: "argument is not a single object literal" };
+  }
+
+  const reader = { text: trimmed, index: 0 };
+  const value = readObjectLiteral(reader);
+  if (!value.ok) return value;
+
+  skipWhitespace(reader);
+  if (reader.index !== reader.text.length) {
+    return { ok: false, reason: "extra tokens after object literal" };
+  }
+
+  return { ok: true, fields: value.value };
+}
+
+function readValue(reader) {
+  skipWhitespace(reader);
+  const ch = reader.text[reader.index];
+  if (ch === undefined) return { ok: false, reason: "unexpected end of value" };
+  if (ch === "{") return readObjectLiteral(reader);
+  if (ch === "[") return readArrayLiteral(reader);
+  if (ch === '"' || ch === "'" || ch === "`") return readStringLiteral(reader);
+  if (ch === "-" || (ch >= "0" && ch <= "9")) return readNumberLiteral(reader);
+  if (matchKeyword(reader, "true")) return { ok: true, value: true };
+  if (matchKeyword(reader, "false")) return { ok: true, value: false };
+  if (matchKeyword(reader, "null")) return { ok: true, value: null };
+  return { ok: false, reason: `unsupported value token at offset ${reader.index}` };
+}
+
+function readObjectLiteral(reader) {
+  if (reader.text[reader.index] !== "{") {
+    return { ok: false, reason: "expected '{'" };
+  }
+  reader.index += 1;
+  const fields = {};
+
+  while (true) {
+    skipWhitespace(reader);
+    const ch = reader.text[reader.index];
+    if (ch === undefined) return { ok: false, reason: "unterminated object literal" };
+    if (ch === "}") {
+      reader.index += 1;
+      return { ok: true, value: fields };
+    }
+
+    const key = readObjectKey(reader);
+    if (!key.ok) return key;
+
+    skipWhitespace(reader);
+    if (reader.text[reader.index] !== ":") {
+      return { ok: false, reason: "expected ':' after object key" };
+    }
+    reader.index += 1;
+
+    const value = readValue(reader);
+    if (!value.ok) return value;
+    fields[key.value] = value.value;
+
+    skipWhitespace(reader);
+    const next = reader.text[reader.index];
+    if (next === ",") {
+      reader.index += 1;
+      continue;
+    }
+    if (next === "}") {
+      reader.index += 1;
+      return { ok: true, value: fields };
+    }
+    return { ok: false, reason: "expected ',' or '}' in object literal" };
+  }
+}
+
+function readArrayLiteral(reader) {
+  if (reader.text[reader.index] !== "[") {
+    return { ok: false, reason: "expected '['" };
+  }
+  reader.index += 1;
+  const items = [];
+
+  while (true) {
+    skipWhitespace(reader);
+    const ch = reader.text[reader.index];
+    if (ch === undefined) return { ok: false, reason: "unterminated array literal" };
+    if (ch === "]") {
+      reader.index += 1;
+      return { ok: true, value: items };
+    }
+
+    const value = readValue(reader);
+    if (!value.ok) return value;
+    items.push(value.value);
+
+    skipWhitespace(reader);
+    const next = reader.text[reader.index];
+    if (next === ",") {
+      reader.index += 1;
+      continue;
+    }
+    if (next === "]") {
+      reader.index += 1;
+      return { ok: true, value: items };
+    }
+    return { ok: false, reason: "expected ',' or ']' in array literal" };
+  }
+}
+
+function readObjectKey(reader) {
+  skipWhitespace(reader);
+  const ch = reader.text[reader.index];
+  if (ch === '"' || ch === "'" || ch === "`") {
+    const value = readStringLiteral(reader);
+    return value;
+  }
+  const start = reader.index;
+  while (reader.index < reader.text.length) {
+    const c = reader.text[reader.index];
+    if ((c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "_" || c === "$") {
+      reader.index += 1;
+    } else {
+      break;
+    }
+  }
+  if (reader.index === start) {
+    return { ok: false, reason: `expected object key at offset ${start}` };
+  }
+  return { ok: true, value: reader.text.slice(start, reader.index) };
+}
+
+function readStringLiteral(reader) {
+  const quote = reader.text[reader.index];
+  if (quote !== '"' && quote !== "'" && quote !== "`") {
+    return { ok: false, reason: "expected string quote" };
+  }
+  let index = reader.index + 1;
+  let result = "";
+  while (index < reader.text.length) {
+    const ch = reader.text[index];
+    if (ch === "\\") {
+      const next = reader.text[index + 1];
+      if (next === undefined) return { ok: false, reason: "dangling escape in string literal" };
+      result += unescapeChar(next);
+      index += 2;
+      continue;
+    }
+    if (quote === "`" && ch === "$" && reader.text[index + 1] === "{") {
+      return { ok: false, reason: "template literal interpolation is not supported" };
+    }
+    if (ch === quote) {
+      reader.index = index + 1;
+      return { ok: true, value: result };
+    }
+    result += ch;
+    index += 1;
+  }
+  return { ok: false, reason: "unterminated string literal" };
+}
+
+function unescapeChar(ch) {
+  if (ch === "n") return "\n";
+  if (ch === "r") return "\r";
+  if (ch === "t") return "\t";
+  if (ch === "b") return "\b";
+  if (ch === "f") return "\f";
+  if (ch === "0") return "\0";
+  return ch;
+}
+
+function readNumberLiteral(reader) {
+  const start = reader.index;
+  if (reader.text[reader.index] === "-") reader.index += 1;
+  while (reader.index < reader.text.length) {
+    const ch = reader.text[reader.index];
+    if ((ch >= "0" && ch <= "9") || ch === "." || ch === "e" || ch === "E" || ch === "+" || ch === "-") {
+      reader.index += 1;
+    } else {
+      break;
+    }
+  }
+  const slice = reader.text.slice(start, reader.index);
+  if (!/^-?\d+(\.\d+)?([eE][+-]?\d+)?$/.test(slice)) {
+    return { ok: false, reason: `invalid number literal '${slice}'` };
+  }
+  return { ok: true, value: Number(slice) };
+}
+
+function matchKeyword(reader, keyword) {
+  if (reader.text.slice(reader.index, reader.index + keyword.length) !== keyword) return false;
+  const next = reader.text[reader.index + keyword.length];
+  if (next !== undefined && /[A-Za-z0-9_$]/.test(next)) return false;
+  reader.index += keyword.length;
+  return true;
+}
+
+function skipWhitespace(reader) {
+  while (reader.index < reader.text.length && /\s/.test(reader.text[reader.index])) {
+    reader.index += 1;
+  }
+}
+
+function renameFieldKeys(fields, aliases) {
+  if (!fields || typeof fields !== "object" || !aliases) return { ...fields };
+  const renamed = {};
+  for (const key of Object.keys(fields)) {
+    const aliasKey = typeof aliases[key] === "string" ? aliases[key] : key;
+    renamed[aliasKey] = fields[key];
+  }
+  return renamed;
+}
+
+function renderCodexTemplate(template, fields) {
+  if (typeof template !== "string") return "";
+  return template.replace(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (_, key) => {
+    const value = fields[key];
+    if (value === undefined || value === null) return "";
+    return typeof value === "string" ? value : JSON.stringify(value);
+  });
+}
+
+function formatObjectLiteral(fields) {
+  const keys = Object.keys(fields ?? {});
+  const parts = keys.map((key) => `${formatObjectKey(key)}: ${formatObjectValue(fields[key])}`);
+  return `{ ${parts.join(", ")} }`;
+}
+
+function formatObjectKey(key) {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? key : JSON.stringify(key);
+}
+
+function formatObjectValue(value) {
+  if (typeof value === "string") return JSON.stringify(value);
+  if (value === null) return "null";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function emitManualReviewComment(callName, reason) {
+  const safeReason = String(reason ?? "").replace(/-->/g, "--&gt;").replace(/"/g, "'");
+  return `<!-- ai-config-sync:manual-review reason="cannot parse ${callName} arguments: ${safeReason}" -->`;
+}
+
+function parseMarkerPayload(jsonText) {
+  try {
+    const value = JSON.parse(jsonText);
+    if (value && typeof value === "object") return { ok: true, value };
+    return { ok: false, reason: "marker payload is not an object" };
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : "marker JSON parse error" };
+  }
+}
+
+function findReverseProseBlockEnd(text, markerEnd, marker, rule, fields) {
+  const renderedProse = renderCodexTemplate(rule?.codex_template, fields ?? {});
+  if (renderedProse) {
+    const proseStart = consumeLeadingNewline(text, markerEnd);
+    if (text.startsWith(renderedProse, proseStart)) {
+      return proseStart + renderedProse.length;
+    }
+  }
+
+  const escaped = escapeRegExp(marker);
+  const nextMarkerMatch = text.slice(markerEnd).match(new RegExp(`<!--\\s*${escaped}`));
+  if (nextMarkerMatch) return markerEnd + nextMarkerMatch.index;
+
+  return -1;
+}
+
+function consumeLeadingNewline(text, index) {
+  if (text[index] === "\n") return index + 1;
+  if (text[index] === "\r" && text[index + 1] === "\n") return index + 2;
+  return index;
+}
+
+function pushArchiveEntry(archive, entry) {
+  if (!Array.isArray(archive)) return;
+  archive.push(entry);
+}
+
+function applyTargetTemplates(value, from, to) {
+  const text = String(value ?? "");
+  if (!text || from === to) return text;
+
+  const { data } = targetTemplateSource();
+  const templates = targetTemplates(data);
+  const replacements = [];
+
+  for (const template of templates) {
+    const aliases = Array.isArray(template?.aliases?.[from])
+      ? template.aliases[from].filter((item) => typeof item === "string" && item)
+      : [];
+    const target = template?.target?.[to];
+    if (aliases.length === 0 || typeof target !== "string" || !target) continue;
+
+    for (const alias of aliases) replacements.push({ source: alias, target });
+  }
+
+  replacements.sort((left, right) => right.source.length - left.source.length);
+  return replacements.reduce(
+    (nextText, { source, target }) => nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
+    text
+  );
+}
+
+function targetTemplates(data) {
+  if (Array.isArray(data?.templates)) return data.templates;
+  return Array.isArray(data?.workflows) ? data.workflows : [];
+}
+
+function applyTermMappings(value, from, to) {
+  const text = String(value ?? "");
+  if (!text || from === to) return text;
+
+  const { data } = terminologyMapSource();
+  const rules = terminologyRules(data);
+  const literalReplacements = [];
+  let working = text;
+
+  for (const rule of rules) {
+    if (rule?.regex) {
+      const pattern = rule[`${from}_pattern`];
+      const replace = rule[`${to}_replace`];
+      if (typeof pattern === "string" && pattern && typeof replace === "string") {
+        working = working.replace(new RegExp(pattern, "g"), replace);
+      }
+      continue;
+    }
+
+    const sourceTerms = Array.isArray(rule?.[from]) ? rule[from].filter((item) => typeof item === "string" && item) : [];
+    const targetTerms = Array.isArray(rule?.[to]) ? rule[to].filter((item) => typeof item === "string" && item) : [];
+    if (sourceTerms.length === 0 || targetTerms.length === 0) continue;
+
+    const target = targetTerms[0];
+    for (const source of sourceTerms) literalReplacements.push({ source, target });
+  }
+
+  literalReplacements.sort((left, right) => right.source.length - left.source.length);
+  return literalReplacements.reduce(
+    (nextText, { source, target }) => nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
+    working
+  );
+}
+
+function terminologyRules(data) {
+  const layered = Array.isArray(data?.layers)
+    ? data.layers.flatMap((layer) => Array.isArray(layer?.rules) ? layer.rules : [])
+    : Array.isArray(data?.rules) ? data.rules : [];
+  return [...modelTerminologyRules(), ...layered];
 }
 
 function toLabel(host) {
@@ -1076,10 +2159,11 @@ function fileText(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
-function skillChangePreview(sourcePath, targetPath, skillNames, from) {
+function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceIndex = {}) {
   const lines = [];
   for (const skillName of skillNames) {
-    const source = skillPreviewContent(sourcePath, skillName);
+    const sourceDir = sourceIndex[skillName] ?? sourcePath;
+    const source = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, from === "claude" ? "codex" : "claude");
     const target = skillPreviewContent(targetPath, skillName);
     lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
     lines.push(...contentChangePreview("Target current", target, `After apply from ${fromLabel(from)}`, source).map((line) => `  ${line}`));
@@ -1089,10 +2173,118 @@ function skillChangePreview(sourcePath, targetPath, skillNames, from) {
 
 function skillPreviewContent(basePath, skillName) {
   const skillPath = join(basePath, skillName);
-  const skillMd = join(skillPath, "SKILL.md");
-  if (existsSync(skillMd)) return readFileSync(skillMd, "utf8");
+  const manifest = findSkillManifest(skillPath);
+  if (manifest) return readFileSync(manifest, "utf8");
   if (existsSync(skillPath) && !lstatSync(skillPath).isDirectory()) return readFileSync(skillPath, "utf8");
   return "";
+}
+
+function agentChangePreview(sourceDir, targetDir, agentNames, from, to) {
+  const lines = [];
+  for (const agentName of agentNames) {
+    lines.push(`${agentName}: target will be replaced from ${fromLabel(from)}`);
+    const targetContent = agentPreviewContent(targetDir, agentName, to);
+    const sourceContent = agentPreviewContent(sourceDir, agentName, from);
+    const transformedSource = from === "claude"
+      ? transformTextForHost(sourceContent, "claude", "codex")
+      : transformTextForHost(stripAgentMigrationPreamble(sourceContent), "codex", "claude");
+    lines.push(...contentChangePreview("Target current", targetContent, `After apply from ${fromLabel(from)}`, transformedSource).map((line) => `  ${line}`));
+  }
+  return lines;
+}
+
+function agentPreviewContent(baseDir, agentName, host) {
+  if (!baseDir) return "";
+  if (host === "claude") {
+    const direct = join(baseDir, `${agentName}.md`);
+    if (existsSync(direct)) {
+      const parsed = parseClaudeAgentText(readFileSync(direct, "utf8"));
+      return parsed.body;
+    }
+    return "";
+  }
+
+  const flatName = agentName.includes("/") ? agentName.split("/").pop() : agentName;
+  const tomlPath = join(baseDir, `${flatName}.toml`);
+  if (!existsSync(tomlPath)) return "";
+  return parseCodexAgentText(readFileSync(tomlPath, "utf8")).developer_instructions ?? "";
+}
+
+function copySkillWithMappings(source, target, from, to, options = {}) {
+  if (!existsSync(source)) return;
+
+  const stat = lstatSync(source);
+  if (!stat.isDirectory()) {
+    copyFileWithMappings(source, target, from, to, options);
+    return;
+  }
+
+  copySkillTreeWithMappings(source, target, from, to, options);
+  normalizeSkillManifestCasing(target, to);
+}
+
+function copySkillTreeWithMappings(source, target, from, to, options) {
+  mkdirSync(target, { recursive: true });
+  for (const name of readdirSync(source)) {
+    const sourcePath = join(source, name);
+    const targetPath = join(target, name);
+    if (lstatSync(sourcePath).isDirectory()) {
+      copySkillTreeWithMappings(sourcePath, targetPath, from, to, options);
+    } else {
+      copyFileWithMappings(sourcePath, targetPath, from, to, options);
+    }
+  }
+}
+
+// After copying a skill directory, rename the manifest (SKILL.md/skill.md) to match
+// the destination host's canonical casing. Skills written with the wrong casing
+// would not be discovered by the destination host's loader. Uses readdirSync to read
+// actual entry names because existsSync case-folds on case-insensitive filesystems.
+//
+// On case-insensitive filesystems (APFS default, NTFS), renameSync(skill.md, SKILL.md)
+// is a no-op — the FS treats both paths as the same inode, so the on-disk casing is
+// preserved and the wrong-cased file remains. To force the case change we read the
+// wrong-cased manifest into memory, delete it, then write the canonical name. This
+// sidesteps FS case-sensitivity entirely and works on both APFS and ext4.
+function normalizeSkillManifestCasing(skillDir, host) {
+  if (!existsSync(skillDir)) return;
+  const canonical = skillManifestBasename(host);
+  const wrong = canonical === "SKILL.md" ? "skill.md" : "SKILL.md";
+
+  const entries = readdirSync(skillDir);
+  const hasCanonical = entries.includes(canonical);
+  const hasWrong = entries.includes(wrong);
+  if (!hasWrong) return;
+
+  const wrongPath = join(skillDir, wrong);
+  const canonicalPath = join(skillDir, canonical);
+
+  if (hasCanonical) {
+    // Both casings present as distinct entries (only possible on case-sensitive FS).
+    // Drop the wrong-cased one to avoid duplicate manifests.
+    rmSync(wrongPath, { force: true });
+    return;
+  }
+
+  // Read body, delete original, write under canonical name. On case-insensitive FS,
+  // the delete + write pair forces the on-disk entry to be replaced with the new
+  // casing. On case-sensitive FS, this is equivalent to a rename.
+  const body = readFileSync(wrongPath);
+  rmSync(wrongPath, { force: true });
+  writeFileSync(canonicalPath, body);
+}
+
+function copyFileWithMappings(source, target, from, to, options = {}) {
+  mkdirSync(dirname(target), { recursive: true });
+  if (isTextMappingFile(source)) {
+    writeFileSync(target, transformTextForHost(readFileSync(source, "utf8"), from, to, options));
+  } else {
+    copyFileSync(source, target);
+  }
+}
+
+function isTextMappingFile(path) {
+  return /\.(md|mdx|txt|json|toml|yaml|yml|js|mjs|ts|tsx|jsx|py|sh|rules)$/i.test(path);
 }
 
 function contentChangePreview(beforeLabel, before, afterLabel, after) {
@@ -1145,6 +2337,8 @@ function applySyncPlan(plan) {
         applyWriteInstructions(plan, operation);
       } else if (operation.action === "copy-missing-skills") {
         applyCopyMissingSkills(plan, operation);
+      } else if (operation.action === "merge-agents") {
+        applyMergeAgents(plan, operation);
       } else if (operation.action === "merge-settings-items") {
         applyMergeSettingsItems(plan, operation);
       } else if (operation.action === "merge-mcp-servers") {
@@ -1169,9 +2363,17 @@ function applySyncPlan(plan) {
     plan.results.push({ status: "noop", message: "No operations to apply" });
   }
 
+  writeCallArchive(plan);
+
   if (plan.results.every((result) => result.status === "applied" || result.status === "noop")) {
     writeSyncState(plan.scope);
   }
+}
+
+function writeCallArchive(plan) {
+  if (!Array.isArray(plan.callArchive) || plan.callArchive.length === 0) return;
+  mkdirSync(dirname(plan.callArchivePath), { recursive: true });
+  writeFileSync(plan.callArchivePath, `${JSON.stringify(plan.callArchive, null, 2)}\n`);
 }
 
 function applyCopyFile(plan, operation) {
@@ -1196,9 +2398,11 @@ function applyWriteInstructions(plan, operation) {
 function applyCopyMissingSkills(plan, operation) {
   mkdirSync(operation.targetPath, { recursive: true });
   const overwrite = new Set(operation.overwriteSkillNames ?? []);
+  const sourceIndex = operation.skillSourceIndex ?? {};
 
   for (const skillName of operation.skillNames ?? []) {
-    const source = join(operation.sourcePath, skillName);
+    const sourceDir = sourceIndex[skillName] ?? operation.sourcePath;
+    const source = join(sourceDir, skillName);
     const target = join(operation.targetPath, skillName);
 
     if (!existsSync(source)) {
@@ -1215,8 +2419,66 @@ function applyCopyMissingSkills(plan, operation) {
       rmSync(target, { recursive: true, force: true });
     }
 
-    cpSync(source, target, { recursive: true, dereference: false });
+    copySkillWithMappings(source, target, operation.from, operation.to, { callArchive: plan.callArchive });
     plan.results.push({ status: "applied", message: `${overwrite.has(skillName) ? "replaced" : "copied"} skill ${skillName}` });
+  }
+}
+
+function applyMergeAgents(plan, operation) {
+  mkdirSync(operation.targetPath, { recursive: true });
+  const overwrite = new Set(operation.overwriteAgentNames ?? []);
+  const sourceClaudeIndex = operation.from === "claude" ? new Map(enumerateClaudeAgents(operation.sourcePath).map((agent) => [agent.name, agent])) : null;
+  const sourceCodexIndex = operation.from === "codex" ? new Map(enumerateCodexAgents(operation.sourcePath).map((agent) => [agent.name, agent])) : null;
+  const existingClaudeIndex = operation.to === "claude" ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent])) : null;
+  const existingCodexIndex = operation.to === "codex" ? new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent])) : null;
+
+  for (const agentName of operation.agentNames ?? []) {
+    if (operation.to === "codex") {
+      const sourceAgent = sourceClaudeIndex?.get(agentName);
+      if (!sourceAgent) {
+        plan.results.push({ status: "skipped", message: `agent source missing: ${agentName}` });
+        continue;
+      }
+      const targetPath = agentTargetPath(agentName, operation.targetPath, "codex", sourceAgent);
+      const existingAgent = existingCodexIndex?.get(agentName) ?? existingCodexIndex?.get(sourceAgent.name.split("/").pop());
+      if (existingAgent && !overwrite.has(agentName)) {
+        plan.results.push({ status: "skipped", message: `agent already exists: ${targetPath}` });
+        continue;
+      }
+
+      const claudeParsed = parseClaudeAgentFile(sourceAgent.path);
+      const existingFields = existingAgent ? parseCodexAgentFile(existingAgent.path) : {};
+      const codexFields = mapAgentToCodex(claudeParsed, {
+        preserveCodex: existingFields,
+        fallbackName: agentName.split("/").pop(),
+        callArchive: plan.callArchive
+      });
+      mkdirSync(dirname(targetPath), { recursive: true });
+      if (existingAgent) backupPath(plan, existingAgent.path);
+      writeFileSync(targetPath, serializeCodexAgentFile(codexFields));
+      plan.results.push({ status: "applied", message: `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}` });
+      continue;
+    }
+
+    const sourceAgent = sourceCodexIndex?.get(agentName) ?? sourceCodexIndex?.get(agentName.split("/").pop());
+    if (!sourceAgent) {
+      plan.results.push({ status: "skipped", message: `agent source missing: ${agentName}` });
+      continue;
+    }
+    const existingAgent = existingClaudeIndex?.get(agentName);
+    const targetPath = agentTargetPath(agentName, operation.targetPath, "claude", existingAgent);
+    if (existingAgent && !overwrite.has(agentName)) {
+      plan.results.push({ status: "skipped", message: `agent already exists: ${targetPath}` });
+      continue;
+    }
+
+    const codexParsed = parseCodexAgentFile(sourceAgent.path);
+    const existingClaude = existingAgent ? parseClaudeAgentFile(existingAgent.path) : { frontmatter: {}, body: "" };
+    const claude = mapAgentToClaude(codexParsed, { preserveClaude: existingClaude.frontmatter, callArchive: plan.callArchive });
+    mkdirSync(dirname(targetPath), { recursive: true });
+    if (existingAgent) backupPath(plan, existingAgent.path);
+    writeFileSync(targetPath, serializeClaudeAgentFile(claude.frontmatter, claude.body));
+    plan.results.push({ status: "applied", message: `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}` });
   }
 }
 
@@ -1256,26 +2518,32 @@ function applyMergeMcpServers(plan, operation) {
 }
 
 function applyDeleteItems(plan, operation) {
-  mkdirSync(dirname(operation.targetPath), { recursive: true });
-  backupPath(plan, operation.targetPath);
+  if (operation.area === "skills") {
+    deleteSkillItems(plan, operation);
+  } else if (operation.area === "agents") {
+    deleteAgentItems(plan, operation);
+  } else {
+    mkdirSync(dirname(operation.targetPath), { recursive: true });
+    backupPath(plan, operation.targetPath);
 
-  if (operation.area === "mcp") {
-    if (operation.to === "claude") {
-      deleteClaudeMcpServers(operation.targetPath, operation.serverNames ?? []);
-    } else {
-      deleteCodexMcpServers(operation.targetPath, operation.serverNames ?? []);
-    }
-  } else if (operation.area === "permissions") {
-    if (operation.to === "claude") {
-      deleteClaudePermissions(operation.targetPath, operation.itemNames ?? []);
-    } else {
-      deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
-    }
-  } else if (operation.area === "hooks") {
-    if (operation.to === "claude") {
-      deleteClaudeHooks(operation.targetPath, operation.itemNames ?? []);
-    } else {
-      deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
+    if (operation.area === "mcp") {
+      if (operation.to === "claude") {
+        deleteClaudeMcpServers(operation.targetPath, operation.serverNames ?? []);
+      } else {
+        deleteCodexMcpServers(operation.targetPath, operation.serverNames ?? []);
+      }
+    } else if (operation.area === "permissions") {
+      if (operation.to === "claude") {
+        deleteClaudePermissions(operation.targetPath, operation.itemNames ?? []);
+      } else {
+        deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
+      }
+    } else if (operation.area === "hooks") {
+      if (operation.to === "claude") {
+        deleteClaudeHooks(operation.targetPath, operation.itemNames ?? []);
+      } else {
+        deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
+      }
     }
   }
 
@@ -1283,6 +2551,30 @@ function applyDeleteItems(plan, operation) {
     status: "applied",
     message: `deleted ${operation.area} item(s) from ${operation.to}: ${(operation.itemNames ?? []).join(", ")}`
   });
+}
+
+function deleteSkillItems(plan, operation) {
+  const targetIndex = operation.skillTargetIndex ?? {};
+  for (const skillName of operation.skillNames ?? operation.itemNames ?? []) {
+    const targetDir = targetIndex[skillName] ?? operation.targetPath;
+    const target = join(targetDir, skillName);
+    if (!existsSync(target)) continue;
+    backupPath(plan, target);
+    rmSync(target, { recursive: true, force: true });
+  }
+}
+
+function deleteAgentItems(plan, operation) {
+  const targetIndex = operation.to === "claude"
+    ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+    : new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent]));
+
+  for (const agentName of operation.agentNames ?? operation.itemNames ?? []) {
+    const existing = targetIndex.get(agentName) ?? targetIndex.get(agentName.split("/").pop());
+    if (!existing) continue;
+    backupPath(plan, existing.path);
+    rmSync(existing.path, { force: true });
+  }
 }
 
 function mergeIntoClaudeSettings(targetPath, sourcePath, sourceHost, area, itemNames) {
@@ -2107,7 +3399,8 @@ function diffScope(scope) {
   const entries = [];
 
   compareInstructions(entries, scope, paths.claude.instructions, paths.codex.instructions, paths.claude.instructionPaths, paths.codex.instructionPaths);
-  compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills);
+  compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills, paths.claude.skillsPaths ?? [paths.claude.skills], paths.codex.skillsPaths ?? [paths.codex.skills]);
+  compareAgents(entries, scope, paths.claude.agents, paths.codex.agents);
   compareMcpServers(entries, scope, paths.claude.mcp, paths.codex.mcp, paths.claude.mcpPaths, paths.codex.mcpPaths);
 
   if (paths.claude.settings && paths.codex.settings) {
@@ -2160,7 +3453,16 @@ function createSyncState(scope) {
       hooks: {
         claude: settingsItems("claude", "hooks", paths.claude.settings),
         codex: settingsItems("codex", "hooks", paths.codex.settings)
+      },
+      agents: {
+        claude: enumerateClaudeAgents(paths.claude.agents).map((agent) => agent.name).sort(),
+        codex: enumerateCodexAgents(paths.codex.agents).map((agent) => agent.name).sort()
+      },
+      skills: {
+        claude: [...enumerateSkillIndex(paths.claude.skillsPaths ?? [paths.claude.skills]).keys()].sort(),
+        codex: [...enumerateSkillIndex(paths.codex.skillsPaths ?? [paths.codex.skills]).keys()].sort()
       }
+      // TODO: track instructions presence/hash per host once item-level diffs land for that area.
     }
   };
 }
@@ -2171,6 +3473,8 @@ function globalPaths() {
       instructions: `${home}/.claude/CLAUDE.md`,
       instructionPaths: [`${home}/.claude/CLAUDE.md`, `${home}/.claude/settings.json`],
       skills: `${home}/.claude/skills`,
+      skillsPaths: [`${home}/.claude/skills`],
+      agents: `${home}/.claude/agents`,
       mcp: `${home}/.claude/mcp.json`,
       mcpPaths: [`${home}/.claude/mcp.json`, `${home}/.claude/settings.json`, `${home}/.claude.json`, `${home}/.mcp.json`],
       settings: `${home}/.claude/settings.json`
@@ -2178,7 +3482,9 @@ function globalPaths() {
     codex: {
       instructions: `${home}/.codex/AGENTS.md`,
       instructionPaths: [`${home}/.codex/AGENTS.md`, `${home}/.codex/config.toml`],
-      skills: `${home}/.agents/skills`,
+      skills: firstExisting([`${home}/.agents/skills`, `${home}/.codex/skills`]),
+      skillsPaths: [`${home}/.agents/skills`, `${home}/.codex/skills`],
+      agents: `${home}/.codex/agents`,
       mcp: `${home}/.codex/config.toml`,
       mcpPaths: [`${home}/.codex/config.toml`, `${home}/.codex/mcp.json`, `${home}/.codex/settings.json`, `${home}/.mcp.json`],
       settings: `${home}/.codex/config.toml`
@@ -2192,6 +3498,8 @@ function projectPaths(root) {
       instructions: `${root}/CLAUDE.md`,
       instructionPaths: [`${root}/CLAUDE.md`, `${root}/.claude/settings.json`],
       skills: `${root}/.claude/skills`,
+      skillsPaths: [`${root}/.claude/skills`],
+      agents: `${root}/.claude/agents`,
       mcp: firstExisting([`${root}/.claude/mcp.json`, `${root}/.mcp.json`]),
       mcpPaths: [`${root}/.claude/mcp.json`, `${root}/.claude/settings.json`, `${root}/.mcp.json`],
       settings: `${root}/.claude/settings.json`
@@ -2200,6 +3508,8 @@ function projectPaths(root) {
       instructions: `${root}/AGENTS.md`,
       instructionPaths: [`${root}/AGENTS.md`, `${root}/.codex/config.toml`],
       skills: firstExisting([`${root}/.agents/skills`, `${root}/.codex/skills`]),
+      skillsPaths: [`${root}/.agents/skills`, `${root}/.codex/skills`],
+      agents: `${root}/.codex/agents`,
       mcp: `${root}/.codex/config.toml`,
       mcpPaths: [`${root}/.codex/config.toml`, `${root}/.codex/mcp.json`, `${root}/.codex/settings.json`, `${root}/.mcp.json`],
       settings: `${root}/.codex/config.toml`
@@ -2225,6 +3535,7 @@ function compareInstructions(entries, scope, claudePath, codexPath, claudePaths 
   const codex = instructionState("codex", codexPaths);
 
   if (!claude.exists && !codex.exists) return;
+  if (instructionsEquivalent(claude.content, codex.content)) return;
 
   if (claude.hash !== codex.hash) {
     entries.push({
@@ -2245,6 +3556,11 @@ function compareInstructions(entries, scope, claudePath, codexPath, claudePaths 
       mappingQuality: "equivalent"
     });
   }
+}
+
+function instructionsEquivalent(claudeContent, codexContent) {
+  return transformTextForHost(claudeContent, "claude", "codex") === String(codexContent ?? "")
+    || transformTextForHost(codexContent, "codex", "claude") === String(claudeContent ?? "");
 }
 
 function compareFile(entries, scope, area, claudePath, codexPath) {
@@ -2294,14 +3610,19 @@ function comparePresence(entries, scope, area, claudePath, codexPath, risk) {
   });
 }
 
-function compareSkillDirs(entries, scope, claudeDir, codexDir) {
-  const claude = skillNames(claudeDir);
-  const codex = skillNames(codexDir);
-  const missingInCodex = claude.filter((name) => !codex.includes(name));
-  const missingInClaude = codex.filter((name) => !claude.includes(name));
+function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [claudeDir], codexDirs = [codexDir]) {
+  const claudeIndex = enumerateSkillIndex(claudeDirs);
+  const codexIndex = enumerateSkillIndex(codexDirs);
+  const claude = [...claudeIndex.keys()].sort();
+  const codex = [...codexIndex.keys()].sort();
+  const missingInCodex = claude.filter((name) => !codexIndex.has(name));
+  const missingInClaude = codex.filter((name) => !claudeIndex.has(name));
   const conflicts = claude
-    .filter((name) => codex.includes(name))
-    .filter((name) => directoryHash(join(claudeDir, name)) !== directoryHash(join(codexDir, name)));
+    .filter((name) => codexIndex.has(name))
+    .filter((name) => !skillDirsEquivalent(join(claudeIndex.get(name), name), join(codexIndex.get(name), name)));
+
+  const claudeSkillIndex = Object.fromEntries(claudeIndex);
+  const codexSkillIndex = Object.fromEntries(codexIndex);
 
   if (missingInCodex.length > 0 || missingInClaude.length > 0) {
     entries.push({
@@ -2311,6 +3632,8 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
       summary: "skills missing in one host",
       claudePath: claudeDir,
       codexPath: codexDir,
+      claudeSkillIndex,
+      codexSkillIndex,
       claude: `${claude.length} skill(s)`,
       codex: `${codex.length} skill(s)`,
       missingInCodex,
@@ -2327,12 +3650,325 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir) {
       summary: "skills conflict",
       claudePath: claudeDir,
       codexPath: codexDir,
+      claudeSkillIndex,
+      codexSkillIndex,
       claude: `${claude.length} skill(s)`,
       codex: `${codex.length} skill(s)`,
       conflicts,
       itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"]))
     });
   }
+}
+
+function compareAgents(entries, scope, claudeDir, codexDir) {
+  const claudeAgents = enumerateClaudeAgents(claudeDir);
+  const codexAgents = enumerateCodexAgents(codexDir);
+  const claudeNames = claudeAgents.map((agent) => agent.name).sort();
+  const codexNames = codexAgents.map((agent) => agent.name).sort();
+  const claudeIndex = new Map(claudeAgents.map((agent) => [agent.name, agent]));
+  const codexIndex = new Map(codexAgents.map((agent) => [agent.name, agent]));
+
+  const missingInCodex = claudeNames.filter((name) => !codexIndex.has(name));
+  const missingInClaude = codexNames.filter((name) => !claudeIndex.has(name));
+  const conflicts = claudeNames
+    .filter((name) => codexIndex.has(name))
+    .filter((name) => !agentsEquivalent(claudeIndex.get(name), codexIndex.get(name)));
+
+  if (missingInCodex.length > 0 || missingInClaude.length > 0) {
+    entries.push({
+      scope,
+      area: "agents",
+      risk: "safe",
+      summary: "agents missing in one host",
+      claudePath: claudeDir,
+      codexPath: codexDir,
+      claude: `${claudeNames.length} agent(s)`,
+      codex: `${codexNames.length} agent(s)`,
+      missingInCodex,
+      missingInClaude,
+      itemQualities: itemQualities("agents", [...missingInCodex, ...missingInClaude])
+    });
+  }
+
+  if (conflicts.length > 0) {
+    entries.push({
+      scope,
+      area: "agents",
+      risk: "manual",
+      summary: "agents conflict",
+      claudePath: claudeDir,
+      codexPath: codexDir,
+      claude: `${claudeNames.length} agent(s)`,
+      codex: `${codexNames.length} agent(s)`,
+      conflicts,
+      itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"]))
+    });
+  }
+}
+
+function enumerateClaudeAgents(dir) {
+  if (!dir || !existsSync(dir)) return [];
+  const agents = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".md")) {
+      const stem = entry.name.slice(0, -3);
+      agents.push({ name: stem, path: join(dir, entry.name), group: null });
+    } else if (entry.isDirectory()) {
+      const groupDir = join(dir, entry.name);
+      for (const child of readdirSync(groupDir, { withFileTypes: true })) {
+        if (!child.isFile() || !child.name.endsWith(".md")) continue;
+        const stem = child.name.slice(0, -3);
+        agents.push({ name: `${entry.name}/${stem}`, path: join(groupDir, child.name), group: entry.name });
+      }
+    }
+  }
+  return agents;
+}
+
+function enumerateCodexAgents(dir) {
+  if (!dir || !existsSync(dir)) return [];
+  const agents = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".toml")) continue;
+    const stem = entry.name.slice(0, -5);
+    agents.push({ name: stem, path: join(dir, entry.name) });
+  }
+  return agents;
+}
+
+function agentsEquivalent(claudeAgent, codexAgent) {
+  if (!claudeAgent || !codexAgent) return false;
+  const claude = parseClaudeAgentFile(claudeAgent.path);
+  const codex = parseCodexAgentFile(codexAgent.path);
+  return agentBodiesEqual(claude.body, codex.developer_instructions);
+}
+
+function agentBodiesEqual(claudeBody, codexBody) {
+  const left = stripAgentMigrationPreamble(claudeBody ?? "");
+  const right = stripAgentMigrationPreamble(codexBody ?? "");
+  if (left === right) return true;
+  return transformTextForHost(left, "claude", "codex") === right
+    || transformTextForHost(right, "codex", "claude") === left;
+}
+
+function stripAgentMigrationPreamble(text) {
+  const pattern = agentMigrationPreamblePattern();
+  return pattern ? String(text ?? "").replace(pattern, "") : String(text ?? "");
+}
+
+function agentMigrationPreamblePattern() {
+  const source = agentsMapData().migration_preamble_pattern;
+  if (typeof source !== "string" || !source) return null;
+  try {
+    return new RegExp(source);
+  } catch {
+    return null;
+  }
+}
+
+function parseClaudeAgentFile(path) {
+  if (!existsSync(path)) return { frontmatter: {}, body: "" };
+  const text = readFileSync(path, "utf8");
+  return parseClaudeAgentText(text);
+}
+
+function parseClaudeAgentText(text) {
+  if (!text.startsWith("---")) return { frontmatter: {}, body: text };
+  const closing = text.indexOf("\n---", 3);
+  if (closing === -1) return { frontmatter: {}, body: text };
+  const header = text.slice(3, closing).replace(/^\r?\n/, "");
+  const bodyStart = closing + 4;
+  const body = text.slice(bodyStart).replace(/^\r?\n/, "");
+  return { frontmatter: parseClaudeFrontmatter(header), body };
+}
+
+function parseClaudeFrontmatter(header) {
+  const result = {};
+  for (const rawLine of header.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const separator = line.indexOf(":");
+    if (separator === -1) continue;
+    const key = line.slice(0, separator).trim();
+    if (!key) continue;
+    const rawValue = line.slice(separator + 1).trim();
+    result[key] = parseFrontmatterScalar(rawValue);
+  }
+  return result;
+}
+
+function parseFrontmatterScalar(raw) {
+  if (raw === "") return "";
+  if (raw.startsWith('"') && raw.endsWith('"')) {
+    return parseJsonLike(raw, raw.slice(1, -1));
+  }
+  if (raw.startsWith("'") && raw.endsWith("'")) {
+    return raw.slice(1, -1).replace(/''/g, "'");
+  }
+  return raw;
+}
+
+function serializeClaudeAgentFile(frontmatter, body) {
+  const lines = ["---"];
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (value === undefined || value === null || value === "") continue;
+    lines.push(`${key}: ${serializeFrontmatterScalar(value)}`);
+  }
+  lines.push("---", "");
+  const trailing = body.endsWith("\n") ? body : `${body}\n`;
+  return `${lines.join("\n")}${trailing}`;
+}
+
+function serializeFrontmatterScalar(value) {
+  const text = String(value);
+  if (/[:#"\n]/.test(text)) return JSON.stringify(text);
+  return text;
+}
+
+function parseCodexAgentFile(path) {
+  if (!existsSync(path)) return { name: "", description: "", model: "", developer_instructions: "" };
+  return parseCodexAgentText(readFileSync(path, "utf8"));
+}
+
+function parseCodexAgentText(text) {
+  const fields = {};
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+    if (!match) continue;
+    fields[match[1]] = parseTomlScalar(match[2]);
+  }
+  return {
+    name: fields.name ?? "",
+    description: fields.description ?? "",
+    model: fields.model ?? "",
+    model_reasoning_effort: fields.model_reasoning_effort,
+    developer_instructions: fields.developer_instructions ?? ""
+  };
+}
+
+function serializeCodexAgentFile(fields) {
+  const lines = [];
+  for (const key of ["name", "description", "model", "model_reasoning_effort", "developer_instructions"]) {
+    const value = fields[key];
+    if (value === undefined || value === null || value === "") continue;
+    lines.push(`${key} = ${JSON.stringify(String(value))}`);
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function mapAgentToCodex(claude, options = {}) {
+  const aliases = modelAliasMap("claude", "codex");
+  const fm = claude.frontmatter ?? {};
+  const rawBody = claude.body ?? "";
+  const body = transformTextForHost(rawBody, "claude", "codex", { callArchive: options.callArchive });
+  const fallbackName = (typeof options.fallbackName === "string" && options.fallbackName) || "";
+  const name = (fm.name && String(fm.name).trim()) || fallbackName;
+  const description = (fm.description && String(fm.description).trim()) || extractDescriptionFromBody(rawBody) || name;
+  const codexFields = {
+    name,
+    description,
+    model: aliases[fm.model] ?? fm.model ?? "",
+    developer_instructions: body
+  };
+  if (options.preserveCodex?.model_reasoning_effort) {
+    codexFields.model_reasoning_effort = options.preserveCodex.model_reasoning_effort;
+  }
+  return codexFields;
+}
+
+function extractDescriptionFromBody(body) {
+  const text = String(body ?? "").replace(/\r\n/g, "\n");
+  const paragraphs = text.split(/\n{2,}/);
+  for (const paragraph of paragraphs) {
+    const lines = paragraph.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+    if (lines.length === 0) continue;
+    const oneLine = lines.join(" ").replace(/\s+/g, " ").trim();
+    if (!oneLine) continue;
+    return oneLine.length > 200 ? `${oneLine.slice(0, 197).trimEnd()}...` : oneLine;
+  }
+  return "";
+}
+
+function mapAgentToClaude(codex, options = {}) {
+  const aliases = modelAliasMap("codex", "claude");
+  const body = transformTextForHost(stripAgentMigrationPreamble(codex.developer_instructions ?? ""), "codex", "claude", { callArchive: options.callArchive });
+  const frontmatter = {
+    name: codex.name ?? "",
+    description: codex.description ?? "",
+    model: aliases[codex.model] ?? codex.model ?? ""
+  };
+  const preserved = options.preserveClaude ?? {};
+  for (const key of ["tools", "color", "memory"]) {
+    if (preserved[key] !== undefined && preserved[key] !== "") frontmatter[key] = preserved[key];
+  }
+  return { frontmatter, body };
+}
+
+function modelTiers() {
+  const tiers = agentsMapData().models?.tiers;
+  return Array.isArray(tiers) ? tiers : [];
+}
+
+function modelAliasMap(from, to) {
+  const aliases = {};
+  for (const tier of modelTiers()) {
+    const sourceAlias = tier?.[from]?.alias;
+    const targetAlias = tier?.[to]?.alias;
+    if (typeof sourceAlias === "string" && sourceAlias && typeof targetAlias === "string" && targetAlias) {
+      aliases[sourceAlias] = targetAlias;
+    }
+  }
+  return aliases;
+}
+
+function modelTerminologyRules() {
+  return modelTiers()
+    .map((tier) => ({
+      id: tier?.id ?? "model-tier",
+      claude: [tier?.claude?.alias, ...(Array.isArray(tier?.claude?.terms) ? tier.claude.terms : [])].filter((value) => typeof value === "string" && value),
+      codex: [tier?.codex?.alias, ...(Array.isArray(tier?.codex?.terms) ? tier.codex.terms : [])].filter((value) => typeof value === "string" && value)
+    }))
+    .filter((rule) => rule.claude.length > 0 && rule.codex.length > 0);
+}
+
+function agentsMapData() {
+  return agentsMapSource().data;
+}
+
+function agentsMapPath() {
+  return agentsMapSource().path;
+}
+
+function agentsMapSource() {
+  for (const path of agentsMapCandidates()) {
+    if (existsSync(path)) return { path, data: readJsonFile(path, {}) };
+  }
+  return { path: join(runtimeRoot, "rules/agents-map.json"), data: {} };
+}
+
+function agentsMapCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/agents-map.json"),
+    `${home}/.ai-config-sync-manager/rules/agents-map.json`,
+    join(runtimeRoot, "rules/agents-map.json")
+  ];
+}
+
+function agentTargetPath(name, baseDir, host, sourceAgent) {
+  if (host === "codex") {
+    const flatName = name.includes("/") ? name.split("/").pop() : name;
+    return join(baseDir, `${flatName}.toml`);
+  }
+
+  if (sourceAgent?.group) {
+    return join(baseDir, sourceAgent.group, `${sourceAgent.name.split("/").pop()}.md`);
+  }
+  if (name.includes("/")) {
+    return join(baseDir, `${name}.md`);
+  }
+  return join(baseDir, `${name}.md`);
 }
 
 function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {
@@ -2363,8 +3999,8 @@ function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = 
 function compareSettingsItems(entries, scope, area, claudePath, codexPath) {
   const claude = settingsItems("claude", area, claudePath);
   const codex = settingsItems("codex", area, codexPath);
-  const missingInCodex = claude.filter((name) => !codex.includes(name));
-  const missingInClaude = codex.filter((name) => !claude.includes(name));
+  const missingInCodex = settingsItemsMissingFrom(area, claude, codex);
+  const missingInClaude = settingsItemsMissingFrom(area, codex, claude);
 
   if (missingInCodex.length === 0 && missingInClaude.length === 0) return;
 
@@ -2383,12 +4019,45 @@ function compareSettingsItems(entries, scope, area, claudePath, codexPath) {
   });
 }
 
+function settingsItemsMissingFrom(area, sourceItems, targetItems) {
+  if (area !== "permissions") {
+    return sourceItems.filter((name) => !targetItems.includes(name));
+  }
+
+  const targetCapabilities = new Set(targetItems.map(permissionCapability));
+  return sourceItems.filter((name) => !targetCapabilities.has(permissionCapability(name)));
+}
+
+function permissionCapability(itemName) {
+  const { bucket, value } = parsePermissionItem(itemName);
+
+  if (["Write", "Edit", "MultiEdit"].includes(value)) {
+    return `${bucket}:filesystem-write`;
+  }
+
+  const mcp = parseMcpPermission(value);
+  if (mcp) {
+    return `${bucket}:mcp-tool:${mcp.server}:${mcp.tool}`;
+  }
+
+  const rule = codexPrefixRuleForPermission(bucket, value);
+  if (rule) {
+    return `${bucket}:bash-prefix:${rule}`;
+  }
+
+  if (value === "WebSearch") {
+    return `${bucket}:web-search`;
+  }
+
+  return `${bucket}:${value}`;
+}
+
 function itemQualities(area, items) {
   return Object.fromEntries(items.map((item) => [item, itemMappingQuality(area, item)]));
 }
 
 function itemMappingQuality(area, item) {
-  if (area === "mcp" || area === "skills") return "exact";
+  if (area === "mcp" || area === "skills" || area === "agents") return "exact";
   if (area === "hooks") return "equivalent";
   if (area !== "permissions") return "unsupported";
 
@@ -2565,6 +4234,41 @@ function skillNames(dir) {
     .sort();
 }
 
+// First-wins union: earlier dirs in the list take precedence for duplicate skill names.
+function enumerateSkillIndex(dirs) {
+  const list = Array.isArray(dirs) ? dirs : [dirs];
+  const index = new Map();
+  for (const dir of list) {
+    if (!dir) continue;
+    for (const name of skillNames(dir)) {
+      if (!index.has(name)) index.set(name, dir);
+    }
+  }
+  return index;
+}
+
+// Skill manifest filename differs by host: Claude uses lowercase skill.md, Codex uses SKILL.md.
+// Authors may have mixed-case skills on either side; helpers explicitly check both casings.
+function skillManifestBasename(host) {
+  return host === "claude" ? "skill.md" : "SKILL.md";
+}
+
+function skillManifestPath(skillDir, host) {
+  return join(skillDir, skillManifestBasename(host));
+}
+
+function findSkillManifest(skillDir) {
+  for (const name of ["SKILL.md", "skill.md"]) {
+    const candidate = join(skillDir, name);
+    if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+function isSkillManifestBasename(name) {
+  return name === "SKILL.md" || name === "skill.md";
+}
+
 function fileState(path) {
   if (!path || !existsSync(path)) {
     return { exists: false, hash: "missing", summary: "missing" };
@@ -2659,6 +4363,54 @@ function directoryHash(path) {
   return hash.digest("hex").slice(0, 12);
 }
 
+// Like directoryHash but normalizes the skill manifest filename so that two skills
+// with identical content but differing manifest casing (skill.md vs SKILL.md) hash equal.
+function skillContentHash(path) {
+  if (!existsSync(path)) return "missing";
+  const hash = createHash("sha256");
+
+  for (const file of directoryFiles(path)) {
+    const segments = file.split("/");
+    const last = segments[segments.length - 1];
+    const normalizedFile = isSkillManifestBasename(last)
+      ? [...segments.slice(0, -1), "__skill_manifest__.md"].join("/")
+      : file;
+    hash.update(normalizedFile);
+    hash.update(readFileSync(join(path, file)));
+  }
+
+  return hash.digest("hex").slice(0, 12);
+}
+
+function skillDirsEquivalent(claudePath, codexPath) {
+  const claudeHash = skillContentHash(claudePath);
+  const codexHash = skillContentHash(codexPath);
+  if (claudeHash === codexHash) return true;
+  return transformedSkillContentHash(claudePath, "claude", "codex") === codexHash
+    || transformedSkillContentHash(codexPath, "codex", "claude") === claudeHash;
+}
+
+function transformedSkillContentHash(path, from, to) {
+  if (!existsSync(path)) return "missing";
+  const hash = createHash("sha256");
+
+  for (const file of directoryFiles(path)) {
+    const segments = file.split("/");
+    const last = segments[segments.length - 1];
+    const normalizedFile = isSkillManifestBasename(last)
+      ? [...segments.slice(0, -1), "__skill_manifest__.md"].join("/")
+      : file;
+    const absolute = join(path, file);
+    const content = isTextMappingFile(absolute)
+      ? transformTextForHost(readFileSync(absolute, "utf8"), from, to)
+      : readFileSync(absolute);
+    hash.update(normalizedFile);
+    hash.update(content);
+  }
+
+  return hash.digest("hex").slice(0, 12);
+}
+
 function directoryFiles(root, prefix = "") {
   if (!existsSync(root)) return [];
 
@@ -2691,17 +4443,14 @@ function runConnect() {
 
   console.log("AI Config Sync Manager connect");
   console.log(`Runtime root: ${runtimeRoot}`);
-  console.log(`Default root: ${formatPathState(nextState.defaultRoot)}`);
+  console.log(`Config root: ${formatPathState(nextState.configRoot)}`);
+  console.log(`Status ignore: ${formatPathState(nextState.statusIgnore)}`);
   console.log(`Claude plugin: ${nextState.claudePlugin ? formatPathState(nextState.claudePlugin) : "missing"}`);
   console.log(`Codex plugin: ${formatPathState(nextState.codexPlugin)}`);
   console.log(`Codex marketplace: ${formatPathState(nextState.codexMarketplace)}`);
 
   for (const result of results) {
     console.log(`${result.status}: ${result.message}`);
-  }
-
-  if (!existsSync(nextState.defaultRoot)) {
-    console.log(`Action needed: link the default root with: ln -s "${runtimeRoot}" "${nextState.defaultRoot}"`);
   }
 
   if (!nextState.claudePlugin) {
@@ -2717,7 +4466,8 @@ function connectState() {
   const codexPlugin = `${home}/plugins/ai-config-sync-manager`;
 
   return {
-    defaultRoot: `${home}/.ai-config-sync-manager`,
+    configRoot: `${home}/.ai-config-sync-manager`,
+    statusIgnore: `${home}/.ai-config-sync-manager/rules/status-ignore.json`,
     claudePlugin: findClaudePlugin(),
     claudePluginTarget: `${home}/.claude/plugins/config-manager@ai-config-sync-manager`,
     codexPlugin,
@@ -2728,11 +4478,12 @@ function connectState() {
 function registerMissingIntegrations(state) {
   const results = [];
 
-  tryConnectAction(results, "registered default root", () => {
-    if (!existsSync(state.defaultRoot)) {
-      mkdirSync(dirname(state.defaultRoot), { recursive: true });
-      symlinkSync(runtimeRoot, state.defaultRoot, "dir");
-    }
+  tryConnectAction(results, "initialized config root", () => {
+    ensureDirectoryRoot(state.configRoot);
+  });
+
+  tryConnectAction(results, "initialized status ignore", () => {
+    writeDefaultStatusIgnore(state.statusIgnore);
   });
 
   tryConnectAction(results, "registered Claude plugin", () => {
@@ -2752,6 +4503,23 @@ function registerMissingIntegrations(state) {
   });
 
   return results;
+}
+
+function ensureDirectoryRoot(path) {
+  if (existsSync(path) && lstatSync(path).isSymbolicLink()) {
+    throw new Error(`${path} is a symlink; remove it before using this path as the user config root`);
+  }
+
+  mkdirSync(path, { recursive: true });
+}
+
+function writeDefaultStatusIgnore(path) {
+  if (existsSync(path)) {
+    return;
+  }
+
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify({ version: 1, exclude: [] }, null, 2)}\n`);
 }
 
 function tryConnectAction(results, message, action) {
@@ -2850,12 +4618,12 @@ function formatPathState(path) {
 }
 
 function parseSync(argv) {
-  let from = "claude";
-  let to = "codex";
+  const direction = defaultSyncDirection();
+  let from = direction.from;
+  let to = direction.to;
   let routeExplicit = false;
   let dryRun = false;
   let apply = false;
-  let confirm = false;
   let planJson = false;
   let scope = null;
   const selectors = emptySelectors();
@@ -2865,9 +4633,6 @@ function parseSync(argv) {
     if (token === "--dry-run") {
       dryRun = true;
     } else if (token === "--apply") {
-      apply = true;
-    } else if (token === "--confirm") {
-      confirm = true;
       apply = true;
     } else if (token === "--plan-json") {
       planJson = true;
@@ -2893,7 +4658,7 @@ function parseSync(argv) {
   if (from === to) throw new Error("--from and --to must be different hosts.");
 
   const scopes = scope ?? ["global", "project"];
-  return { from, to, routeExplicit, apply, confirm, planJson, scope: scopes[0], scopes, selectors };
+  return { from, to, routeExplicit, apply, planJson, scope: scopes[0], scopes, selectors };
 }
 
 function parseScopes(value, allowAll) {
@@ -2928,7 +4693,10 @@ function printHelp() {
   ai-config-sync sync --scope global|project|all --apply
   ai-config-sync sync --include instructions,skills:foo,mcp:notion --exclude permissions:Bash --dry-run
   ai-config-sync sync --from claude --to codex
-  ai-config-sync sync --from codex --to claude`);
+  ai-config-sync sync --from codex --to claude
+  ai-config-sync reference
+  ai-config-sync reference --help
+  ai-config-sync reference --output ~/.ai-config-sync-manager/reference.md`);
 }
 
 function printConnectHelp() {
@@ -2952,6 +4720,7 @@ Options:
   --scope global|project|all     Limit status scope
   --include area[:item][,...]    Include only selected areas or items
   --exclude area[:item][,...]    Exclude selected areas or items
+  ignore file                    <project>/.ai-config-sync-manager/status-ignore.json, then ~/.ai-config-sync-manager/rules/status-ignore.json
   -h, --help                     Show status help
 
 Examples:
@@ -2964,22 +4733,293 @@ function printSyncHelp() {
   ai-config-sync sync [options]
 
 Options:
-  --dry-run                      Preview planned operations without writing files
+  --dry-run                      Preview planned operations without writing files (default)
   --apply                        Apply planned operations with backups
-  --confirm                      Show the plan, ask for confirmation, then apply
   --plan-json                    Print the sync plan as JSON
-  --from claude|codex            Source host
-  --to claude|codex              Target host
+  --from claude|codex            Source host (overrides AI_CONFIG_SYNC_HOST)
+  --to claude|codex              Target host (overrides AI_CONFIG_SYNC_HOST)
   --scope global|project|all     Limit sync scope
   --include area[:item][,...]    Include only selected areas or items
   --exclude area[:item][,...]    Exclude selected areas or items
+  ignore file                    <project>/.ai-config-sync-manager/status-ignore.json, then ~/.ai-config-sync-manager/rules/status-ignore.json
   -h, --help                     Show sync help
 
 Defaults:
   sync without --scope            Uses global and project scopes
+  sync without --from/--to        AI_CONFIG_SYNC_HOST=codex sets codex -> claude; otherwise claude -> codex
 
 Examples:
   ai-config-sync sync --scope project --include mcp:notion --dry-run
-  ai-config-sync sync --scope project --include mcp:notion --confirm
+  ai-config-sync sync --scope project --include mcp:notion --apply
   ai-config-sync sync --from codex --to claude --include permissions:Bash --plan-json`);
+}
+
+function parseReference(argv) {
+  let output = null;
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--output") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("Missing value for --output");
+      output = value;
+      index += 1;
+    } else {
+      throw new Error(`Unknown option for reference: ${token}`);
+    }
+  }
+
+  return { output };
+}
+
+function printReferenceHelp() {
+  console.log(`Usage:
+  ai-config-sync reference [options]
+
+Prints a markdown reference of every command, area, risk level, mapping quality, sync action verb, terminology layer, hidden marker, and known file location.
+
+Options:
+  --output <path>   Write the reference markdown to <path> (parent directories are created)
+  -h, --help        Show reference help
+
+Examples:
+  ai-config-sync reference
+  ai-config-sync reference --output ~/.ai-config-sync-manager/reference.md`);
+}
+
+function generateReferenceMarkdown() {
+  return [
+    "# AI Config Sync Manager Reference",
+    "",
+    "Generated reference for every command, area, risk level, mapping quality, sync action verb, terminology layer, hidden marker, and known file location.",
+    "",
+    referenceCommandsSection(),
+    referenceAreasSection(),
+    referenceRiskLevelsSection(),
+    referenceMappingQualitiesSection(),
+    referenceSyncActionsSection(),
+    referenceTerminologyLayersSection(),
+    referenceHiddenMarkersSection(),
+    referenceDefaultDirectionSection(),
+    referenceFileLocationsSection()
+  ].join("\n");
+}
+
+function referenceCommandsSection() {
+  return [
+    "## Commands",
+    "",
+    "### `connect`",
+    "",
+    "Checks Claude and Codex installation state, registers missing local host integrations when possible, and prints manual actions when writes are blocked.",
+    "",
+    "- `-h, --help` — Show connect help",
+    "",
+    "### `status`",
+    "",
+    "Print diff status between Claude and Codex configuration.",
+    "",
+    "- `--json` — Print the full status report as JSON",
+    "- `--compact` — Print one compact line per diff entry",
+    "- `--tree` — Print scope/area/item tree output",
+    "- `--scope global|project|all` — Limit status scope",
+    "- `--include area[:item][,...]` — Include only selected areas or items",
+    "- `--exclude area[:item][,...]` — Exclude selected areas or items",
+    "- `-h, --help` — Show status help",
+    "",
+    "### `sync`",
+    "",
+    "Plan or apply synchronization between Claude and Codex configuration.",
+    "",
+    "- `--dry-run` — Preview planned operations without writing files (default)",
+    "- `--apply` — Apply planned operations with backups",
+    "- `--plan-json` — Print the sync plan as JSON",
+    "- `--from claude|codex` — Source host (overrides AI_CONFIG_SYNC_HOST)",
+    "- `--to claude|codex` — Target host (overrides AI_CONFIG_SYNC_HOST)",
+    "- `--scope global|project|all` — Limit sync scope",
+    "- `--include area[:item][,...]` — Include only selected areas or items",
+    "- `--exclude area[:item][,...]` — Exclude selected areas or items",
+    "- `-h, --help` — Show sync help",
+    "",
+    "### `reference`",
+    "",
+    "Print this markdown reference document.",
+    "",
+    "- `--output <path>` — Write the reference markdown to `<path>` (parent directories are created)",
+    "- `-h, --help` — Show reference help",
+    ""
+  ].join("\n");
+}
+
+function referenceAreasSection() {
+  return [
+    "## Areas",
+    "",
+    "Areas are the canonical buckets diffed and synced between hosts.",
+    "",
+    "- `instructions` — Top-level instruction file (`CLAUDE.md` ↔ `AGENTS.md`).",
+    "- `skills` — Skill directories under `.claude/skills` and `.codex/skills` (one folder per skill).",
+    "- `agents` — Subagent definitions: Claude markdown frontmatter under `.claude/agents` ↔ Codex TOML under `.codex/agents`.",
+    "- `mcp` — MCP server registrations (`.mcp.json`, `.claude.json`, `settings.json` ↔ `config.toml [mcp_servers.*]`).",
+    "- `permissions` — Tool/bash/web permission rules (`settings.json` permissions ↔ Codex `[approvals]` / `default.rules`).",
+    "- `hooks` — Lifecycle hook configuration (`settings.json` hooks ↔ Codex `[[hooks.Event]]` blocks).",
+    ""
+  ].join("\n");
+}
+
+function referenceRiskLevelsSection() {
+  return [
+    "## Risk levels",
+    "",
+    "- `safe` — Apply automatically; the source meaning is fully preserved on the target.",
+    "- `manual` — Hold for explicit review; mapping is lossy or the source file is missing. Apply will skip operations marked `approvalRequired: true` until rerun explicitly.",
+    ""
+  ].join("\n");
+}
+
+function referenceMappingQualitiesSection() {
+  return [
+    "## Mapping qualities",
+    "",
+    "Per-item indicator of how well one host's meaning is preserved on the other side.",
+    "",
+    "- `exact` — Same value, same semantics on both hosts.",
+    "- `equivalent` — Different shape, identical effect (for example `CLAUDE.md` ↔ `AGENTS.md` instructions).",
+    "- `approximate` — Closest-fit mapping; behavior is similar but not identical (broad approval policies, prefix rules).",
+    "- `metadata-only` — The wrapper is preserved but inner behavior cannot be enforced on the target host.",
+    "- `unsupported` — No mapping exists; the item is left for manual review.",
+    ""
+  ].join("\n");
+}
+
+function referenceSyncActionsSection() {
+  return [
+    "## Sync action verbs",
+    "",
+    "Plan operations carry an `action` field that `applySyncPlan` dispatches on.",
+    "",
+    "- `copy-file` — Copy a single file from source host to target host.",
+    "- `write-instructions` — Write transformed instruction content (after term/template/call rewrites) to the target instruction file.",
+    "- `copy-missing-skills` — Copy skill directories that are missing on the target, overwriting any conflicting skill bodies.",
+    "- `merge-agents` — Translate Claude agent frontmatter ↔ Codex agent TOML and write per-agent files.",
+    "- `merge-settings-items` — Merge permission or hook items into the target settings file.",
+    "- `merge-mcp-servers` — Merge MCP server entries into the target host's MCP config.",
+    "- `delete-items` — Delete items from the target that the baseline shows were removed on the source.",
+    "- `source-missing` — Source path does not exist; flagged manual and skipped on apply.",
+    "- `manual-review` — Area has no automatic mapping; surfaced for the user to handle.",
+    "",
+    "### Status output symbols",
+    "",
+    "- `+` — Item will be added on the target (copy from source).",
+    "- `-` — Item will be removed on the target (baseline-tracked deletion).",
+    "- `~` — Item exists on both hosts but content differs (will be overwritten on apply).",
+    "- `!` — Conflict that requires manual review.",
+    ""
+  ].join("\n");
+}
+
+function referenceTerminologyLayersSection() {
+  const layers = terminologyMapSource().data?.layers;
+  const lines = [
+    "## Terminology layers",
+    "",
+    "Terminology rules live in `rules/terminology-map.json` (override at `~/.ai-config-sync-manager/rules/terminology-map.json` or `<project>/rules/terminology-map.json`). Each layer groups rules that rewrite host-specific vocabulary when transforming text between Claude and Codex.",
+    ""
+  ];
+
+  if (Array.isArray(layers) && layers.length > 0) {
+    for (const layer of layers) {
+      const layerId = typeof layer?.id === "string" ? layer.id : "(unnamed layer)";
+      const description = typeof layer?.description === "string" ? layer.description : "";
+      lines.push(`### \`${layerId}\``);
+      lines.push("");
+      if (description) {
+        lines.push(description);
+        lines.push("");
+      }
+      const rules = Array.isArray(layer?.rules) ? layer.rules : [];
+      if (rules.length === 0) {
+        lines.push("- (no rules)");
+      } else {
+        for (const rule of rules) {
+          const id = typeof rule?.id === "string" ? rule.id : "(unnamed rule)";
+          const isRegex = Boolean(rule?.regex);
+          lines.push(`- \`${id}\`${isRegex ? " — regex rule" : ""}`);
+        }
+      }
+      lines.push("");
+    }
+  } else {
+    lines.push("- (terminology map unavailable)");
+    lines.push("");
+  }
+
+  lines.push("### `model` (from `rules/agents-map.json`)");
+  lines.push("");
+  lines.push("Model alias rules come from `rules/agents-map.json` `models.tiers` rather than the terminology map.");
+  lines.push("");
+  const tiers = Array.isArray(agentsMapData()?.models?.tiers) ? agentsMapData().models.tiers : [];
+  if (tiers.length === 0) {
+    lines.push("- (no model tiers)");
+  } else {
+    for (const tier of tiers) {
+      const id = typeof tier?.id === "string" ? tier.id : "(unnamed tier)";
+      const claudeAlias = typeof tier?.claude?.alias === "string" ? tier.claude.alias : "?";
+      const codexAlias = typeof tier?.codex?.alias === "string" ? tier.codex.alias : "?";
+      lines.push(`- \`${id}\` — \`${claudeAlias}\` ↔ \`${codexAlias}\``);
+    }
+  }
+  lines.push("");
+
+  return lines.join("\n");
+}
+
+function referenceHiddenMarkersSection() {
+  return [
+    "## Hidden markers",
+    "",
+    "HTML comment markers the call compiler emits inside transformed text. They round-trip on a reverse sync and are not user-visible during normal use.",
+    "",
+    "- `ai-config-sync:agent-call` — Supported call transformed (Claude `Agent({...})` ↔ Codex prose `spawn_agent`).",
+    "- `ai-config-sync:stripped` — Unsupported call removed (`TaskCreate`, `TaskUpdate`, `TeamCreate`); original archived under the backup root.",
+    "- `ai-config-sync:manual-review` — Call left intact because it could not be parsed; needs manual translation.",
+    ""
+  ].join("\n");
+}
+
+function referenceDefaultDirectionSection() {
+  return [
+    "## Default direction precedence",
+    "",
+    "1. Explicit `--from <host>` / `--to <host>` flags on `sync`.",
+    "2. `AI_CONFIG_SYNC_HOST=codex` environment variable — sets default direction to `codex -> claude`.",
+    "3. Otherwise the default is `claude -> codex`.",
+    "",
+    "`status` follows the same default direction so that `+/-/~` symbols and `details` text describe the apply that would run with no override.",
+    ""
+  ].join("\n");
+}
+
+function referenceFileLocationsSection() {
+  return [
+    "## File locations",
+    "",
+    "### User-writable",
+    "",
+    "- `~/.ai-config-sync-manager/state/<scope>.json` — Sync state baseline (one file per scope; project scope hashes the project root).",
+    "- `~/.ai-config-sync-manager/backups/<timestamp>/...` — Backup root for each apply run.",
+    "- `~/.ai-config-sync-manager/backups/<timestamp>/unsupported-calls.json` — Archive of stripped or manual-review calls (when applicable).",
+    "- `~/.ai-config-sync-manager/status-details/<timestamp>.txt` — Full diff detail when status is collapsed.",
+    "- `~/.ai-config-sync-manager/rules/agents-map.json` — Agent field and model alias rules (user customization point).",
+    "- `~/.ai-config-sync-manager/rules/status-ignore.json` — Persistent ignore rules used by `status` and `sync`.",
+    "",
+    "### Bundled defaults (under the runtime root)",
+    "",
+    "- `<repo>/rules/terminology-map.json` — Bundled terminology defaults (override at home or project).",
+    "- `<repo>/rules/host-target-templates.json` — Bundled target templates.",
+    "- `<repo>/rules/call-templates.json` — Bundled SDK call transform templates.",
+    "",
+    "Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`.",
+    ""
+  ].join("\n");
 }

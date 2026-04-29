@@ -1,0 +1,52 @@
+{
+  "version": "0.2",
+  "fields": [
+    { "claude": "name", "codex": "name", "level": "exact" },
+    { "claude": "description", "codex": "description", "level": "exact" },
+    { "claude": "body", "codex": "developer_instructions", "level": "equivalent" },
+    { "claude": "model", "codex": "model", "level": "approximate", "alias_table": "models.tiers" },
+    { "claude": "tools", "codex": null, "level": "metadata-only" },
+    { "claude": "color", "codex": null, "level": "metadata-only" },
+    { "claude": "memory", "codex": null, "level": "metadata-only" },
+    { "claude": null, "codex": "model_reasoning_effort", "level": "metadata-only" }
+  ],
+  "models": {
+    "description": "Single source of truth for model mapping. `alias` is the bare frontmatter token used by agent-frontmatter mapping. `terms` is the ordered synonym list for free-text terminology mapping (first term is the canonical replacement target).",
+    "tiers": [
+      {
+        "id": "latest-frontier-model",
+        "claude": {
+          "alias": "opus",
+          "terms": ["opus4.7(latest)", "opus 4.7 latest", "Claude Opus 4.7", "Opus 4.7", "Opus"]
+        },
+        "codex": {
+          "alias": "gpt-5.5",
+          "terms": ["gpt5.5(latest)", "gpt-5.5 latest", "GPT-5.5", "GPT 5.5"]
+        }
+      },
+      {
+        "id": "balanced-model",
+        "claude": {
+          "alias": "sonnet",
+          "terms": ["sonnet(latest)", "Claude Sonnet", "Sonnet"]
+        },
+        "codex": {
+          "alias": "gpt-5.4",
+          "terms": ["GPT-5.4"]
+        }
+      },
+      {
+        "id": "small-fast-model",
+        "claude": {
+          "alias": "haiku",
+          "terms": ["haiku(latest)", "Claude Haiku", "Haiku"]
+        },
+        "codex": {
+          "alias": "gpt-5.4-mini",
+          "terms": ["GPT-5.4-Mini"]
+        }
+      }
+    ]
+  },
+  "migration_preamble_pattern": "^Migrated from (Claude|Codex) agent: [^\\n]+\\n\\n"
+}

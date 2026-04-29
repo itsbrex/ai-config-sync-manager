@@ -4,11 +4,15 @@
   "areas": {
     "instructions": {
       "risk": "safe",
-      "mapping": "CLAUDE.md to AGENTS.md"
+      "mapping": "CLAUDE.md to AGENTS.md",
+      "textMapping": "rules/terminology-map.json claude -> codex",
+      "targetTemplates": "rules/host-target-templates.json claude -> codex"
     },
     "skills": {
       "risk": "safe",
       "mapping": "Claude skills to Codex skills",
+      "textMapping": "rules/terminology-map.json claude -> codex",
+      "targetTemplates": "rules/host-target-templates.json claude -> codex",
       "policy": {
         "missingInTarget": "copy",
         "sameNameDifferentContent": "manual-conflict",

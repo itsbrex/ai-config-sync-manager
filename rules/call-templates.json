@@ -1,0 +1,37 @@
+{
+  "version": "0.1",
+  "description": "Bidirectional structural transforms for Claude SDK calls and Codex spawn_agent prose. The tolerant scanner recognizes only single-level object literals; expressions or template strings cause the call to be left intact with a manual-review marker.",
+  "supported": [
+    {
+      "id": "agent-spawn",
+      "claude_call": "Agent",
+      "codex_marker": "ai-config-sync:agent-call",
+      "claude_template": "Agent({{ARGS_JSON}})",
+      "codex_template": "Use `spawn_agent` with agent_type: \"{{description}}\".\n\nTask:\n{{prompt}}\n",
+      "field_aliases": {
+        "claude_to_codex": { "subagent_type": "agent_type" },
+        "codex_to_claude": { "agent_type": "subagent_type" }
+      }
+    }
+  ],
+  "unsupported": [
+    {
+      "id": "task-create",
+      "claude_call": "TaskCreate",
+      "codex_marker": "ai-config-sync:stripped",
+      "reason": "Codex has no native todo/task tracker tool"
+    },
+    {
+      "id": "task-update",
+      "claude_call": "TaskUpdate",
+      "codex_marker": "ai-config-sync:stripped",
+      "reason": "Codex has no native todo/task tracker tool"
+    },
+    {
+      "id": "team-create",
+      "claude_call": "TeamCreate",
+      "codex_marker": "ai-config-sync:stripped",
+      "reason": "Codex has no atomic agent-team primitive"
+    }
+  ]
+}

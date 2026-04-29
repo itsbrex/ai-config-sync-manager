@@ -1,0 +1,172 @@
+{
+  "version": 2,
+  "description": "Layered bidirectional text terminology mapping for Claude <-> Codex instruction and skill sync. Users may edit this file or provide a project/local override with the same shape. Model vocabulary is NOT defined here — it is managed in rules/agents-map.json (single source of truth) and merged in at runtime.",
+  "layers": [
+    {
+      "id": "files",
+      "description": "Host-specific config and instruction file names.",
+      "rules": [
+        {
+          "id": "agent-product",
+          "claude": ["Claude Code"],
+          "codex": ["Codex CLI"]
+        },
+        {
+          "id": "instruction-file",
+          "claude": ["CLAUDE.md"],
+          "codex": ["AGENTS.md"]
+        },
+        {
+          "id": "global-settings-file",
+          "claude": ["~/.claude/settings.json", ".claude/settings.json"],
+          "codex": ["~/.codex/config.toml", ".codex/config.toml"]
+        },
+        {
+          "id": "mcp-config-file",
+          "claude": ["~/.claude/mcp.json", ".claude/mcp.json", ".mcp.json"],
+          "codex": ["~/.codex/config.toml [mcp_servers]", ".codex/config.toml [mcp_servers]", ".codex/config.toml [mcp_servers]"]
+        },
+        {
+          "id": "agent-file-path",
+          "description": "Translate agent file paths and extensions (.claude/agents/<name>.md <-> .codex/agents/<name>.toml). Regex with capture group preserves the agent name.",
+          "regex": true,
+          "claude_pattern": "(~?/?)\\.claude/agents/([A-Za-z0-9_./-]+)\\.md",
+          "codex_pattern": "(~?/?)\\.codex/agents/([A-Za-z0-9_./-]+)\\.toml",
+          "claude_replace": "$1.claude/agents/$2.md",
+          "codex_replace": "$1.codex/agents/$2.toml"
+        },
+        {
+          "id": "skill-file-path",
+          "description": "Translate skill directory roots (.claude/skills/<name> <-> .agents/skills/<name>). Codex's canonical skills directory is .agents/skills (matches globalPaths().codex.skills first candidate); .codex/skills is a less-common alternative handled at the filesystem enumeration layer rather than here.",
+          "regex": true,
+          "claude_pattern": "(~?/?)\\.claude/skills/([A-Za-z0-9_./-]+)",
+          "codex_pattern": "(~?/?)\\.agents/skills/([A-Za-z0-9_./-]+)",
+          "claude_replace": "$1.claude/skills/$2",
+          "codex_replace": "$1.agents/skills/$2"
+        },
+        {
+          "id": "skill-manifest-filename",
+          "description": "Translate skill manifest filename references in body text. Claude loads skill.md (lowercase); Codex loads SKILL.md (uppercase). Word boundaries keep the rule from firing inside unrelated tokens.",
+          "regex": true,
+          "claude_pattern": "\\bskill\\.md\\b",
+          "codex_pattern": "\\bSKILL\\.md\\b",
+          "claude_replace": "skill.md",
+          "codex_replace": "SKILL.md"
+        }
+      ]
+    },
+    {
+      "id": "host-surfaces",
+      "description": "Host UI and extension surfaces.",
+      "rules": [
+        {
+          "id": "slash-command-term",
+          "claude": ["slash commands", "slash command", "Claude command"],
+          "codex": ["Codex commands", "Codex command", "Codex skill command"]
+        },
+        {
+          "id": "skill-surface-term",
+          "claude": ["Claude skill", "Claude skills", ".claude/skills"],
+          "codex": ["Codex skill", "Codex skills", ".codex/skills"]
+        }
+      ]
+    },
+    {
+      "id": "orchestration",
+      "description": "Generic agent delegation and reasoning vocabulary. Workflow-specific intents live in host-target-templates.json.",
+      "rules": [
+        {
+          "id": "reasoning-budget",
+          "claude": ["thinking budget", "extended thinking"],
+          "codex": ["reasoning effort", "reasoning_effort"]
+        },
+        {
+          "id": "plan-mode",
+          "claude": ["plan mode", "Plan mode"],
+          "codex": ["plan-first workflow", "Plan mode"]
+        },
+        {
+          "id": "subagent-term",
+          "claude": ["Claude subagent", "Claude Subagent"],
+          "codex": ["Codex sub-agent", "Codex Sub-agent"]
+        },
+        {
+          "id": "task-delegation",
+          "claude": ["Task tool", "Task agent", "Agent tool"],
+          "codex": ["spawn_agent", "worker/explorer sub-agent", "sub-agent delegation"]
+        },
+        {
+          "id": "agent-team",
+          "claude": [
+            "agent team mode",
+            "agent team",
+            "에이전트 팀 모드",
+            "에이전트팀 모드",
+            "에이전트 팀",
+            "에이전트팀",
+            "Team mode",
+            "team of agents",
+            "multi-agent team"
+          ],
+          "codex": [
+            "multiple spawn_agent invocations",
+            "manual spawn_agent fan-out",
+            "여러 spawn_agent 호출"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "permissions",
+      "description": "Permission and sandbox vocabulary used in text instructions.",
+      "rules": [
+        {
+          "id": "permission-term",
+          "claude": ["permissions.allow", "permissions.ask", "permissions.deny"],
+          "codex": ["approval allow rules", "approval prompt rules", "approval deny rules"]
+        },
+        {
+          "id": "bash-permission-term",
+          "claude": ["Bash permissions", "Bash allow rules", "Bash deny rules"],
+          "codex": ["prefix_rule approvals", "prefix_rule allow rules", "prefix_rule deny rules"]
+        },
+        {
+          "id": "workspace-write-term",
+          "claude": ["Write/Edit/MultiEdit permission", "Write permission", "Edit permission", "MultiEdit permission"],
+          "codex": ["workspace-write sandbox", "workspace-write sandbox", "workspace-write sandbox", "workspace-write sandbox"]
+        },
+        {
+          "id": "approval-policy-term",
+          "claude": ["ask permission", "manual permission approval"],
+          "codex": ["approval_policy on-request", "approval_policy on-request"]
+        }
+      ]
+    },
+    {
+      "id": "hooks-mcp",
+      "description": "Hook, MCP, and web access vocabulary used in text instructions.",
+      "rules": [
+        {
+          "id": "hook-term",
+          "claude": ["Claude hooks"],
+          "codex": ["Codex hooks"]
+        },
+        {
+          "id": "command-hook-term",
+          "claude": ["command hooks", "PreToolUse hooks", "PostToolUse hooks"],
+          "codex": ["native command hooks", "Codex PreToolUse hooks", "Codex PostToolUse hooks"]
+        },
+        {
+          "id": "mcp-tool-permission-term",
+          "claude": ["mcp__server__tool permissions", "MCP tool permissions"],
+          "codex": ["mcp_servers tool approvals", "MCP tool approval_mode"]
+        },
+        {
+          "id": "web-access-term",
+          "claude": ["WebFetch permission", "WebSearch permission"],
+          "codex": ["network/web approval policy", "web_search live setting"]
+        }
+      ]
+    }
+  ]
+}
