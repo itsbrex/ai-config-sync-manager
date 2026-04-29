@@ -6,18 +6,23 @@ allowed-tools: Bash(*)
 
 First run a sync plan:
 
-!`bash -lc 'case " $ARGUMENTS " in *" --apply "*) "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync '"$ARGUMENTS"' ;; *) "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync '"$ARGUMENTS"' --dry-run ;; esac'`
+!`AI_CONFIG_SYNC_HOST=claude bash -lc 'case " $ARGUMENTS " in *" --apply "*) "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync '"$ARGUMENTS"' ;; *) "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync '"$ARGUMENTS"' --dry-run ;; esac'`
+
+Confirmation flow:
+
+- The slash command always shows a dry-run plan first.
+- After reviewing the plan, ask the user in chat whether to apply.
+- On the user's explicit yes, re-run this command with `--apply`.
 
 Before applying changes:
 
-- Review every planned file change.
-- Ensure backups will be created.
-- Use `--confirm` when an interactive approval gate is required.
-- Manual-risk entries are plan candidates; `--apply` executes the planned operations after backups.
 - Summarize the CLI output exactly; do not call a target an overwrite unless the CLI reports that the target exists.
+- Highlight `manual` and `partial` risk entries explicitly to the user before asking for approval.
+- Ensure backups are created automatically by the CLI on apply (`Backup root: ...` line).
+- Manual-risk entries are still plan candidates; `--apply` executes them after backups.
 
-Apply only after confirmation:
+Apply only after the user explicitly confirms in chat:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync $ARGUMENTS --apply
+AI_CONFIG_SYNC_HOST=claude "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync $ARGUMENTS --apply
 ```
