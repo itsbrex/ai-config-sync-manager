@@ -1,0 +1,138 @@
+name: Upstream compatibility snapshot
+
+"on":
+  schedule:
+    # Tuesdays + Fridays at 03:17 UTC — aligned with US deploy days
+    # (Mon/Thu evening PT). See docs/upstream-compat-plan.md (Layer 1).
+    - cron: "17 3 * * 2,5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-compat
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    name: Refresh upstream snapshots and report drift
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Refresh snapshots
+        run: node scripts/snapshot-upstream.mjs
+
+      - name: Detect drift
+        id: drift
+        run: |
+          set -euo pipefail
+          # Stage intent so newly-added snapshot files show up in `git diff`.
+          git add --intent-to-add -- snapshots >/dev/null 2>&1 || true
+          if git diff --quiet -- snapshots; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "no upstream drift"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            mkdir -p .upstream-compat
+            {
+              echo "## Changed files"
+              echo
+              git diff --name-only -- snapshots | sed 's/^/- /'
+              echo
+              echo "## Diff"
+              echo
+              echo '```diff'
+              git diff -- snapshots
+              echo '```'
+            } > .upstream-compat/diff.md
+            # Truncate to ~60KB if huge.
+            max_bytes=61440
+            actual_bytes=$(wc -c < .upstream-compat/diff.md)
+            if [ "$actual_bytes" -gt "$max_bytes" ]; then
+              head -c "$max_bytes" .upstream-compat/diff.md > .upstream-compat/diff.truncated.md
+              {
+                cat .upstream-compat/diff.truncated.md
+                echo
+                echo "_…diff truncated (${actual_bytes} bytes total, showing first ${max_bytes})._"
+              } > .upstream-compat/diff.md
+              rm .upstream-compat/diff.truncated.md
+            fi
+
+      - name: Build issue body
+        if: steps.drift.outputs.changed == 'true'
+        id: body
+        run: |
+          set -euo pipefail
+          today=$(date -u +%F)
+          echo "title=Upstream CLI compatibility drift detected (${today})" >> "$GITHUB_OUTPUT"
+          {
+            echo "Automated upstream snapshot diff detected drift on ${today} (UTC)."
+            echo
+            echo "Source: \`scripts/snapshot-upstream.mjs\` run via \`.github/workflows/upstream-compat.yml\`."
+            echo
+            cat .upstream-compat/diff.md
+            echo
+            echo "## Manual review checklist"
+            echo
+            echo "Layer 4 of [\`docs/upstream-compat-plan.md\`](../blob/main/docs/upstream-compat-plan.md) lists judgements that cannot be automated. Review each:"
+            echo
+            echo "- [ ] Deprecated alias runtime acceptance — schema removal does not always mean runtime removal."
+            echo "- [ ] Permission / sandbox security equivalence — confirm new modes still map safely (e.g. \`workspace-write\` ↔ \`Write/Edit/MultiEdit\`)."
+            echo "- [ ] Permission key rename semantics — verify \`permissions.allow\` → \`permissions.allowList\` style renames are pure renames."
+            echo "- [ ] New host-vendor intent — read changelog prose for direction shifts."
+            echo
+            echo "If rule files (\`rules/terminology-map.json\`, \`rules/agents-map.json\`, \`rules/call-templates.json\`, \`rules/host-target-templates.json\`) need updates, follow the priority order in Layer 2 of the plan."
+          } > .upstream-compat/body.md
+
+      - name: Find existing drift issue
+        if: steps.drift.outputs.changed == 'true'
+        id: existing
+        run: |
+          set -euo pipefail
+          existing=$(gh issue list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --label compatibility \
+            --search "Upstream CLI compatibility drift detected in:title" \
+            --json number,title \
+            --jq 'first(.[] | select(.title | startswith("Upstream CLI compatibility drift detected"))) // empty')
+          if [ -n "$existing" ]; then
+            number=$(echo "$existing" | jq -r '.number')
+            echo "number=$number" >> "$GITHUB_OUTPUT"
+            echo "Found existing open issue #$number"
+          else
+            echo "number=" >> "$GITHUB_OUTPUT"
+            echo "No existing open drift issue"
+          fi
+
+      - name: Comment on existing issue
+        if: steps.drift.outputs.changed == 'true' && steps.existing.outputs.number != ''
+        run: |
+          set -euo pipefail
+          gh issue comment "${{ steps.existing.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file .upstream-compat/body.md
+
+      - name: Create new drift issue
+        if: steps.drift.outputs.changed == 'true' && steps.existing.outputs.number == ''
+        run: |
+          set -euo pipefail
+          gh issue create \
+            --repo "${{ github.repository }}" \
+            --title "${{ steps.body.outputs.title }}" \
+            --label compatibility \
+            --body-file .upstream-compat/body.md
