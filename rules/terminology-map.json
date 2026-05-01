@@ -27,11 +27,20 @@
           "codex": ["~/.codex/config.toml [mcp_servers]", ".codex/config.toml [mcp_servers]", ".codex/config.toml [mcp_servers]"]
         },
         {
-          "id": "agent-file-path",
-          "description": "Translate agent file paths and extensions (.claude/agents/<name>.md <-> .codex/agents/<name>.toml). Regex with capture group preserves the agent name.",
+          "id": "agent-file-path-grouped",
+          "description": "Translate Claude grouped agent files (.claude/agents/<group>/<name>.md) to flat Codex agent files (.codex/agents/<name>.toml). Codex agents are flat — no subdirectories — and the engine's entryRulePaths already drops the group when locating the codex file (item.split('/').pop()), so this rule mirrors that behavior: keep only <name>.toml on the codex side. Listed before agent-file-path so this longer match wins. Reverse direction is intentionally inert (codex_pattern = (?!) matches nothing) because the codex side carries no group information to reconstruct; the flat agent-file-path rule handles codex->claude.",
           "regex": true,
-          "claude_pattern": "(~?/?)\\.claude/agents/([A-Za-z0-9_./-]+)\\.md",
-          "codex_pattern": "(~?/?)\\.codex/agents/([A-Za-z0-9_./-]+)\\.toml",
+          "claude_pattern": "(~?/?)\\.claude/agents/([A-Za-z0-9_-]+)/([A-Za-z0-9_.{}-]+)\\.md",
+          "codex_pattern": "(?!)",
+          "claude_replace": "$1.claude/agents/$2/$3.md",
+          "codex_replace": "$1.codex/agents/$3.toml"
+        },
+        {
+          "id": "agent-file-path",
+          "description": "Translate flat agent file paths and extensions (.claude/agents/<name>.md <-> .codex/agents/<name>.toml). The capture group accepts mustache placeholders like {name} so prose patterns ('~/.claude/agents/{name}.md') translate too. Slashes are excluded from the name capture so subdirectory paths fall through to agent-file-path-grouped above.",
+          "regex": true,
+          "claude_pattern": "(~?/?)\\.claude/agents/([A-Za-z0-9_.{}-]+)\\.md",
+          "codex_pattern": "(~?/?)\\.codex/agents/([A-Za-z0-9_.{}-]+)\\.toml",
           "claude_replace": "$1.claude/agents/$2.md",
           "codex_replace": "$1.codex/agents/$2.toml"
         },
@@ -52,6 +61,15 @@
           "codex_pattern": "\\bSKILL\\.md\\b",
           "claude_replace": "skill.md",
           "codex_replace": "SKILL.md"
+        },
+        {
+          "id": "claude-codex-prefix",
+          "description": "Generic catchall for any .claude/<rest> directory reference. Listed last in this layer so the more specific rules above (agent-file-path with .md<->.toml, skill-file-path with .claude/skills <-> .agents/skills, skill-manifest-filename) match first; this rule then catches everything else (.claude/docs, .claude/hooks, .claude/insights, .claude/insight, .claude/plugins, etc.) with a plain prefix swap to .codex/<rest>. Negative lookaheads carve out the literal exception files handled by the literal rules above (settings.json/mcp.json on the Claude side, config.toml on the Codex side) so those keep their precise filename mapping (settings.json <-> config.toml, mcp.json <-> config.toml [mcp_servers]) instead of getting a partial prefix-only swap.",
+          "regex": true,
+          "claude_pattern": "\\.claude/(?!settings\\.json\\b|mcp\\.json\\b)",
+          "codex_pattern": "\\.codex/(?!config\\.toml\\b)",
+          "claude_replace": ".claude/",
+          "codex_replace": ".codex/"
         }
       ]
     },
@@ -113,6 +131,33 @@
             "manual spawn_agent fan-out",
             "여러 spawn_agent 호출"
           ]
+        },
+        {
+          "id": "team-create-call",
+          "description": "Translate prose mentions of the Claude SDK TeamCreate / TeamDelete tool name to Codex's spawn_agent fan-out wording. Negative lookbehind prevents matching inside `ai-config-sync:*` marker JSON (where call names are preserved verbatim for round-trip restore); negative lookahead prevents matching the bare-call form `TeamCreate(...)` (which is handled by rules/call-templates.json). Reverse direction restores from the canonical 'multiple spawn_agent invocations' phrasing back to TeamCreate.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\b(?:TeamCreate|TeamDelete)\\b(?!\\s*\\()",
+          "codex_pattern": "\\bmultiple spawn_agent invocations\\b",
+          "claude_replace": "TeamCreate",
+          "codex_replace": "multiple spawn_agent invocations"
+        },
+        {
+          "id": "task-create-call",
+          "description": "Translate prose mentions of the Claude SDK TaskCreate / TaskUpdate / TaskGet / TaskList / TaskOutput / TaskStop tool names to spawn_agent. Codex has no native task tracker; in instructional text these names always describe sub-agent dispatch and the Codex equivalent is spawn_agent. Negative lookbehind avoids rewriting call names captured inside `ai-config-sync:*` marker JSON; negative lookahead skips the bare-call form `TaskCreate(...)` (handled by rules/call-templates.json). The reverse direction is intentionally inert here: 'spawn_agent' has its own canonical reverse via the task-delegation rule (-> 'Task tool').",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\b(?:TaskCreate|TaskUpdate|TaskGet|TaskList|TaskOutput|TaskStop)\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "spawn_agent"
+        },
+        {
+          "id": "send-message-call",
+          "description": "Translate prose mentions of the Claude SDK SendMessage tool to Codex's send_input. Same lookbehind/lookahead guards as the Task and Team rules.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bSendMessage\\b(?!\\s*\\()",
+          "codex_pattern": "\\bsend_input\\b",
+          "claude_replace": "SendMessage",
+          "codex_replace": "send_input"
         }
       ]
     },
@@ -139,6 +184,18 @@
           "id": "approval-policy-term",
           "claude": ["ask permission", "manual permission approval"],
           "codex": ["approval_policy on-request", "approval_policy on-request"]
+        }
+      ]
+    },
+    {
+      "id": "commands",
+      "description": "Host CLI invocation vocabulary used in text instructions (headless / non-interactive forms).",
+      "rules": [
+        {
+          "id": "headless-cli",
+          "description": "Translate the headless invocation form: `claude -p` or `claude --print` (Claude CLI print mode) <-> `codex exec` or `codex e` (Codex non-interactive subcommand). Listed before bare 'claude' / 'codex' references so the longer form wins.",
+          "claude": ["claude -p", "claude --print"],
+          "codex": ["codex exec", "codex e"]
         }
       ]
     },

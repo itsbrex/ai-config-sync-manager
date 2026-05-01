@@ -1,5 +1,0 @@
-{
-  "version": 1,
-  "description": "Example ignore list. Active user files are <project>/.ai-config-sync-manager/status-ignore.json or ~/.ai-config-sync-manager/status-ignore.json. Add entries to exclude matching diffs from status and sync; remove entries to show/apply them again.",
-  "exclude": []
-}

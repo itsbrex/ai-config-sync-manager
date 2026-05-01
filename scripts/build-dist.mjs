@@ -2,6 +2,7 @@
 
 import { chmodSync, copyFileSync, cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { syncActivePluginCaches } from "./sync-plugin-cache.mjs";
 
 const root = process.cwd();
 const dist = join(root, "dist");
@@ -65,6 +66,8 @@ writeHostLauncher(join(claudePlugin, "bin/ai-config-sync"), "claude");
 writeHostLauncher(join(codexPlugin, "bin/ai-config-sync"), "codex");
 
 console.log("Built dist/claude-marketplace and dist/codex-plugin");
+
+if (!process.argv.includes("--skip-sync")) syncActivePluginCaches();
 
 function writeHostLauncher(targetPath, host) {
   const script = `#!/usr/bin/env bash

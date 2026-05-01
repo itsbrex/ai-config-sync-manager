@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "description": "Example status-ignore template. Copy this file (or selected entries) to one of the active locations to take effect: <project>/.ai-config-sync-manager/status-ignore.json (project scope, checked first) or ~/.ai-config-sync-manager/rules/status-ignore.json (global). Each entry is either a string selector ('area:item' or a path glob) or an object with optional fields {scope, area, item, host, path, term}. Fields combine with AND. `path` matches the entry's resolved file paths via substring or glob. `term` is a line-level mask: when comparing files, lines containing the substring are removed from both sides before the diff. Conflicts that disappear after the mask are hidden; differences in other lines stay visible. `term` does not apply to missing-on-one-side entries.",
+  "exclude": [
+    "skills:legacy-skill",
+    "permissions:Bash",
+    "~/.codex/agents/archive-*.toml",
+    {
+      "scope": "global",
+      "area": "agents",
+      "item": "refactor-*"
+    },
+    {
+      "area": "skills",
+      "host": "claude",
+      "path": "~/.claude/skills/coderabbit-review"
+    },
+    {
+      "area": "skills",
+      "term": ".claude/docs/repo-analysis/"
+    },
+    {
+      "area": "agents",
+      "host": "claude",
+      "path": "~/.claude/agents/*.md",
+      "term": "TODO: do not sync"
+    }
+  ]
+}

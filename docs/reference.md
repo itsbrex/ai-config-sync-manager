@@ -94,6 +94,8 @@ Plan operations carry an `action` field that `applySyncPlan` dispatches on.
 
 Terminology rules live in `rules/terminology-map.json` (override at `~/.ai-config-sync-manager/rules/terminology-map.json` or `<project>/rules/terminology-map.json`). Each layer groups rules that rewrite host-specific vocabulary when transforming text between Claude and Codex.
 
+See [docs/customizing-rules.md](customizing-rules.md) for override precedence, merge semantics, and per-file recipes.
+
 ### `files`
 
 Host-specific config and instruction file names.
@@ -182,4 +184,4 @@ HTML comment markers the call compiler emits inside transformed text. They round
 - `<repo>/rules/host-target-templates.json` — Bundled target templates.
 - `<repo>/rules/call-templates.json` — Bundled SDK call transform templates.
 
-Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`.
+Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`. Layers are merged by id (rule.id, template.id, areas key, fields claude+codex pair, models.tiers id) — partial overlays only need to declare the entries they want to add or change.

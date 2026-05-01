@@ -130,8 +130,10 @@ function defaultSyncDirection() {
 
 function createStatusReport(scopes, selectors = emptySelectors()) {
   const direction = defaultSyncDirection();
+  const ignoreSource = ignoreListSource();
+  const ignoreRules = (ignoreSource.data?.exclude ?? []).filter(Boolean);
   const filtered = filterIgnoredEntries(filterEntries(
-    scopes.flatMap((scope) => diffScope(scope)),
+    scopes.flatMap((scope) => diffScope(scope, ignoreRules)),
     selectors
   ));
   const entries = filtered.entries;
@@ -172,10 +174,10 @@ function renderStatus(report, format = "default") {
 
   if (report.entries.length > 0) {
     lines.push("");
-    lines.push(renderStatusResult(report.entries));
+    lines.push(renderStatusResult(report.entries, report.statusIgnoreRules ?? []));
     lines.push("");
     lines.push("Diff status:");
-    lines.push(renderDiffStatus(report.entries));
+    lines.push(renderDiffStatus(report.entries, report.statusIgnoreRules ?? []));
     lines.push("");
     if (detailPath) {
       lines.push(`Detail file: ${detailPath}`);
@@ -188,8 +190,8 @@ function renderStatus(report, format = "default") {
   return lines.join("\n");
 }
 
-function renderStatusList(entries) {
-  const rows = statusTableRows(entries);
+function renderStatusList(entries, ignoreRules = []) {
+  const rows = statusTableRows(entries, ignoreRules);
   return rows.map((row, index) => [
     `${index + 1}. ${row.scope}/${row.area} [${row.risk}]`,
     `   change: ${row.change}`,
@@ -200,8 +202,8 @@ function renderStatusList(entries) {
   ].join("\n")).join("\n\n");
 }
 
-function renderStatusResult(entries) {
-  const rows = statusTableRows(entries);
+function renderStatusResult(entries, ignoreRules = []) {
+  const rows = statusTableRows(entries, ignoreRules);
   const safeCount = rows.filter((row) => row.risk === "safe").length;
   const manualCount = rows.filter((row) => row.risk !== "safe").length;
 
@@ -212,8 +214,8 @@ function renderStatusResult(entries) {
   ].join("\n");
 }
 
-function renderDiffStatus(entries) {
-  const rows = statusTableRows(entries);
+function renderDiffStatus(entries, ignoreRules = []) {
+  const rows = statusTableRows(entries, ignoreRules);
   const groups = [
     ["claude", rows.filter((row) => row.target === "claude")],
     ["codex", rows.filter((row) => row.target === "codex")],
@@ -316,7 +318,7 @@ function renderDiffStatusRow(row) {
 
 function writeStatusDetailFile(report) {
   const detailPath = statusDetailPath();
-  const rows = statusTableRows(report.entries);
+  const rows = statusTableRows(report.entries, report.statusIgnoreRules ?? []);
   const lines = [
     "AI Config Sync Manager status detail",
     `Default sync direction: ${report.direction.from} -> ${report.direction.to}`,
@@ -350,31 +352,31 @@ function statusDetailPath() {
   return `${home}/.ai-config-sync-manager/status-details/${stamp}.txt`;
 }
 
-function statusTableRows(entries) {
+function statusTableRows(entries, ignoreRules = []) {
   return entries.flatMap((entry) => {
     const rows = [];
 
     for (const item of entry.missingInCodex ?? []) {
-      rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex")));
+      rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex"), ignoreRules));
     }
 
     for (const item of entry.missingInClaude ?? []) {
-      rows.push(statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude")));
+      rows.push(statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude"), ignoreRules));
     }
 
     for (const item of entry.conflicts ?? []) {
-      rows.push(statusTableRow(entry, "conflict", item, "sync area"));
+      rows.push(statusTableRow(entry, "conflict", item, "sync area", ignoreRules));
     }
 
     if (rows.length === 0) {
-      rows.push(statusTableRow(entry, "content differs", entry.area, "sync area"));
+      rows.push(statusTableRow(entry, "content differs", entry.area, "sync area", ignoreRules));
     }
 
     return rows;
   });
 }
 
-function statusTableRow(entry, change, item, action) {
+function statusTableRow(entry, change, item, action, ignoreRules = []) {
   const selector = statusSelector(entry.area, item);
   const command = action === "manual review"
     ? "manual review"
@@ -389,7 +391,7 @@ function statusTableRow(entry, change, item, action) {
     action,
     command,
     details: statusDetails(entry, change),
-    preview: statusPreview(entry, change, item),
+    preview: statusPreview(entry, change, item, ignoreRules),
     target: statusTarget(change, action),
     symbol: statusSymbol(change, action)
   };
@@ -425,10 +427,11 @@ function statusDetails(entry, change) {
   return `Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")} (${entry.claude}); Codex: ${statusPathSummary(entry, "codex")} (${entry.codex})`;
 }
 
-function statusPreview(entry, change, item) {
+function statusPreview(entry, change, item, ignoreRules = []) {
   const { from, to } = defaultSyncDirection();
   const fromLabel = from === "claude" ? "Claude" : "Codex";
   const toLabel = to === "claude" ? "Claude" : "Codex";
+  const terms = entryMaskTerms(entry, item, ignoreRules);
 
   if (change === "content differs" && entry.area === "instructions") {
     const targetContent = to === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
@@ -437,7 +440,8 @@ function statusPreview(entry, change, item) {
       `${toLabel} current`,
       targetContent ?? "",
       `After apply from ${fromLabel}`,
-      transformTextForHost(sourceContent ?? "", from, to)
+      transformTextForHost(sourceContent ?? "", from, to),
+      terms
     );
   }
 
@@ -448,18 +452,29 @@ function statusPreview(entry, change, item) {
       from,
       to
     );
-    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent);
+    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
   }
 
   if (change === "conflict" && entry.area === "agents") {
-    const targetContent = agentPreviewContent(to === "claude" ? entry.claudePath : entry.codexPath, item, to);
+    const targetPath = to === "claude" ? entry.claudeAgentPaths?.[item] : entry.codexAgentPaths?.[item];
+    const sourcePath = from === "claude" ? entry.claudeAgentPaths?.[item] : entry.codexAgentPaths?.[item];
+    const targetContent = agentPreviewContentFromPath(targetPath, to);
+    const rawSource = agentPreviewContentFromPath(sourcePath, from);
     const sourceContent = from === "claude"
-      ? transformTextForHost(agentPreviewContent(entry.claudePath, item, "claude"), "claude", "codex")
-      : transformTextForHost(stripAgentMigrationPreamble(agentPreviewContent(entry.codexPath, item, "codex")), "codex", "claude");
-    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent);
+      ? transformTextForHost(rawSource, "claude", "codex")
+      : transformTextForHost(stripAgentMigrationPreamble(rawSource), "codex", "claude");
+    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
   }
 
   return [];
+}
+
+function entryMaskTerms(entry, item, ignoreRules) {
+  if (!Array.isArray(ignoreRules) || ignoreRules.length === 0) return [];
+  return uniqueStrings([
+    ...applicableTermRules(ignoreRules, entry, item, "claude"),
+    ...applicableTermRules(ignoreRules, entry, item, "codex")
+  ]);
 }
 
 function statusPathSummary(entry, host) {
@@ -469,9 +484,28 @@ function statusPathSummary(entry, host) {
       ?? entry.claudePath;
   }
 
-  return instructionPathSummary(entry.codexInstructionPaths, entry.codexInstructionCheckedPaths)
+  const base = instructionPathSummary(entry.codexInstructionPaths, entry.codexInstructionCheckedPaths)
     ?? firstStatusPath(entry.codexMcpPaths)
     ?? entry.codexPath;
+
+  if (entry.area === "permissions" && entry.codexPath && permissionItemsTouchRules(entry)) {
+    return `${base} + ${codexRulesPath(entry.codexPath)}`;
+  }
+
+  return base;
+}
+
+function permissionItemsTouchRules(entry) {
+  const buckets = [entry.missingInCodex, entry.missingInClaude, entry.conflicts];
+  for (const bucket of buckets) {
+    if (!Array.isArray(bucket)) continue;
+    for (const itemName of bucket) {
+      if (typeof itemName !== "string") continue;
+      const { bucket: permBucket, value } = parsePermissionItem(itemName);
+      if (codexPrefixRuleForPermission(permBucket, value)) return true;
+    }
+  }
+  return false;
 }
 
 function instructionPathSummary(sourcePaths, checkedPaths) {
@@ -673,13 +707,60 @@ function ignoreRulesMatchEntry(rules, entry, item) {
 function ignoreRuleMatchesEntry(rule, entry, item) {
   const normalized = normalizeIgnoreRule(rule);
   if (!normalized) return false;
+  // term-bearing rules are line-level masks applied during compare, not entry-level ignores.
+  if (normalized.term) return false;
+  if (!ignoreRuleScopeMatchesEntry(normalized, entry, item)) return false;
+  if (!normalized.path) return true;
+  const paths = entryRulePaths(entry, item, normalized.host);
+  return paths.some((path) => pathMatchesIgnoreRule(path, normalized.path));
+}
+
+function ignoreRuleScopeMatchesEntry(normalized, entry, item) {
   if (normalized.scope && normalized.scope !== entry.scope) return false;
   if (normalized.area && normalized.area !== entry.area) return false;
   if (normalized.item && !itemMatchesSelector(item, normalized.item)) return false;
   if (normalized.host && normalized.host !== "claude" && normalized.host !== "codex") return false;
-  if (!normalized.path) return true;
+  return true;
+}
 
-  return entryRulePaths(entry, item, normalized.host).some((path) => pathMatchesIgnoreRule(path, normalized.path));
+function applicableTermRules(rules, entry, item, host) {
+  if (!Array.isArray(rules) || rules.length === 0) return [];
+  const terms = [];
+  for (const rule of rules) {
+    const normalized = normalizeIgnoreRule(rule);
+    if (!normalized || !normalized.term) continue;
+    if (normalized.host && host && normalized.host !== host) continue;
+    if (!ignoreRuleScopeMatchesEntry(normalized, entry, item)) continue;
+    if (normalized.path) {
+      const paths = entryRulePaths(entry, item, normalized.host || host);
+      if (!paths.some((path) => pathMatchesIgnoreRule(path, normalized.path))) continue;
+    }
+    terms.push(normalized.term);
+  }
+  return uniqueStrings(terms);
+}
+
+function maskLinesContaining(content, terms) {
+  if (!terms || terms.length === 0) return content;
+  if (typeof content !== "string") return content;
+  return content
+    .split("\n")
+    .filter((line) => !terms.some((term) => term && line.includes(term)))
+    .join("\n");
+}
+
+function expandTermsBothDirections(terms) {
+  if (!Array.isArray(terms) || terms.length === 0) return [];
+  const set = new Set();
+  for (const term of terms) {
+    if (typeof term !== "string" || !term) continue;
+    set.add(term);
+    const forward = transformTextForHost(term, "claude", "codex");
+    if (typeof forward === "string" && forward && forward !== term) set.add(forward);
+    const reverse = transformTextForHost(term, "codex", "claude");
+    if (typeof reverse === "string" && reverse && reverse !== term) set.add(reverse);
+  }
+  return Array.from(set);
 }
 
 function normalizeIgnoreRule(rule) {
@@ -690,15 +771,16 @@ function normalizeIgnoreRule(rule) {
     area: typeof rule.area === "string" ? rule.area : null,
     item: typeof rule.item === "string" ? rule.item : null,
     host: typeof rule.host === "string" ? rule.host : null,
-    path: typeof rule.path === "string" ? rule.path : null
+    path: typeof rule.path === "string" ? rule.path : null,
+    term: typeof rule.term === "string" ? rule.term : null
   };
 }
 
 function parseIgnoreStringRule(value) {
   const selector = value.includes(":") && !value.includes("/") ? parseSelector(value) : null;
   return selector
-    ? { scope: null, area: selector.area, item: selector.item, host: null, path: null }
-    : { scope: null, area: null, item: null, host: null, path: value };
+    ? { scope: null, area: selector.area, item: selector.item, host: null, path: null, term: null }
+    : { scope: null, area: null, item: null, host: null, path: value, term: null };
 }
 
 function entryRulePaths(entry, item, host) {
@@ -761,9 +843,7 @@ function ignoreListSource() {
 function ignoreListCandidates() {
   return [
     projectIgnoreListPath(),
-    join(resolve(process.cwd()), "rules/status-ignore.json"),
-    `${home}/.ai-config-sync-manager/rules/status-ignore.json`,
-    join(runtimeRoot, "rules/status-ignore.json")
+    `${home}/.ai-config-sync-manager/rules/status-ignore.json`
   ];
 }
 
@@ -783,7 +863,7 @@ function isExcluded(entry, exclude) {
 function selectorMatchesEntry(selector, entry) {
   if (selector.area !== entry.area) return false;
   if (!selector.item) return true;
-  return entryItems(entry).includes(selector.item);
+  return entryItems(entry).some((item) => itemMatchesSelector(item, selector.item));
 }
 
 function filterEntryItems(entry, selectors) {
@@ -844,11 +924,13 @@ function directionalItems(entry, to) {
 }
 
 function createSyncPlan(options, mode) {
-  const filtered = filterIgnoredEntries(filterEntries(diffScope(options.scope), options.selectors));
+  const ignoreSource = ignoreListSource();
+  const ignoreRules = (ignoreSource.data?.exclude ?? []).filter(Boolean);
+  const filtered = filterIgnoredEntries(filterEntries(diffScope(options.scope, ignoreRules), options.selectors));
   const entries = filtered.entries;
   const baseline = readSyncState(options.scope);
   const callArchive = [];
-  const operationOptions = { ...options, callArchive };
+  const operationOptions = { ...options, callArchive, ignoreRules: filtered.rules ?? [] };
   const operations = entries.flatMap((entry) => createOperations(entry, operationOptions)).filter(Boolean);
   const backupRoot = `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`;
 
@@ -1059,7 +1141,8 @@ function createOperation(entry, from, to, options = {}) {
         `${toLabel(to)} current`,
         to === "claude" ? entry.claudeInstructionContent ?? "" : entry.codexInstructionContent ?? "",
         `After apply from ${fromLabel(from)}`,
-        instructionContent ?? fileText(sourcePath)
+        instructionContent ?? fileText(sourcePath),
+        entryMaskTerms(entry, entry.area, options.ignoreRules ?? [])
       ),
       backupRequired: true,
       approvalRequired: false
@@ -1086,7 +1169,7 @@ function createOperation(entry, from, to, options = {}) {
       itemQualities: operationItemQualities(entry, skillNames),
       termMappingPath: terminologyMapPath(),
       targetTemplatePath: targetTemplatePath(),
-      changePreview: skillChangePreview(sourcePath, targetPath, conflicts, from, sourceIndex),
+      changePreview: skillChangePreview(sourcePath, targetPath, conflicts, from, sourceIndex, entry, options.ignoreRules ?? []),
       backupRequired: true,
       approvalRequired: false
     };
@@ -1113,7 +1196,7 @@ function createOperation(entry, from, to, options = {}) {
       agentsMapPath: agentsMapPath(),
       termMappingPath: terminologyMapPath(),
       targetTemplatePath: targetTemplatePath(),
-      changePreview: agentChangePreview(sourcePath, targetPath, conflicts, from, to),
+      changePreview: agentChangePreview(sourcePath, targetPath, conflicts, from, to, entry.claudeAgentPaths ?? {}, entry.codexAgentPaths ?? {}, entry, options.ignoreRules ?? []),
       backupRequired: true,
       approvalRequired: false
     };
@@ -1141,12 +1224,25 @@ function permissionReviewNotes(itemNames) {
   const notes = [];
 
   for (const itemName of itemNames) {
-    const { value } = parsePermissionItem(itemName);
+    const { bucket, value } = parsePermissionItem(itemName);
     const pattern = bashPattern(value);
 
     if (pattern?.risky) {
       notes.push(`${value}: broad, interpreter, shell-wrapper, network, or destructive command will be written as a prefix_rule; review before apply`);
-    } else if (itemMappingQuality("permissions", itemName) === "approximate") {
+      continue;
+    }
+
+    if (bucket === "allow" && value === "WebFetch") {
+      notes.push(`${value}: maps to config.toml web_search = "live"; reverse sync will normalize to WebSearch (lossy)`);
+      continue;
+    }
+
+    if (isAgentPermission(value) && !(bucket === "allow" && value === "Agent")) {
+      notes.push(`${value}: unsupported on Codex (no spawn_agent gate); archived under unsupported-calls.json`);
+      continue;
+    }
+
+    if (itemMappingQuality("permissions", itemName) === "approximate") {
       notes.push(`${value}: maps to a broad Codex approval policy; review before relying on equivalent behavior`);
     } else if (itemMappingQuality("permissions", itemName) === "unsupported") {
       notes.push(`${value}: unsupported permission mapping; preserved as metadata only`);
@@ -1169,25 +1265,51 @@ function permissionPatchPreview(to, itemNames) {
 
     if (to === "claude") {
       changes.push(`settings.json permissions.${bucket}: add ${JSON.stringify(value)}`);
-    } else {
-      if (["Write", "Edit", "MultiEdit"].includes(value)) {
-        changes.push('config.toml sandbox_mode = "workspace-write"');
+      return { item: itemName, action: "merge-settings-item", changes };
+    }
+
+    if (isAgentPermission(value)) {
+      if (bucket === "allow" && value === "Agent") {
+        changes.push("no-op (codex default already permits spawn_agent)");
+      } else {
+        changes.push("archive unsupported permission to unsupported-calls.json");
       }
-      if (isCommandLikePermission(value) && !value.startsWith("Bash(") && value !== "Bash" && !value.startsWith("mcp__")) {
-        changes.push('config.toml approval_policy = "on-request"');
-      }
-      const mcp = parseMcpPermission(value);
-      if (mcp) {
+      return { item: itemName, action: "merge-settings-item", changes };
+    }
+
+    if (["Write", "Edit", "MultiEdit"].includes(value)) {
+      changes.push('config.toml sandbox_mode = "workspace-write"');
+    }
+    if (bucket === "allow" && (value === "WebSearch" || value === "WebFetch")) {
+      changes.push('config.toml web_search = "live"');
+    }
+    if (bucket === "ask") {
+      changes.push('config.toml approval_policy = "on-request"');
+    }
+    const mcp = parseMcpPermission(value);
+    if (mcp) {
+      if (isMcpServerScopePermission(mcp)) {
+        if (bucket === "deny") {
+          changes.push(`config.toml [mcp_servers.${mcp.server}] enabled_tools = []`);
+        } else {
+          changes.push(`config.toml [mcp_servers.${mcp.server}] (no-op; codex defaults already allow every tool)`);
+        }
+      } else {
         const approvalMode = bucket === "deny" ? "deny" : bucket === "ask" ? "prompt" : "approve";
         changes.push(`config.toml [mcp_servers.${mcp.server}.tools.${mcp.tool}] approval_mode = ${JSON.stringify(approvalMode)}`);
+        if (bucket === "allow") {
+          changes.push(`config.toml [mcp_servers.${mcp.server}] enabled_tools += ${JSON.stringify(mcp.tool)}`);
+        } else if (bucket === "deny") {
+          changes.push(`config.toml [mcp_servers.${mcp.server}] disabled_tools += ${JSON.stringify(mcp.tool)}`);
+        }
       }
-      const rule = codexPrefixRuleForPermission(bucket, value);
-      if (rule) {
-        changes.push(`rules/default.rules ${rule}`);
-      }
-      if (changes.length === 0 || itemMappingQuality("permissions", itemName) === "metadata-only") {
-        changes.push(`managed metadata permissions.${bucket} = ${JSON.stringify(value)}`);
-      }
+    }
+    const rule = codexPrefixRuleForPermission(bucket, value);
+    if (rule) {
+      changes.push(`rules/default.rules ${rule}`);
+    }
+    if (changes.length === 0 || itemMappingQuality("permissions", itemName) === "metadata-only") {
+      changes.push(`managed metadata permissions.${bucket} = ${JSON.stringify(value)}`);
     }
 
     return { item: itemName, action: "merge-settings-item", changes };
@@ -1320,10 +1442,11 @@ function targetTemplatePath() {
 }
 
 function terminologyMapSource() {
-  for (const path of terminologyMapCandidates()) {
-    if (existsSync(path)) return { path, data: readJsonFile(path, { rules: [] }) };
-  }
-  return { path: join(runtimeRoot, "rules/terminology-map.json"), data: { rules: [] } };
+  return loadLayeredRule(
+    terminologyMapCandidates(),
+    { layers: [] },
+    mergeTerminologyMap
+  );
 }
 
 function terminologyMapCandidates() {
@@ -1335,10 +1458,11 @@ function terminologyMapCandidates() {
 }
 
 function targetTemplateSource() {
-  for (const path of targetTemplateCandidates()) {
-    if (existsSync(path)) return { path, data: readJsonFile(path, { templates: [] }) };
-  }
-  return { path: join(runtimeRoot, "rules/host-target-templates.json"), data: { templates: [] } };
+  return loadLayeredRule(
+    targetTemplateCandidates(),
+    { templates: [] },
+    mergeTargetTemplates
+  );
 }
 
 function targetTemplateCandidates() {
@@ -1370,15 +1494,11 @@ function callTemplatesData() {
 }
 
 function callTemplatesSource() {
-  for (const path of callTemplatesCandidates()) {
-    if (existsSync(path)) {
-      return { path, data: readJsonFile(path, { supported: [], unsupported: [] }) };
-    }
-  }
-  return {
-    path: join(runtimeRoot, "rules/call-templates.json"),
-    data: { supported: [], unsupported: [] }
-  };
+  return loadLayeredRule(
+    callTemplatesCandidates(),
+    { supported: [], unsupported: [] },
+    mergeCallTemplates
+  );
 }
 
 function callTemplatesCandidates() {
@@ -1386,6 +1506,23 @@ function callTemplatesCandidates() {
     join(resolve(process.cwd()), "rules/call-templates.json"),
     `${home}/.ai-config-sync-manager/rules/call-templates.json`,
     join(runtimeRoot, "rules/call-templates.json")
+  ];
+}
+
+function routeMappingsSource(direction) {
+  const fileName = direction === "codex-to-claude" ? "codex-to-claude.json" : "claude-to-codex.json";
+  return loadLayeredRule(
+    routeMappingsCandidates(fileName),
+    { areas: {} },
+    mergeRouteMappings
+  );
+}
+
+function routeMappingsCandidates(fileName) {
+  return [
+    join(resolve(process.cwd()), `rules/${fileName}`),
+    `${home}/.ai-config-sync-manager/rules/${fileName}`,
+    join(runtimeRoot, `rules/${fileName}`)
   ];
 }
 
@@ -2159,14 +2296,15 @@ function fileText(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
-function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceIndex = {}) {
+function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceIndex = {}, entry = null, ignoreRules = []) {
   const lines = [];
   for (const skillName of skillNames) {
     const sourceDir = sourceIndex[skillName] ?? sourcePath;
     const source = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, from === "claude" ? "codex" : "claude");
     const target = skillPreviewContent(targetPath, skillName);
+    const terms = entry ? entryMaskTerms(entry, skillName, ignoreRules) : [];
     lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
-    lines.push(...contentChangePreview("Target current", target, `After apply from ${fromLabel(from)}`, source).map((line) => `  ${line}`));
+    lines.push(...contentChangePreview("Target current", target, `After apply from ${fromLabel(from)}`, source, terms).map((line) => `  ${line}`));
   }
   return lines;
 }
@@ -2179,18 +2317,31 @@ function skillPreviewContent(basePath, skillName) {
   return "";
 }
 
-function agentChangePreview(sourceDir, targetDir, agentNames, from, to) {
+function agentChangePreview(sourceDir, targetDir, agentNames, from, to, claudeAgentPaths = {}, codexAgentPaths = {}, entry = null, ignoreRules = []) {
   const lines = [];
+  const sourcePaths = from === "claude" ? claudeAgentPaths : codexAgentPaths;
+  const targetPaths = to === "claude" ? claudeAgentPaths : codexAgentPaths;
   for (const agentName of agentNames) {
     lines.push(`${agentName}: target will be replaced from ${fromLabel(from)}`);
-    const targetContent = agentPreviewContent(targetDir, agentName, to);
-    const sourceContent = agentPreviewContent(sourceDir, agentName, from);
+    const targetContent = agentPreviewContentFromPath(targetPaths[agentName], to)
+      || agentPreviewContent(targetDir, agentName, to);
+    const sourceRaw = agentPreviewContentFromPath(sourcePaths[agentName], from)
+      || agentPreviewContent(sourceDir, agentName, from);
     const transformedSource = from === "claude"
-      ? transformTextForHost(sourceContent, "claude", "codex")
-      : transformTextForHost(stripAgentMigrationPreamble(sourceContent), "codex", "claude");
-    lines.push(...contentChangePreview("Target current", targetContent, `After apply from ${fromLabel(from)}`, transformedSource).map((line) => `  ${line}`));
+      ? transformTextForHost(sourceRaw, "claude", "codex")
+      : transformTextForHost(stripAgentMigrationPreamble(sourceRaw), "codex", "claude");
+    const terms = entry ? entryMaskTerms(entry, agentName, ignoreRules) : [];
+    lines.push(...contentChangePreview("Target current", targetContent, `After apply from ${fromLabel(from)}`, transformedSource, terms).map((line) => `  ${line}`));
   }
   return lines;
+}
+
+function agentPreviewContentFromPath(path, host) {
+  if (!path || !existsSync(path)) return "";
+  if (host === "claude") {
+    return parseClaudeAgentFile(path).body ?? "";
+  }
+  return parseCodexAgentFile(path).developer_instructions ?? "";
 }
 
 function agentPreviewContent(baseDir, agentName, host) {
@@ -2200,6 +2351,27 @@ function agentPreviewContent(baseDir, agentName, host) {
     if (existsSync(direct)) {
       const parsed = parseClaudeAgentText(readFileSync(direct, "utf8"));
       return parsed.body;
+    }
+    // Fallback for folder-grouped layouts (e.g. baseDir/group/agentName.md). Match by
+    // canonical frontmatter name to handle the case where the file stem differs from
+    // the canonical agent name.
+    if (existsSync(baseDir)) {
+      for (const entry of readdirSync(baseDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        const groupDir = join(baseDir, entry.name);
+        const guess = join(groupDir, `${agentName}.md`);
+        if (existsSync(guess)) {
+          return parseClaudeAgentFile(guess).body ?? "";
+        }
+        for (const child of readdirSync(groupDir, { withFileTypes: true })) {
+          if (!child.isFile() || !child.name.endsWith(".md")) continue;
+          const childPath = join(groupDir, child.name);
+          const stem = child.name.slice(0, -3);
+          const parsed = parseClaudeAgentFile(childPath);
+          const canonical = canonicalAgentName(parsed.frontmatter?.name, stem);
+          if (canonical === agentName) return parsed.body ?? "";
+        }
+      }
     }
     return "";
   }
@@ -2277,24 +2449,49 @@ function normalizeSkillManifestCasing(skillDir, host) {
 function copyFileWithMappings(source, target, from, to, options = {}) {
   mkdirSync(dirname(target), { recursive: true });
   if (isTextMappingFile(source)) {
-    writeFileSync(target, transformTextForHost(readFileSync(source, "utf8"), from, to, options));
+    let text = transformTextForHost(readFileSync(source, "utf8"), from, to, options);
+    const sourceBasename = source.split("/").pop();
+    if (isSkillManifestBasename(sourceBasename)) {
+      text = normalizeYamlFrontmatter(text);
+    }
+    writeFileSync(target, text);
   } else {
     copyFileSync(source, target);
   }
+}
+
+// Re-serialize YAML frontmatter through the tolerant parser + quoting-aware serializer.
+// Skill manifests authored against Claude's lenient loader can contain unquoted scalars
+// with embedded `: ` (e.g. `description: First sentence. bias warning: edge case.`).
+// YAML 1.2 strict parsers (Codex's loader) reject those. Reusing the existing helpers
+// guarantees the destination's frontmatter is 1.2-compliant without changing parse or
+// serialize behavior — only their application site.
+function normalizeYamlFrontmatter(text) {
+  if (!text.startsWith("---")) return text;
+  const closing = text.indexOf("\n---", 3);
+  if (closing === -1) return text;
+  const { frontmatter, body } = parseClaudeAgentText(text);
+  return serializeClaudeAgentFile(frontmatter, body);
 }
 
 function isTextMappingFile(path) {
   return /\.(md|mdx|txt|json|toml|yaml|yml|js|mjs|ts|tsx|jsx|py|sh|rules)$/i.test(path);
 }
 
-function contentChangePreview(beforeLabel, before, afterLabel, after) {
+function contentChangePreview(beforeLabel, before, afterLabel, after, terms) {
   const beforeLines = previewLines(before);
   const afterLines = previewLines(after);
   const maxLines = Math.max(beforeLines.length, afterLines.length);
+  const expandedTerms = Array.isArray(terms) && terms.length > 0 ? expandTermsBothDirections(terms) : [];
   const changes = [];
 
   for (let index = 0; index < maxLines; index += 1) {
     if (beforeLines[index] === afterLines[index]) continue;
+    if (
+      expandedTerms.length > 0
+      && lineContainsAnyTerm(beforeLines[index], expandedTerms)
+      && lineContainsAnyTerm(afterLines[index], expandedTerms)
+    ) continue;
     changes.push(`- ${beforeLabel} L${index + 1}: ${previewLine(beforeLines[index])}`);
     changes.push(`+ ${afterLabel} L${index + 1}: ${previewLine(afterLines[index])}`);
     if (changes.length >= 12) {
@@ -2316,6 +2513,11 @@ function previewLine(value) {
   if (value === undefined) return "<missing>";
   if (value === "") return "<blank>";
   return value.length > 140 ? `${value.slice(0, 137)}...` : value;
+}
+
+function lineContainsAnyTerm(line, terms) {
+  if (typeof line !== "string") return false;
+  return terms.some((term) => term && line.includes(term));
 }
 
 function applySyncPlan(plan) {
@@ -2489,6 +2691,10 @@ function applyMergeSettingsItems(plan, operation) {
     backupPath(plan, codexRulesPath(operation.targetPath));
   }
 
+  if (operation.area === "permissions" && operation.to === "codex") {
+    archiveUnsupportedAgentPermissions(plan, operation.itemNames ?? []);
+  }
+
   if (operation.to === "claude") {
     mergeIntoClaudeSettings(operation.targetPath, operation.sourcePath, operation.from, operation.area, operation.itemNames ?? []);
   } else {
@@ -2499,6 +2705,24 @@ function applyMergeSettingsItems(plan, operation) {
     status: "applied",
     message: `merged ${operation.area} item(s): ${(operation.itemNames ?? []).join(", ")}`
   });
+}
+
+function archiveUnsupportedAgentPermissions(plan, itemNames) {
+  for (const itemName of itemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+    if (!isAgentPermission(value)) continue;
+    if (bucket === "allow" && value === "Agent") continue;
+
+    pushArchiveEntry(plan.callArchive, {
+      direction: "claude->codex",
+      rule_id: null,
+      call: null,
+      action: "unsupported-permission",
+      original: itemName,
+      fields: { bucket, value },
+      reason: "codex has no spawn_agent gate; permission cannot be expressed natively"
+    });
+  }
 }
 
 function applyMergeMcpServers(plan, operation) {
@@ -2536,6 +2760,8 @@ function applyDeleteItems(plan, operation) {
       if (operation.to === "claude") {
         deleteClaudePermissions(operation.targetPath, operation.itemNames ?? []);
       } else {
+        const remainingClaudeItemNames = remainingClaudePermissionItems(operation.sourcePath);
+        deleteCodexNativePermissionItems(operation.targetPath, operation.itemNames ?? [], remainingClaudeItemNames);
         deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
       }
     } else if (operation.area === "hooks") {
@@ -2547,10 +2773,31 @@ function applyDeleteItems(plan, operation) {
     }
   }
 
+  const pathSummary = operation.area === "permissions" && operation.to === "codex"
+    ? summarizeCodexPermissionDeletePaths(operation.itemNames ?? [])
+    : "";
   plan.results.push({
     status: "applied",
-    message: `deleted ${operation.area} item(s) from ${operation.to}: ${(operation.itemNames ?? []).join(", ")}`
+    message: `deleted ${operation.area} item(s) from ${operation.to}${pathSummary}: ${(operation.itemNames ?? []).join(", ")}`
   });
+}
+
+function summarizeCodexPermissionDeletePaths(itemNames) {
+  let touchesRules = false;
+  let touchesConfig = false;
+  for (const itemName of itemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+    if (codexPrefixRuleForPermission(bucket, value)) touchesRules = true;
+    if (
+      parseMcpPermission(value)
+      || ["Write", "Edit", "MultiEdit"].includes(value)
+      || (bucket === "allow" && (value === "WebSearch" || value === "WebFetch"))
+    ) {
+      touchesConfig = true;
+    }
+  }
+  const paths = [touchesConfig && "config.toml", touchesRules && "rules/default.rules"].filter(Boolean);
+  return paths.length ? ` (${paths.join(" + ")})` : "";
 }
 
 function deleteSkillItems(plan, operation) {
@@ -2607,21 +2854,21 @@ function mergeIntoClaudeSettings(targetPath, sourcePath, sourceHost, area, itemN
 }
 
 function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNames) {
-  const sourceValues = sourceHost === "claude"
-    ? claudeManagedValues(area, sourcePath, itemNames)
-    : codexManagedValues(area, sourcePath);
-  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
-  const managedValues = sourceHost === "claude"
-    ? codexManagedFallbackValues(area, sourceValues, itemNames)
-    : sourceValues;
-  let nextText = replaceManagedBlock(text, area, managedValues, itemNames, { dropMissingSelected: sourceHost === "claude" });
+  if (sourceHost !== "claude") {
+    throw new Error(`mergeIntoCodexSettings expected sourceHost "claude", got ${sourceHost}`);
+  }
 
-  if (area === "permissions" && sourceHost === "claude") {
+  const sourceValues = claudeManagedValues(area, sourcePath, itemNames);
+  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  const managedValues = codexManagedFallbackValues(area, sourceValues, itemNames);
+  let nextText = replaceManagedBlock(text, area, managedValues, itemNames, { dropMissingSelected: true });
+
+  if (area === "permissions") {
     nextText = applyCodexNativePermissionMapping(nextText, itemNames);
     writeCodexPermissionRules(codexRulesPath(targetPath), itemNames);
   }
 
-  if (area === "hooks" && sourceHost === "claude") {
+  if (area === "hooks") {
     nextText = applyCodexNativeHookMapping(nextText, sourceValues, itemNames);
   }
 
@@ -2648,10 +2895,17 @@ function codexManagedPermissionFallbackValues(sourceValues, itemNames) {
 }
 
 function hasExactCodexPermissionMapping(bucket, value) {
-  if (parseMcpPermission(value)) return true;
+  const mcp = parseMcpPermission(value);
+  if (mcp) return true;
+  if (bucket === "allow" && (value === "WebSearch" || value === "WebFetch")) return true;
+  if (isAgentPermission(value)) return true;
 
   const prefixRule = codexPrefixRuleForPermission(bucket, value);
   return Boolean(prefixRule);
+}
+
+function isAgentPermission(value) {
+  return value === "Agent" || /^Agent\(/.test(value);
 }
 
 function codexManagedHookFallbackValues(sourceValues, itemNames) {
@@ -2695,45 +2949,10 @@ function claudeManagedValues(area, sourcePath, itemNames) {
   return values;
 }
 
-function codexManagedValues(area, sourcePath) {
-  if (!existsSync(sourcePath)) return {};
-  const text = readFileSync(sourcePath, "utf8");
-  const values = {};
-
-  if (area === "permissions") {
-    for (const match of text.matchAll(/^\s*#\s*permissions\.(allow|deny|ask)\s*=\s*(.+)$/gm)) {
-      try {
-        const value = JSON.parse(match[2]);
-        values[`${match[1]}:${value}`] = { bucket: match[1], value };
-      } catch {
-        // Ignore malformed managed comments.
-      }
-    }
-  }
-
-  if (area === "hooks") {
-    for (const match of text.matchAll(/^\s*#\s*hooks\.([A-Za-z0-9_-]+)\s*=\s*(.+)$/gm)) {
-      try {
-        values[match[1]] = JSON.parse(match[2]);
-      } catch {
-        values[match[1]] = [];
-      }
-    }
-  }
-
-  return values;
-}
-
 function codexHookValues(sourcePath) {
   if (!existsSync(sourcePath)) return {};
   const text = readFileSync(sourcePath, "utf8");
-  const values = codexManagedValues("hooks", sourcePath);
-
-  for (const [eventName, groups] of Object.entries(parseCodexNativeHooks(text))) {
-    values[eventName] ??= groups;
-  }
-
-  return values;
+  return parseCodexNativeHooks(text);
 }
 
 function parseCodexNativeHooks(text) {
@@ -2897,13 +3116,19 @@ function permissionOperationItems(itemNames) {
 
 function applyCodexNativePermissionMapping(text, itemNames) {
   let nextText = text;
-  const values = itemNames.map((itemName) => parsePermissionItem(itemName).value);
+  const parsed = itemNames
+    .map((itemName) => parsePermissionItem(itemName))
+    .filter(({ value }) => !isAgentPermission(value));
 
-  if (values.some((value) => ["Write", "Edit", "MultiEdit"].includes(value))) {
+  if (parsed.some(({ value }) => ["Write", "Edit", "MultiEdit"].includes(value))) {
     nextText = setTomlRootString(nextText, "sandbox_mode", "workspace-write");
   }
 
-  if (values.some((value) => isCommandLikePermission(value) && !value.startsWith("Bash(") && value !== "Bash" && !value.startsWith("mcp__"))) {
+  if (parsed.some(({ bucket, value }) => bucket === "allow" && (value === "WebSearch" || value === "WebFetch"))) {
+    nextText = setTomlRootString(nextText, "web_search", "live");
+  }
+
+  if (parsed.some(({ bucket }) => bucket === "ask")) {
     nextText = setTomlRootString(nextText, "approval_policy", "on-request");
   }
 
@@ -2960,11 +3185,83 @@ function applyCodexMcpToolApprovals(text, itemNames) {
     const mcp = parseMcpPermission(value);
     if (!mcp) continue;
 
+    if (isMcpServerScopePermission(mcp)) {
+      // Server-level (or wildcard tool) permission. Codex defaults to allowing all tools, so
+      // allow/ask are noops at the codex layer. deny needs an explicit empty enabled_tools to
+      // forbid every tool on the server.
+      if (bucket === "deny") {
+        nextText = setTomlMcpServerArray(nextText, mcp.server, "enabled_tools", []);
+      } else {
+        nextText = ensureTomlMcpServerTable(nextText, mcp.server);
+      }
+      continue;
+    }
+
     const approvalMode = bucket === "deny" ? "deny" : bucket === "ask" ? "prompt" : "approve";
     nextText = setTomlMcpToolApproval(nextText, mcp.server, mcp.tool, approvalMode);
+
+    if (bucket === "allow") {
+      nextText = appendTomlMcpServerArray(nextText, mcp.server, "enabled_tools", mcp.tool);
+    } else if (bucket === "deny") {
+      nextText = appendTomlMcpServerArray(nextText, mcp.server, "disabled_tools", mcp.tool);
+    }
   }
 
   return nextText;
+}
+
+function setTomlMcpServerArray(text, server, key, values) {
+  const tableLine = `[mcp_servers.${server}]`;
+  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const match = text.match(tablePattern);
+  const line = `${key} = ${formatTomlStringArray(values)}`;
+
+  if (!match) {
+    return `${text.replace(/\s*$/, "")}\n\n${tableLine}\n${line}\n`;
+  }
+
+  const body = match[1];
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*\\[[^\\]]*\\]\\s*$`, "m");
+  const nextBody = keyPattern.test(body)
+    ? body.replace(keyPattern, line)
+    : `${body.replace(/\s*$/, "")}\n${line}\n`;
+
+  return text.replace(tablePattern, `${tableLine}\n${nextBody}`);
+}
+
+function ensureTomlMcpServerTable(text, server) {
+  const tableLine = `[mcp_servers.${server}]`;
+  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n`, "m");
+  if (tablePattern.test(text)) return text;
+  return `${text.replace(/\s*$/, "")}\n\n${tableLine}\n`;
+}
+
+function appendTomlMcpServerArray(text, server, key, tool) {
+  const tableLine = `[mcp_servers.${server}]`;
+  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const match = text.match(tablePattern);
+
+  if (!match) {
+    const line = `${key} = ${formatTomlStringArray([tool])}`;
+    return `${text.replace(/\s*$/, "")}\n\n${tableLine}\n${line}\n`;
+  }
+
+  const body = match[1];
+  const existing = parseTomlStringArray(body, key);
+  if (existing.includes(tool)) return text;
+
+  const merged = [...existing, tool];
+  const line = `${key} = ${formatTomlStringArray(merged)}`;
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*\\[[^\\]]*\\]\\s*$`, "m");
+  const nextBody = keyPattern.test(body)
+    ? body.replace(keyPattern, line)
+    : `${body.replace(/\s*$/, "")}\n${line}\n`;
+
+  return text.replace(tablePattern, `${tableLine}\n${nextBody}`);
+}
+
+function formatTomlStringArray(values) {
+  return `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
 }
 
 function setTomlMcpToolApproval(text, server, tool, approvalMode) {
@@ -2987,9 +3284,19 @@ function setTomlMcpToolApproval(text, server, tool, approvalMode) {
 }
 
 function parseMcpPermission(value) {
-  const match = value.match(/^mcp__([^_]+(?:_[^_]+)*)__([^_].*)$/);
-  if (!match) return null;
-  return { server: match[1].replaceAll("_", "-"), tool: match[2] };
+  const withTool = value.match(/^mcp__([^_]+(?:_[^_]+)*)__([^_].*)$/);
+  if (withTool) {
+    return { server: withTool[1].replaceAll("_", "-"), tool: withTool[2] };
+  }
+  const serverOnly = value.match(/^mcp__([^_]+(?:_[^_]+)*)$/);
+  if (serverOnly) {
+    return { server: serverOnly[1].replaceAll("_", "-"), tool: null };
+  }
+  return null;
+}
+
+function isMcpServerScopePermission(mcp) {
+  return mcp !== null && (mcp.tool === null || mcp.tool === "*");
 }
 
 function writeCodexPermissionRules(path, itemNames) {
@@ -3022,6 +3329,50 @@ function replaceTextBlock(text, name, body) {
   return `${text.replace(/\s*$/, "")}\n\n${block}\n`;
 }
 
+// Strip `[mcp_servers.X]` (and `[mcp_servers.X.tools.Y]`) tables that live OUTSIDE the
+// managed block, for X in `serverNames`. Used before re-rendering the managed block
+// so the same server isn't declared twice (TOML duplicate-key error).
+function stripTopLevelMcpServerTables(text, serverNames, blockName = "mcp-servers") {
+  if (!text || !Array.isArray(serverNames) || serverNames.length === 0) return text;
+
+  const begin = `# BEGIN ai-config-sync ${blockName}`;
+  const end = `# END ai-config-sync ${blockName}`;
+  const blockMatch = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m").exec(text);
+
+  // Split into segments around the managed block so stripping never crosses the
+  // BEGIN/END markers (otherwise a top-level table's body match could swallow them).
+  const segments = blockMatch
+    ? [
+        { text: text.slice(0, blockMatch.index), strip: true },
+        { text: blockMatch[0], strip: false },
+        { text: text.slice(blockMatch.index + blockMatch[0].length), strip: true }
+      ]
+    : [{ text, strip: true }];
+
+  const stripped = segments
+    .map((segment) => (segment.strip ? stripMcpTablesFromSegment(segment.text, serverNames) : segment.text))
+    .join("");
+
+  // Collapse triple+ blank lines that may appear after removing tables, but preserve
+  // a final newline if the original had one.
+  const trailingNewline = /\n$/.test(text) ? "\n" : "";
+  return stripped.replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "") + trailingNewline;
+}
+
+function stripMcpTablesFromSegment(segment, serverNames) {
+  return serverNames.reduce((acc, name) => {
+    // Match `[mcp_servers.X]` headers (NOT `[mcp_servers.X.tools.Y]` sub-tables —
+    // those carry standalone tool-permission config the user may want to keep). The
+    // body match consumes lines until the next TOML header (`[`) or a managed-block
+    // marker (`# BEGIN/END ai-config-sync`), so it never accidentally swallows them.
+    const pattern = new RegExp(
+      `(^|\\n)\\[mcp_servers\\.${escapeRegExp(name)}\\][^\\n]*(?:\\n(?!\\[|# (?:BEGIN|END) ai-config-sync )[^\\n]*)*\\n?`,
+      "g"
+    );
+    return acc.replace(pattern, (match, prefix) => (prefix === "\n" ? "\n" : ""));
+  }, segment);
+}
+
 function codexPrefixRuleForPermission(bucket, value) {
   const pattern = bashPattern(value);
   if (!pattern) return null;
@@ -3031,13 +3382,13 @@ function codexPrefixRuleForPermission(bucket, value) {
 }
 
 function bashPattern(value) {
-  if (value === "Bash") return { risky: true, parts: [] };
+  if (value === "Bash") return { risky: true, parts: ["bash"] };
   const match = value.match(/^Bash\((.*)\)$/);
   if (!match) return null;
 
   const raw = match[1].trim().replace(/:\*$/, " *").replace(/\s+\*$/, "");
   const parts = raw.split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return { risky: true, parts };
+  if (parts.length === 0) return { risky: true, parts: ["bash"] };
 
   const riskyCommands = new Set(["bash", "zsh", "sh", "python", "python3", "node", "rm", "sudo", "chmod", "chown", "curl", "wget"]);
   return {
@@ -3092,7 +3443,10 @@ function mergeMcpIntoCodex(targetPath, sourcePath, sourceHost, serverNames) {
     : readCodexMcpServers(sourcePath), serverNames);
   const targetServers = readCodexMcpServers(targetPath);
   const merged = { ...targetServers, ...sourceServers };
-  const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  const original = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
+  // Strip top-level [mcp_servers.X] tables for any X we're about to render inside
+  // the managed block — otherwise the same key appears twice and TOML rejects the file.
+  const text = stripTopLevelMcpServerTables(original, Object.keys(merged), "mcp-servers");
 
   writeFileSync(targetPath, replaceTextBlock(text, "mcp-servers", renderCodexMcpServers(merged)));
 }
@@ -3157,6 +3511,147 @@ function deleteCodexManagedItems(targetPath, area, itemNames) {
   const emptyValues = {};
   const nextText = replaceManagedBlock(text, area, emptyValues, itemNames, { dropMissingSelected: true });
   writeFileSync(targetPath, nextText);
+}
+
+// Reads the source-side claude settings.json and returns every permission value
+// (across allow/ask/deny buckets) that still exists. Used to decide whether
+// top-level codex toggles (sandbox_mode, web_search) should be torn down after
+// the items that justified them are removed.
+function remainingClaudePermissionItems(sourcePath) {
+  if (!sourcePath || !existsSync(sourcePath)) return [];
+  const data = readJsonFile(sourcePath, {});
+  const permissions = data?.permissions ?? {};
+  return Object.values(permissions)
+    .flat()
+    .filter((value) => typeof value === "string");
+}
+
+// Mirror of the forward writer (applyCodexNativePermissionMapping +
+// writeCodexPermissionRules): for each deleted item, strip its native
+// counterpart from config.toml / default.rules. Top-level toggles only fall
+// away when no remaining claude item still requires them.
+function deleteCodexNativePermissionItems(configPath, deletedItemNames, remainingClaudeItemNames) {
+  const rulesPath = codexRulesPath(configPath);
+  let configText = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  let rulesText = existsSync(rulesPath) ? readFileSync(rulesPath, "utf8") : "";
+
+  for (const itemName of deletedItemNames) {
+    const { bucket, value } = parsePermissionItem(itemName);
+
+    const pattern = bashPattern(value);
+    if (pattern) {
+      const decision = bucket === "deny" ? "forbidden" : bucket === "ask" ? "prompt" : "allow";
+      rulesText = removePrefixRuleLine(rulesText, pattern.parts, decision);
+    }
+
+    const mcp = parseMcpPermission(value);
+    if (mcp) {
+      if (isMcpServerScopePermission(mcp)) {
+        if (bucket === "deny") {
+          configText = removeTomlMcpServerKey(configText, mcp.server, "enabled_tools");
+        }
+      } else {
+        configText = removeFromTomlMcpServerArray(configText, mcp.server, "enabled_tools", mcp.tool);
+        configText = removeFromTomlMcpServerArray(configText, mcp.server, "disabled_tools", mcp.tool);
+        configText = removeTomlMcpToolBlock(configText, mcp.server, mcp.tool);
+      }
+    }
+  }
+
+  const remainingHasFsWrite = remainingClaudeItemNames.some((value) => ["Write", "Edit", "MultiEdit"].includes(value));
+  if (!remainingHasFsWrite) {
+    configText = removeTomlRootKey(configText, "sandbox_mode");
+  }
+
+  const remainingHasWeb = remainingClaudeItemNames.some((value) => value === "WebSearch" || value === "WebFetch");
+  if (!remainingHasWeb) {
+    configText = removeTomlRootKey(configText, "web_search");
+  }
+
+  // network_access under [sandbox_workspace_write] is intentionally not auto-removed:
+  // it is also user-controllable and only the forward writer for WebFetch sets it.
+
+  writeFileSync(configPath, configText);
+  if (existsSync(rulesPath)) {
+    writeFileSync(rulesPath, rulesText);
+  }
+}
+
+// Match prefix_rule(...) lines by their (parts, decision) tuple instead of by an
+// exact-string match against codexPrefixRuleForPermission's output. Real-world
+// default.rules files vary in whitespace inside the JSON array and may omit the
+// trailing justification= argument (and may grow new fields in the future); the
+// tuple is the only stable identity. Drops at most one matching line per call so
+// repeated deletes stay idempotent against the forward writer's one-line-per-emit
+// semantics.
+function removePrefixRuleLine(text, parts, decision) {
+  if (!Array.isArray(parts)) return text;
+  const target = JSON.stringify(parts);
+  const lines = text.split(/\r?\n/);
+  const filtered = [];
+  let removed = false;
+
+  for (const line of lines) {
+    if (!removed) {
+      const match = line.match(/^\s*prefix_rule\(\s*pattern\s*=\s*(\[[^\]]*\])\s*,\s*decision\s*=\s*"([^"]+)"/);
+      if (match) {
+        const lineParts = parseJsonLike(match[1], null);
+        const lineCanonical = Array.isArray(lineParts) ? JSON.stringify(lineParts) : null;
+        if (lineCanonical === target && match[2] === decision) {
+          removed = true;
+          continue;
+        }
+      }
+    }
+    filtered.push(line);
+  }
+
+  return filtered.join("\n");
+}
+
+function removeTomlRootKey(text, key) {
+  const pattern = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=.*\\r?\\n?`, "m");
+  return text.replace(pattern, "");
+}
+
+function removeTomlMcpServerKey(text, server, key) {
+  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const match = text.match(tablePattern);
+  if (!match) return text;
+
+  const body = match[1];
+  const keyPattern = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=.*\\r?\\n?`, "m");
+  if (!keyPattern.test(body)) return text;
+
+  const nextBody = body.replace(keyPattern, "");
+  return text.replace(tablePattern, `[mcp_servers.${server}]\n${nextBody}`);
+}
+
+function removeFromTomlMcpServerArray(text, server, key, tool) {
+  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const match = text.match(tablePattern);
+  if (!match) return text;
+
+  const body = match[1];
+  const existing = parseTomlStringArray(body, key);
+  if (!existing.includes(tool)) return text;
+
+  const remaining = existing.filter((item) => item !== tool);
+  const keyPattern = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=\\s*\\[[^\\]]*\\][ \\t]*\\r?\\n?`, "m");
+
+  const nextBody = remaining.length === 0
+    ? body.replace(keyPattern, "")
+    : body.replace(keyPattern, `${key} = ${formatTomlStringArray(remaining)}\n`);
+
+  return text.replace(tablePattern, `[mcp_servers.${server}]\n${nextBody}`);
+}
+
+function removeTomlMcpToolBlock(text, server, tool) {
+  const blockPattern = new RegExp(
+    `^\\[mcp_servers\\.${escapeRegExp(server)}\\.tools\\.${escapeRegExp(tool)}\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
+    "m"
+  );
+  return text.replace(blockPattern, "");
 }
 
 function pickServers(servers, names) {
@@ -3322,9 +3817,10 @@ function normalizeMcpServerDetails(servers) {
 }
 
 function safeEnv(env) {
+  const stripSecrets = stripSecretsEnabled();
   return Object.fromEntries(
     Object.entries(env)
-      .filter(([key, value]) => typeof value === "string" && !isSecretEnvKey(key))
+      .filter(([key, value]) => typeof value === "string" && (!stripSecrets || !isSecretEnvKey(key)))
   );
 }
 
@@ -3333,7 +3829,17 @@ function isSecretEnvKey(key) {
 }
 
 function secretEnvKeys(env) {
+  if (!stripSecretsEnabled()) return [];
   return Object.keys(env).filter((key) => isSecretEnvKey(key)).sort();
+}
+
+// Opt-out for users who want the conservative behavior of stripping secret-like
+// env values during MCP sync. Default copies them because both source and target
+// live under the same user's home directory and the source already stores the
+// secret in plaintext — stripping just makes the synced target nonfunctional.
+function stripSecretsEnabled() {
+  const value = process.env.AI_CONFIG_SYNC_STRIP_SECRETS;
+  return typeof value === "string" && /^(1|true|yes)$/i.test(value.trim());
 }
 
 function renderCodexMcpServers(servers) {
@@ -3382,6 +3888,209 @@ function readJsonFile(path, fallback) {
   }
 }
 
+function loadLayeredRule(candidates, defaults, mergeFn) {
+  let merged = JSON.parse(JSON.stringify(defaults));
+  const layers = [];
+  const orderedFromBase = [...candidates].reverse();
+  for (const path of orderedFromBase) {
+    if (!existsSync(path)) continue;
+    const overlay = readJsonFile(path, defaults);
+    merged = mergeFn(merged, overlay);
+    layers.push(path);
+  }
+  const firstMatch = candidates.find((path) => existsSync(path));
+  return {
+    path: firstMatch ?? candidates[candidates.length - 1],
+    layers,
+    data: merged
+  };
+}
+
+function mergeTerminologyMap(base, overlay) {
+  if (!overlay || typeof overlay !== "object") return base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key === "layers" || key === "rules") continue;
+    merged[key] = value;
+  }
+  const baseLayers = Array.isArray(base.layers) ? base.layers : [];
+  const overlayLayers = Array.isArray(overlay.layers) ? [...overlay.layers] : [];
+  if (Array.isArray(overlay.rules) && overlay.rules.length > 0) {
+    overlayLayers.push({ id: "_overlay_top_rules", rules: overlay.rules });
+  }
+  const layerIndex = new Map();
+  const ordered = [];
+  for (const layer of baseLayers) {
+    const clone = { ...layer, rules: Array.isArray(layer.rules) ? [...layer.rules] : [] };
+    ordered.push(clone);
+    if (clone.id != null) layerIndex.set(clone.id, clone);
+  }
+  for (const overlayLayer of overlayLayers) {
+    if (overlayLayer.id != null && layerIndex.has(overlayLayer.id)) {
+      const baseLayer = layerIndex.get(overlayLayer.id);
+      const baseRules = Array.isArray(baseLayer.rules) ? baseLayer.rules : [];
+      const overlayRules = Array.isArray(overlayLayer.rules) ? overlayLayer.rules : [];
+      const ruleIndex = new Map();
+      const orderedRules = [];
+      for (const rule of baseRules) {
+        const clone = { ...rule };
+        orderedRules.push(clone);
+        if (clone.id != null) ruleIndex.set(clone.id, clone);
+      }
+      for (const overlayRule of overlayRules) {
+        if (overlayRule.id != null && ruleIndex.has(overlayRule.id)) {
+          Object.assign(ruleIndex.get(overlayRule.id), overlayRule);
+        } else {
+          const clone = { ...overlayRule };
+          orderedRules.push(clone);
+          if (clone.id != null) ruleIndex.set(clone.id, clone);
+        }
+      }
+      const { rules: _ignored, ...rest } = overlayLayer;
+      Object.assign(baseLayer, rest);
+      baseLayer.rules = orderedRules;
+    } else {
+      const clone = { ...overlayLayer, rules: Array.isArray(overlayLayer.rules) ? [...overlayLayer.rules] : [] };
+      ordered.push(clone);
+      if (clone.id != null) layerIndex.set(clone.id, clone);
+    }
+  }
+  merged.layers = ordered;
+  return merged;
+}
+
+function mergeTargetTemplates(base, overlay) {
+  if (!overlay || typeof overlay !== "object") return base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key === "templates") continue;
+    merged[key] = value;
+  }
+  const baseTemplates = Array.isArray(base.templates) ? base.templates : [];
+  const overlayTemplates = Array.isArray(overlay.templates) ? overlay.templates : [];
+  const index = new Map();
+  const ordered = [];
+  for (const template of baseTemplates) {
+    const clone = { ...template };
+    ordered.push(clone);
+    if (clone.id != null) index.set(clone.id, clone);
+  }
+  for (const overlayTemplate of overlayTemplates) {
+    if (overlayTemplate.id != null && index.has(overlayTemplate.id)) {
+      Object.assign(index.get(overlayTemplate.id), overlayTemplate);
+    } else {
+      const clone = { ...overlayTemplate };
+      ordered.push(clone);
+      if (clone.id != null) index.set(clone.id, clone);
+    }
+  }
+  merged.templates = ordered;
+  return merged;
+}
+
+function mergeCallTemplates(base, overlay) {
+  if (!overlay || typeof overlay !== "object") return base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key === "supported" || key === "unsupported") continue;
+    merged[key] = value;
+  }
+  merged.supported = mergeByIdShallow(base.supported, overlay.supported);
+  merged.unsupported = mergeByIdShallow(base.unsupported, overlay.unsupported);
+  return merged;
+}
+
+function mergeByIdShallow(baseList, overlayList) {
+  const baseArr = Array.isArray(baseList) ? baseList : [];
+  const overlayArr = Array.isArray(overlayList) ? overlayList : [];
+  const index = new Map();
+  const ordered = [];
+  for (const item of baseArr) {
+    const clone = { ...item };
+    ordered.push(clone);
+    if (clone.id != null) index.set(clone.id, clone);
+  }
+  for (const overlayItem of overlayArr) {
+    if (overlayItem.id != null && index.has(overlayItem.id)) {
+      Object.assign(index.get(overlayItem.id), overlayItem);
+    } else {
+      const clone = { ...overlayItem };
+      ordered.push(clone);
+      if (clone.id != null) index.set(clone.id, clone);
+    }
+  }
+  return ordered;
+}
+
+function mergeRouteMappings(base, overlay) {
+  if (!overlay || typeof overlay !== "object") return base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key === "areas") continue;
+    merged[key] = value;
+  }
+  const baseAreas = base.areas && typeof base.areas === "object" ? base.areas : {};
+  const overlayAreas = overlay.areas && typeof overlay.areas === "object" ? overlay.areas : {};
+  const mergedAreas = {};
+  for (const [areaKey, areaValue] of Object.entries(baseAreas)) {
+    mergedAreas[areaKey] = { ...areaValue };
+  }
+  for (const [areaKey, overlayArea] of Object.entries(overlayAreas)) {
+    if (mergedAreas[areaKey] && typeof mergedAreas[areaKey] === "object" && typeof overlayArea === "object" && overlayArea !== null) {
+      mergedAreas[areaKey] = { ...mergedAreas[areaKey], ...overlayArea };
+    } else {
+      mergedAreas[areaKey] = overlayArea;
+    }
+  }
+  merged.areas = mergedAreas;
+  return merged;
+}
+
+function mergeAgentsMap(base, overlay) {
+  if (!overlay || typeof overlay !== "object") return base;
+  const merged = { ...base };
+  for (const [key, value] of Object.entries(overlay)) {
+    if (key === "fields" || key === "models") continue;
+    merged[key] = value;
+  }
+  const baseFields = Array.isArray(base.fields) ? base.fields : [];
+  const overlayFields = Array.isArray(overlay.fields) ? overlay.fields : [];
+  const fieldIndex = new Map();
+  const orderedFields = [];
+  const fieldKey = (entry) => `${entry.claude ?? ""}→${entry.codex ?? ""}`;
+  for (const field of baseFields) {
+    const clone = { ...field };
+    orderedFields.push(clone);
+    fieldIndex.set(fieldKey(clone), clone);
+  }
+  for (const overlayField of overlayFields) {
+    const key = fieldKey(overlayField);
+    if (fieldIndex.has(key)) {
+      Object.assign(fieldIndex.get(key), overlayField);
+    } else {
+      const clone = { ...overlayField };
+      orderedFields.push(clone);
+      fieldIndex.set(key, clone);
+    }
+  }
+  merged.fields = orderedFields;
+
+  const baseModels = base.models && typeof base.models === "object" ? base.models : {};
+  const overlayModels = overlay.models && typeof overlay.models === "object" ? overlay.models : null;
+  if (overlayModels) {
+    const mergedModels = { ...baseModels };
+    for (const [key, value] of Object.entries(overlayModels)) {
+      if (key === "tiers") continue;
+      mergedModels[key] = value;
+    }
+    mergedModels.tiers = mergeByIdShallow(baseModels.tiers, overlayModels.tiers);
+    merged.models = mergedModels;
+  } else if (Object.keys(baseModels).length > 0) {
+    merged.models = { ...baseModels };
+  }
+  return merged;
+}
+
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -3394,13 +4103,13 @@ function backupPath(plan, targetPath) {
   cpSync(targetPath, backupTarget, { recursive: true, dereference: false });
 }
 
-function diffScope(scope) {
+function diffScope(scope, ignoreRules = []) {
   const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
   const entries = [];
 
   compareInstructions(entries, scope, paths.claude.instructions, paths.codex.instructions, paths.claude.instructionPaths, paths.codex.instructionPaths);
-  compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills, paths.claude.skillsPaths ?? [paths.claude.skills], paths.codex.skillsPaths ?? [paths.codex.skills]);
-  compareAgents(entries, scope, paths.claude.agents, paths.codex.agents);
+  compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills, paths.claude.skillsPaths ?? [paths.claude.skills], paths.codex.skillsPaths ?? [paths.codex.skills], ignoreRules);
+  compareAgents(entries, scope, paths.claude.agents, paths.codex.agents, ignoreRules);
   compareMcpServers(entries, scope, paths.claude.mcp, paths.codex.mcp, paths.claude.mcpPaths, paths.codex.mcpPaths);
 
   if (paths.claude.settings && paths.codex.settings) {
@@ -3610,16 +4319,17 @@ function comparePresence(entries, scope, area, claudePath, codexPath, risk) {
   });
 }
 
-function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [claudeDir], codexDirs = [codexDir]) {
+function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [claudeDir], codexDirs = [codexDir], ignoreRules = []) {
   const claudeIndex = enumerateSkillIndex(claudeDirs);
   const codexIndex = enumerateSkillIndex(codexDirs);
   const claude = [...claudeIndex.keys()].sort();
   const codex = [...codexIndex.keys()].sort();
   const missingInCodex = claude.filter((name) => !codexIndex.has(name));
   const missingInClaude = codex.filter((name) => !claudeIndex.has(name));
+  const skillsCompareEntry = { scope, area: "skills", claudePath: claudeDir, codexPath: codexDir };
   const conflicts = claude
     .filter((name) => codexIndex.has(name))
-    .filter((name) => !skillDirsEquivalent(join(claudeIndex.get(name), name), join(codexIndex.get(name), name)));
+    .filter((name) => !skillDirsEquivalent(join(claudeIndex.get(name), name), join(codexIndex.get(name), name), skillsCompareEntry, name, ignoreRules));
 
   const claudeSkillIndex = Object.fromEntries(claudeIndex);
   const codexSkillIndex = Object.fromEntries(codexIndex);
@@ -3660,7 +4370,7 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [cla
   }
 }
 
-function compareAgents(entries, scope, claudeDir, codexDir) {
+function compareAgents(entries, scope, claudeDir, codexDir, ignoreRules = []) {
   const claudeAgents = enumerateClaudeAgents(claudeDir);
   const codexAgents = enumerateCodexAgents(codexDir);
   const claudeNames = claudeAgents.map((agent) => agent.name).sort();
@@ -3670,9 +4380,16 @@ function compareAgents(entries, scope, claudeDir, codexDir) {
 
   const missingInCodex = claudeNames.filter((name) => !codexIndex.has(name));
   const missingInClaude = codexNames.filter((name) => !claudeIndex.has(name));
+  const agentsCompareEntry = { scope, area: "agents", claudePath: claudeDir, codexPath: codexDir };
   const conflicts = claudeNames
     .filter((name) => codexIndex.has(name))
-    .filter((name) => !agentsEquivalent(claudeIndex.get(name), codexIndex.get(name)));
+    .filter((name) => !agentsEquivalent(claudeIndex.get(name), codexIndex.get(name), agentsCompareEntry, name, ignoreRules));
+
+  // Per-name path lookup for downstream preview/apply. Required because Claude agents
+  // can live one folder deep (e.g. .claude/agents/code-writer/code-writer-logic.md);
+  // a flat baseDir + ${name}.md guess misses them after canonical-name matching.
+  const claudeAgentPaths = Object.fromEntries(claudeAgents.map((agent) => [agent.name, agent.path]));
+  const codexAgentPaths = Object.fromEntries(codexAgents.map((agent) => [agent.name, agent.path]));
 
   if (missingInCodex.length > 0 || missingInClaude.length > 0) {
     entries.push({
@@ -3682,6 +4399,8 @@ function compareAgents(entries, scope, claudeDir, codexDir) {
       summary: "agents missing in one host",
       claudePath: claudeDir,
       codexPath: codexDir,
+      claudeAgentPaths,
+      codexAgentPaths,
       claude: `${claudeNames.length} agent(s)`,
       codex: `${codexNames.length} agent(s)`,
       missingInCodex,
@@ -3698,6 +4417,8 @@ function compareAgents(entries, scope, claudeDir, codexDir) {
       summary: "agents conflict",
       claudePath: claudeDir,
       codexPath: codexDir,
+      claudeAgentPaths,
+      codexAgentPaths,
       claude: `${claudeNames.length} agent(s)`,
       codex: `${codexNames.length} agent(s)`,
       conflicts,
@@ -3711,14 +4432,16 @@ function enumerateClaudeAgents(dir) {
   const agents = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.isFile() && entry.name.endsWith(".md")) {
+      const path = join(dir, entry.name);
       const stem = entry.name.slice(0, -3);
-      agents.push({ name: stem, path: join(dir, entry.name), group: null });
+      agents.push({ name: canonicalAgentName(parseClaudeAgentFile(path).frontmatter?.name, stem), path, group: null });
     } else if (entry.isDirectory()) {
       const groupDir = join(dir, entry.name);
       for (const child of readdirSync(groupDir, { withFileTypes: true })) {
         if (!child.isFile() || !child.name.endsWith(".md")) continue;
+        const path = join(groupDir, child.name);
         const stem = child.name.slice(0, -3);
-        agents.push({ name: `${entry.name}/${stem}`, path: join(groupDir, child.name), group: entry.name });
+        agents.push({ name: canonicalAgentName(parseClaudeAgentFile(path).frontmatter?.name, stem), path, group: entry.name });
       }
     }
   }
@@ -3730,25 +4453,48 @@ function enumerateCodexAgents(dir) {
   const agents = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isFile() || !entry.name.endsWith(".toml")) continue;
+    const path = join(dir, entry.name);
     const stem = entry.name.slice(0, -5);
-    agents.push({ name: stem, path: join(dir, entry.name) });
+    agents.push({ name: canonicalAgentName(parseCodexAgentFile(path).name, stem), path });
   }
   return agents;
 }
 
-function agentsEquivalent(claudeAgent, codexAgent) {
+function canonicalAgentName(rawName, fallbackStem) {
+  const candidate = typeof rawName === "string" ? rawName.trim() : "";
+  const source = candidate || fallbackStem || "";
+  return source.replace(/\//g, "-");
+}
+
+function agentsEquivalent(claudeAgent, codexAgent, entry, item, rules) {
   if (!claudeAgent || !codexAgent) return false;
   const claude = parseClaudeAgentFile(claudeAgent.path);
   const codex = parseCodexAgentFile(codexAgent.path);
-  return agentBodiesEqual(claude.body, codex.developer_instructions);
+  const terms = entry
+    ? uniqueStrings([
+      ...applicableTermRules(rules ?? [], entry, item, "claude"),
+      ...applicableTermRules(rules ?? [], entry, item, "codex")
+    ])
+    : [];
+  return agentBodiesEqual(claude.body, codex.developer_instructions, terms);
 }
 
-function agentBodiesEqual(claudeBody, codexBody) {
+function agentBodiesEqual(claudeBody, codexBody, terms) {
   const left = stripAgentMigrationPreamble(claudeBody ?? "");
   const right = stripAgentMigrationPreamble(codexBody ?? "");
   if (left === right) return true;
-  return transformTextForHost(left, "claude", "codex") === right
-    || transformTextForHost(right, "codex", "claude") === left;
+  if (transformTextForHost(left, "claude", "codex") === right) return true;
+  if (transformTextForHost(right, "codex", "claude") === left) return true;
+
+  if (terms && terms.length > 0) {
+    const expandedTerms = expandTermsBothDirections(terms);
+    const maskedLeft = maskLinesContaining(left, expandedTerms);
+    const maskedRight = maskLinesContaining(right, expandedTerms);
+    if (maskedLeft === maskedRight) return true;
+    if (maskLinesContaining(transformTextForHost(left, "claude", "codex"), expandedTerms) === maskedRight) return true;
+    if (maskedLeft === maskLinesContaining(transformTextForHost(right, "codex", "claude"), expandedTerms)) return true;
+  }
+  return false;
 }
 
 function stripAgentMigrationPreamble(text) {
@@ -3942,10 +4688,11 @@ function agentsMapPath() {
 }
 
 function agentsMapSource() {
-  for (const path of agentsMapCandidates()) {
-    if (existsSync(path)) return { path, data: readJsonFile(path, {}) };
-  }
-  return { path: join(runtimeRoot, "rules/agents-map.json"), data: {} };
+  return loadLayeredRule(
+    agentsMapCandidates(),
+    { fields: [], models: { tiers: [] } },
+    mergeAgentsMap
+  );
 }
 
 function agentsMapCandidates() {
@@ -3999,8 +4746,17 @@ function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = 
 function compareSettingsItems(entries, scope, area, claudePath, codexPath) {
   const claude = settingsItems("claude", area, claudePath);
   const codex = settingsItems("codex", area, codexPath);
-  const missingInCodex = settingsItemsMissingFrom(area, claude, codex);
-  const missingInClaude = settingsItemsMissingFrom(area, codex, claude);
+  let missingInCodex = settingsItemsMissingFrom(area, claude, codex);
+  let missingInClaude = settingsItemsMissingFrom(area, codex, claude);
+
+  if (area === "permissions") {
+    // Server-scope `allow:mcp__<server>` round-trips through Codex as a noop (Codex defaults
+    // to allowing every tool on a configured MCP server). If the codex side has the server
+    // table without an explicit `enabled_tools = []` deny, treat the claude permission as
+    // satisfied even though codex emits no item-level entry to capability-match against.
+    const codexUnrestrictedServers = codexUnrestrictedMcpServers(codexPath);
+    missingInCodex = missingInCodex.filter((name) => !isServerScopeMcpAllowSatisfied(name, codexUnrestrictedServers));
+  }
 
   if (missingInCodex.length === 0 && missingInClaude.length === 0) return;
 
@@ -4025,7 +4781,35 @@ function settingsItemsMissingFrom(area, sourceItems, targetItems) {
   }
 
   const targetCapabilities = new Set(targetItems.map(permissionCapability));
-  return sourceItems.filter((name) => !targetCapabilities.has(permissionCapability(name)));
+  return sourceItems.filter((name) => {
+    if (itemMappingQuality(area, name) === "unsupported") return false;
+    return !targetCapabilities.has(permissionCapability(name));
+  });
+}
+
+function codexUnrestrictedMcpServers(codexPath) {
+  const servers = new Set();
+  if (!codexPath || !existsSync(codexPath) || !codexPath.endsWith(".toml")) return servers;
+  const text = readFileSync(codexPath, "utf8");
+  const tablePattern = /^\[mcp_servers\.([^\]]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
+
+  for (const match of text.matchAll(tablePattern)) {
+    if (match[1].includes(".")) continue;
+    const enabledDeclared = hasTomlKey(match[2], "enabled_tools");
+    const enabled = parseTomlStringArray(match[2], "enabled_tools");
+    if (enabledDeclared && enabled.length === 0) continue; // explicit deny-all
+    servers.add(match[1].replaceAll("-", "_"));
+  }
+
+  return servers;
+}
+
+function isServerScopeMcpAllowSatisfied(itemName, codexUnrestrictedServers) {
+  const { bucket, value } = parsePermissionItem(itemName);
+  if (bucket !== "allow") return false;
+  const mcp = parseMcpPermission(value);
+  if (!mcp || !isMcpServerScopePermission(mcp)) return false;
+  return codexUnrestrictedServers.has(mcp.server.replaceAll("-", "_"));
 }
 
 function permissionCapability(itemName) {
@@ -4037,6 +4821,9 @@ function permissionCapability(itemName) {
 
   const mcp = parseMcpPermission(value);
   if (mcp) {
+    if (isMcpServerScopePermission(mcp)) {
+      return `${bucket}:mcp-server:${mcp.server}`;
+    }
     return `${bucket}:mcp-tool:${mcp.server}:${mcp.tool}`;
   }
 
@@ -4045,7 +4832,7 @@ function permissionCapability(itemName) {
     return `${bucket}:bash-prefix:${rule}`;
   }
 
-  if (value === "WebSearch") {
+  if (value === "WebSearch" || value === "WebFetch") {
     return `${bucket}:web-search`;
   }
 
@@ -4063,11 +4850,17 @@ function itemMappingQuality(area, item) {
 
   const { bucket, value } = parsePermissionItem(item);
   if (parseMcpPermission(value)) return "exact";
+  if (isAgentPermission(value)) return "unsupported";
 
   const rule = codexPrefixRuleForPermission(bucket, value);
   if (rule) return "exact";
   if (["Write", "Edit", "MultiEdit"].includes(value)) return "equivalent";
-  if (isCommandLikePermission(value) && value !== "Bash" && !value.startsWith("Bash(")) return "approximate";
+  if (bucket === "allow" && value === "WebSearch") return "exact";
+  if (bucket === "allow" && value === "WebFetch") return "approximate";
+  // SendMessage has no codex equivalent; the earlier branches already cover
+  // every other command-like value (mcp__*, Agent, Bash, Bash(...), WebFetch,
+  // WebSearch), so the only fall-through here is SendMessage itself.
+  if (value === "SendMessage") return "unsupported";
   if (isCommandLikePermission(value)) return "metadata-only";
 
   return "unsupported";
@@ -4109,7 +4902,7 @@ function permissionItems(prefix, values) {
   if (!Array.isArray(values)) return [];
   return values
     .filter((value) => typeof value === "string")
-    .flatMap((value) => [value, `${prefix}:${value}`]);
+    .map((value) => `${prefix}:${value}`);
 }
 
 function codexSettingsItems(area, path) {
@@ -4117,30 +4910,27 @@ function codexSettingsItems(area, path) {
   const items = [];
 
   if (area === "permissions") {
-    for (const match of text.matchAll(/^\s*#\s*permissions\.(allow|deny|ask)\s*=\s*"([^"]+)"/gm)) {
-      items.push(match[2], `${match[1]}:${match[2]}`);
-    }
     for (const item of codexWebSearchPermissionItems(text)) {
-      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+      items.push(item);
     }
     for (const item of codexSandboxPermissionItems(text)) {
-      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+      items.push(item);
+    }
+    for (const item of codexNetworkAccessPermissionItems(text)) {
+      items.push(item);
     }
     for (const item of codexRulePermissionItems(codexRulesPath(path))) {
-      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+      items.push(item);
     }
     for (const item of codexMcpApprovalItems(text)) {
-      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+      items.push(item);
     }
     for (const item of codexMcpToolListItems(text)) {
-      items.push(item, item.replace(/^(allow|ask|deny):/, ""));
+      items.push(item);
     }
   }
 
   if (area === "hooks") {
-    for (const match of text.matchAll(/^\s*#\s*hooks\.([A-Za-z0-9_-]+)/gm)) {
-      items.push(match[1]);
-    }
     for (const match of text.matchAll(/^\s*\[\[hooks\.([A-Za-z0-9_-]+)\]\]/gm)) {
       items.push(match[1]);
     }
@@ -4164,6 +4954,17 @@ function codexSandboxPermissionItems(text) {
   return [];
 }
 
+function codexNetworkAccessPermissionItems(text) {
+  const tablePattern = /^\[sandbox_workspace_write\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/m;
+  const match = text.match(tablePattern);
+  if (!match) return [];
+
+  const network = match[1].match(/^\s*network_access\s*=\s*(true|false)\b/m);
+  if (network?.[1] !== "true") return [];
+
+  return ["allow:WebFetch"];
+}
+
 function codexRulePermissionItems(path) {
   if (!existsSync(path)) return [];
   const text = readFileSync(path, "utf8");
@@ -4174,7 +4975,8 @@ function codexRulePermissionItems(path) {
     if (!Array.isArray(parts) || parts.some((part) => typeof part !== "string")) continue;
 
     const bucket = match[2] === "forbidden" ? "deny" : match[2] === "prompt" ? "ask" : "allow";
-    const value = `Bash(${parts.join(" ")}:*)`;
+    const isBareBash = parts.length === 0 || (parts.length === 1 && parts[0] === "bash");
+    const value = isBareBash ? "Bash" : `Bash(${parts.join(" ")}:*)`;
     items.push(`${bucket}:${value}`);
   }
 
@@ -4201,16 +5003,31 @@ function codexMcpToolListItems(text) {
   const tablePattern = /^\[mcp_servers\.([^\]]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
+    if (match[1].includes(".")) continue; // skip nested tables like mcp_servers.<server>.tools.<tool>
     const server = match[1].replaceAll("-", "_");
-    for (const tool of parseTomlStringArray(match[2], "enabled_tools")) {
+    const enabled = parseTomlStringArray(match[2], "enabled_tools");
+    const disabled = parseTomlStringArray(match[2], "disabled_tools");
+    const enabledDeclared = hasTomlKey(match[2], "enabled_tools");
+
+    for (const tool of enabled) {
       items.push(`allow:mcp__${server}__${tool}`);
     }
-    for (const tool of parseTomlStringArray(match[2], "disabled_tools")) {
+    for (const tool of disabled) {
       items.push(`deny:mcp__${server}__${tool}`);
+    }
+
+    // An explicit empty `enabled_tools = []` is a server-scope deny.
+    if (enabledDeclared && enabled.length === 0) {
+      items.push(`deny:mcp__${server}`);
     }
   }
 
   return items;
+}
+
+function hasTomlKey(text, key) {
+  const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`, "m");
+  return pattern.test(text);
 }
 
 function parseTomlStringArray(text, key) {
@@ -4228,9 +5045,14 @@ function uniqueStrings(values) {
 
 function skillNames(dir) {
   if (!existsSync(dir)) return [];
+  // The marker file pins Codex's vendored "system" skill bundle (.system/). When a
+  // marker is present at the root we are scanning into, treat the dir as opaque so
+  // its contents never enumerate as user skills.
+  if (existsSync(join(dir, ".codex-system-skills.marker"))) return [];
   return readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
     .map((entry) => entry.name)
+    .filter((name) => !name.startsWith("."))
     .sort();
 }
 
@@ -4363,48 +5185,107 @@ function directoryHash(path) {
   return hash.digest("hex").slice(0, 12);
 }
 
+// Replace a skill manifest basename with a casing-neutral sentinel so two skills
+// with identical content but differing manifest casing (skill.md vs SKILL.md)
+// share a single normalized path.
+function normalizeSkillPath(file) {
+  const segments = file.split("/");
+  const last = segments[segments.length - 1];
+  if (!isSkillManifestBasename(last)) return file;
+  return [...segments.slice(0, -1), "__skill_manifest__.md"].join("/");
+}
+
+// Pair each raw skill file path with its normalized form, then sort by the
+// normalized path so claude (skill.md) and codex (SKILL.md) iterate the same
+// logical files in the same order before hashing.
+function sortedSkillFiles(path) {
+  return directoryFiles(path)
+    .map((raw) => ({ raw, normalized: normalizeSkillPath(raw) }))
+    .sort((a, b) => (a.normalized < b.normalized ? -1 : a.normalized > b.normalized ? 1 : 0));
+}
+
+// Read a skill file's bytes for hashing, canonicalizing YAML frontmatter when the
+// file is a skill manifest (skill.md / SKILL.md). Claude's lenient YAML loader
+// tolerates unquoted colon-containing scalars while Codex's strict 1.2 loader does
+// not — our forward writer quotes them, so the same logical manifest can have
+// byte-different forms on each side. Hashing the canonical form makes those
+// quote-only diffs invisible to skillDirsEquivalent without mutating source files.
+function readSkillFileForHash(path, raw) {
+  const absolute = join(path, raw);
+  const content = readFileSync(absolute);
+  const basename = raw.split("/").pop();
+  if (!isSkillManifestBasename(basename)) return content;
+  return Buffer.from(normalizeYamlFrontmatter(content.toString("utf8")), "utf8");
+}
+
 // Like directoryHash but normalizes the skill manifest filename so that two skills
 // with identical content but differing manifest casing (skill.md vs SKILL.md) hash equal.
 function skillContentHash(path) {
   if (!existsSync(path)) return "missing";
   const hash = createHash("sha256");
 
-  for (const file of directoryFiles(path)) {
-    const segments = file.split("/");
-    const last = segments[segments.length - 1];
-    const normalizedFile = isSkillManifestBasename(last)
-      ? [...segments.slice(0, -1), "__skill_manifest__.md"].join("/")
-      : file;
-    hash.update(normalizedFile);
-    hash.update(readFileSync(join(path, file)));
+  for (const { raw, normalized } of sortedSkillFiles(path)) {
+    hash.update(normalized);
+    hash.update(readSkillFileForHash(path, raw));
   }
 
   return hash.digest("hex").slice(0, 12);
 }
 
-function skillDirsEquivalent(claudePath, codexPath) {
+function skillDirsEquivalent(claudePath, codexPath, entry, item, rules) {
   const claudeHash = skillContentHash(claudePath);
   const codexHash = skillContentHash(codexPath);
   if (claudeHash === codexHash) return true;
-  return transformedSkillContentHash(claudePath, "claude", "codex") === codexHash
-    || transformedSkillContentHash(codexPath, "codex", "claude") === claudeHash;
+  if (transformedSkillContentHash(claudePath, "claude", "codex") === codexHash) return true;
+  if (transformedSkillContentHash(codexPath, "codex", "claude") === claudeHash) return true;
+
+  if (entry) {
+    const terms = expandTermsBothDirections(uniqueStrings([
+      ...applicableTermRules(rules ?? [], entry, item, "claude"),
+      ...applicableTermRules(rules ?? [], entry, item, "codex")
+    ]));
+    if (terms.length > 0) {
+      if (maskedSkillContentHash(claudePath, "claude", "codex", terms) === maskedSkillContentHash(codexPath, "codex", "codex", terms)) return true;
+      if (maskedSkillContentHash(claudePath, "claude", "claude", terms) === maskedSkillContentHash(codexPath, "codex", "claude", terms)) return true;
+    }
+  }
+  return false;
 }
 
 function transformedSkillContentHash(path, from, to) {
   if (!existsSync(path)) return "missing";
   const hash = createHash("sha256");
 
-  for (const file of directoryFiles(path)) {
-    const segments = file.split("/");
-    const last = segments[segments.length - 1];
-    const normalizedFile = isSkillManifestBasename(last)
-      ? [...segments.slice(0, -1), "__skill_manifest__.md"].join("/")
-      : file;
-    const absolute = join(path, file);
+  for (const { raw, normalized } of sortedSkillFiles(path)) {
+    const absolute = join(path, raw);
+    const canonical = readSkillFileForHash(path, raw);
     const content = isTextMappingFile(absolute)
-      ? transformTextForHost(readFileSync(absolute, "utf8"), from, to)
-      : readFileSync(absolute);
-    hash.update(normalizedFile);
+      ? transformTextForHost(canonical.toString("utf8"), from, to)
+      : canonical;
+    hash.update(normalized);
+    hash.update(content);
+  }
+
+  return hash.digest("hex").slice(0, 12);
+}
+
+function maskedSkillContentHash(path, sourceHost, targetHost, terms) {
+  if (!existsSync(path)) return "missing";
+  const hash = createHash("sha256");
+
+  for (const { raw, normalized } of sortedSkillFiles(path)) {
+    const absolute = join(path, raw);
+    const canonical = readSkillFileForHash(path, raw);
+    let content;
+    if (isTextMappingFile(absolute)) {
+      const text = sourceHost === targetHost
+        ? canonical.toString("utf8")
+        : transformTextForHost(canonical.toString("utf8"), sourceHost, targetHost);
+      content = Buffer.from(maskLinesContaining(text, terms), "utf8");
+    } else {
+      content = canonical;
+    }
+    hash.update(normalized);
     hash.update(content);
   }
 
@@ -4721,6 +5602,7 @@ Options:
   --include area[:item][,...]    Include only selected areas or items
   --exclude area[:item][,...]    Exclude selected areas or items
   ignore file                    <project>/.ai-config-sync-manager/status-ignore.json, then ~/.ai-config-sync-manager/rules/status-ignore.json
+  rule fields                    scope, area, item, host, path (file path/glob), term (line-level mask in compare)
   -h, --help                     Show status help
 
 Examples:
@@ -4742,6 +5624,7 @@ Options:
   --include area[:item][,...]    Include only selected areas or items
   --exclude area[:item][,...]    Exclude selected areas or items
   ignore file                    <project>/.ai-config-sync-manager/status-ignore.json, then ~/.ai-config-sync-manager/rules/status-ignore.json
+  rule fields                    scope, area, item, host, path (file path/glob), term (line-level mask in compare)
   -h, --help                     Show sync help
 
 Defaults:
@@ -4996,6 +5879,12 @@ function referenceDefaultDirectionSection() {
     "3. Otherwise the default is `claude -> codex`.",
     "",
     "`status` follows the same default direction so that `+/-/~` symbols and `details` text describe the apply that would run with no override.",
+    "",
+    "## Environment variables",
+    "",
+    "- `AI_CONFIG_SYNC_HOST=codex` — Set default sync direction to `codex -> claude`.",
+    "- `AI_CONFIG_SYNC_HOME=<path>` — Override the home directory used for global config and state (primarily for tests).",
+    "- `AI_CONFIG_SYNC_STRIP_SECRETS=1` — Opt in to defensively stripping MCP env values whose keys look like secrets (`TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `AUTH`). Default behavior copies them because the source already stores the secret in plaintext under the same user's home; enable this if your source config is exposed beyond that trust boundary (e.g. dotfiles committed to git that include `.codex/config.toml`).",
     ""
   ].join("\n");
 }
@@ -5011,7 +5900,7 @@ function referenceFileLocationsSection() {
     "- `~/.ai-config-sync-manager/backups/<timestamp>/unsupported-calls.json` — Archive of stripped or manual-review calls (when applicable).",
     "- `~/.ai-config-sync-manager/status-details/<timestamp>.txt` — Full diff detail when status is collapsed.",
     "- `~/.ai-config-sync-manager/rules/agents-map.json` — Agent field and model alias rules (user customization point).",
-    "- `~/.ai-config-sync-manager/rules/status-ignore.json` — Persistent ignore rules used by `status` and `sync`.",
+    "- `~/.ai-config-sync-manager/rules/status-ignore.json` — Persistent ignore rules used by `status` and `sync`. Template at `<repo>/docs/status-ignore.example.json`.",
     "",
     "### Bundled defaults (under the runtime root)",
     "",
@@ -5019,7 +5908,7 @@ function referenceFileLocationsSection() {
     "- `<repo>/rules/host-target-templates.json` — Bundled target templates.",
     "- `<repo>/rules/call-templates.json` — Bundled SDK call transform templates.",
     "",
-    "Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`.",
+    "Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`. Layers are merged by id (rule.id, template.id, areas key, fields claude+codex pair, models.tiers id) — partial overlays only need to declare the entries they want to add or change.",
     ""
   ].join("\n");
 }
