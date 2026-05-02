@@ -5,6 +5,6 @@ disable-model-invocation: true
 allowed-tools: Bash(*)
 ---
 
-!`bash -lc '"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" status '"$ARGUMENTS"`
+!`AI_CONFIG_SYNC_HOST=claude bash -lc '"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" status '"$ARGUMENTS"`
 
 Print the CLI output as-is so the area/item hierarchy remains visible. Do not summarize, regroup, or modify files from this command.

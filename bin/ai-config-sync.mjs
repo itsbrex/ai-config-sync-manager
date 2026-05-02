@@ -482,6 +482,16 @@ function statusPreview(entry, change, item, ignoreRules = []) {
     return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
   }
 
+  if (change === "conflict" && entry.area === "mcp") {
+    const claudeServers = readClaudeMcpServerDetails(entry.claudeMcpPaths ?? entry.claudePath);
+    const codexServers = readCodexMcpServerDetails(entry.codexMcpPaths ?? entry.codexPath);
+    const targetServer = to === "claude" ? claudeServers[item] : codexServers[item];
+    const sourceServer = from === "claude" ? claudeServers[item] : codexServers[item];
+    const targetContent = renderCodexMcpServers({ [item]: targetServer ?? {} });
+    const sourceContent = renderCodexMcpServers({ [item]: sourceServer ?? {} });
+    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
+  }
+
   return [];
 }
 
@@ -941,8 +951,9 @@ function entryItems(entry) {
 }
 
 function directionalItems(entry, to) {
-  if (to === "codex") return entry.missingInCodex ?? [];
-  if (to === "claude") return entry.missingInClaude ?? [];
+  const conflicts = entry.area === "mcp" ? (entry.conflicts ?? []) : [];
+  if (to === "codex") return [...(entry.missingInCodex ?? []), ...conflicts];
+  if (to === "claude") return [...(entry.missingInClaude ?? []), ...conflicts];
   return entryItems(entry);
 }
 
@@ -3738,20 +3749,22 @@ function mcpPatchPreview(sourcePath, targetPath, sourceHost, targetHost, serverN
 
 function mcpServerChanges(source, target) {
   const changes = [];
+  const isUpdate = Boolean(target);
+  const fmt = (next, prev) => isUpdate ? `${JSON.stringify(prev ?? null)} -> ${JSON.stringify(next)}` : JSON.stringify(next);
 
   for (const key of ["command", "url"]) {
     if (source[key] && source[key] !== target?.[key]) {
-      changes.push(`${key}: ${JSON.stringify(source[key])}`);
+      changes.push(`${key}: ${fmt(source[key], target?.[key])}`);
     }
   }
 
   if (source.args?.length && JSON.stringify(source.args) !== JSON.stringify(target?.args ?? [])) {
-    changes.push(`args: ${JSON.stringify(source.args)}`);
+    changes.push(`args: ${fmt(source.args, target?.args ?? [])}`);
   }
 
   for (const [key, value] of Object.entries(source.env ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     if (target?.env?.[key] !== value) {
-      changes.push(`env.${key}: ${JSON.stringify(value)}`);
+      changes.push(`env.${key}: ${fmt(value, target?.env?.[key])}`);
     }
   }
 
@@ -4866,27 +4879,47 @@ function agentTargetPath(name, baseDir, host, sourceAgent) {
 }
 
 function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {
-  const claudeServers = Object.keys(readClaudeMcpServers(claudePaths)).sort();
-  const codexServers = Object.keys(readCodexMcpServers(codexPaths)).sort();
-  const missingInCodex = claudeServers.filter((name) => !codexServers.includes(name));
-  const missingInClaude = codexServers.filter((name) => !claudeServers.includes(name));
+  const claudeServers = readClaudeMcpServers(claudePaths);
+  const codexServers = readCodexMcpServers(codexPaths);
+  const claudeNames = Object.keys(claudeServers).sort();
+  const codexNames = Object.keys(codexServers).sort();
+  const missingInCodex = claudeNames.filter((name) => !codexNames.includes(name));
+  const missingInClaude = codexNames.filter((name) => !claudeNames.includes(name));
+  const conflicts = claudeNames
+    .filter((name) => codexNames.includes(name))
+    .filter((name) => mcpServerSignature(claudeServers[name]) !== mcpServerSignature(codexServers[name]))
+    .sort();
 
-  if (missingInCodex.length === 0 && missingInClaude.length === 0) return;
+  if (missingInCodex.length === 0 && missingInClaude.length === 0 && conflicts.length === 0) return;
 
   entries.push({
     scope,
     area: "mcp",
-    risk: "safe",
+    risk: conflicts.length > 0 ? "manual" : "safe",
     summary: "MCP servers differ",
     claudePath,
     codexPath,
     claudeMcpPaths: existingPaths(claudePaths),
     codexMcpPaths: existingPaths(codexPaths),
-    claude: `${claudeServers.length} server(s)`,
-    codex: `${codexServers.length} server(s)`,
+    claude: `${claudeNames.length} server(s)`,
+    codex: `${codexNames.length} server(s)`,
     missingInCodex,
     missingInClaude,
-    itemQualities: itemQualities("mcp", [...missingInCodex, ...missingInClaude])
+    conflicts,
+    itemQualities: itemQualities("mcp", [...missingInCodex, ...missingInClaude, ...conflicts])
+  });
+}
+
+function mcpServerSignature(server) {
+  if (!server) return "";
+  const env = Object.fromEntries(
+    Object.entries(server.env ?? {}).sort(([left], [right]) => left.localeCompare(right))
+  );
+  return JSON.stringify({
+    command: server.command ?? null,
+    url: server.url ?? null,
+    args: server.args ?? [],
+    env
   });
 }
 

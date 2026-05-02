@@ -5,7 +5,7 @@ disable-model-invocation: true
 allowed-tools: Bash(*)
 ---
 
-!`bash -lc '"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" reference '"$ARGUMENTS"`
+!`AI_CONFIG_SYNC_HOST=claude bash -lc '"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" reference '"$ARGUMENTS"`
 
 Print the CLI output as-is. The reference markdown enumerates every command, area, risk level, mapping quality, sync action verb, terminology layer, hidden marker, and known file location.
 

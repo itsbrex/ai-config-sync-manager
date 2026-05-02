@@ -10,6 +10,7 @@ AI Config Sync Manager is an OSS workflow for keeping AI assistant configuration
 ## Rules
 
 - Resolve the bundled CLI from the host plugin root: `${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync`. The plugin's launcher resolves the runtime in this order: `AI_CONFIG_SYNC_ROOT` (dev override), PATH `ai-config-sync` (`npm install -g` or `npm link`), then `npm exec` fallback.
+- Always export `AI_CONFIG_SYNC_HOST=claude` before invoking the CLI from this skill so the default sync direction is `claude -> codex`.
 - Prefer `--dry-run` before any write.
 - Status checks both global and current project scopes by default.
 - Print status CLI output as-is. Do not rewrite Codex and Claude status into different summary formats.
@@ -23,7 +24,7 @@ AI Config Sync Manager is an OSS workflow for keeping AI assistant configuration
 ## Commands
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" status
-"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" connect
-"${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync --from claude --to codex --dry-run
+AI_CONFIG_SYNC_HOST=claude "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" status
+AI_CONFIG_SYNC_HOST=claude "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" connect
+AI_CONFIG_SYNC_HOST=claude "${CLAUDE_PLUGIN_ROOT}/bin/ai-config-sync" sync --from claude --to codex --dry-run
 ```
