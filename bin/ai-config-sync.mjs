@@ -480,7 +480,7 @@ function entryMaskTerms(entry, item, ignoreRules) {
 function statusPathSummary(entry, host) {
   if (host === "claude") {
     return instructionPathSummary(entry.claudeInstructionPaths, entry.claudeInstructionCheckedPaths)
-      ?? firstStatusPath(entry.claudeMcpPaths)
+      ?? firstClaudeMcpDisplayPath(entry.claudeMcpPaths)
       ?? entry.claudePath;
   }
 
@@ -785,8 +785,9 @@ function parseIgnoreStringRule(value) {
 
 function entryRulePaths(entry, item, host) {
   const paths = [];
+  const claudeMcpFiles = (entry.claudeMcpPaths ?? []).map(claudeMcpSourceFile);
   if (!host || host === "claude") {
-    paths.push(entry.claudePath, ...(entry.claudeInstructionPaths ?? []), ...(entry.claudeInstructionCheckedPaths ?? []), ...(entry.claudeMcpPaths ?? []));
+    paths.push(entry.claudePath, ...(entry.claudeInstructionPaths ?? []), ...(entry.claudeInstructionCheckedPaths ?? []), ...claudeMcpFiles);
     if (entry.area === "skills" && item) paths.push(join(entry.claudePath, item), join(entry.claudePath, item, "SKILL.md"));
     if (entry.area === "agents" && item) paths.push(join(entry.claudePath, `${item}.md`));
   }
@@ -2752,7 +2753,12 @@ function applyDeleteItems(plan, operation) {
 
     if (operation.area === "mcp") {
       if (operation.to === "claude") {
-        deleteClaudeMcpServers(operation.targetPath, operation.serverNames ?? []);
+        const claudeTargets = operation.targetMcpPaths ?? [operation.targetPath];
+        for (const spec of claudeTargets) {
+          const file = claudeMcpSourceFile(spec);
+          if (existsSync(file)) backupPath(plan, file);
+        }
+        deleteClaudeMcpServers(claudeTargets, operation.serverNames ?? []);
       } else {
         deleteCodexMcpServers(operation.targetPath, operation.serverNames ?? []);
       }
@@ -3455,18 +3461,37 @@ function mergeMcpIntoClaude(targetPath, sourcePath, sourceHost, serverNames) {
   const sourceServers = pickServers(sourceHost === "codex"
     ? readCodexMcpServers(sourcePath)
     : readClaudeMcpServers(sourcePath), serverNames);
-  const target = readJsonFile(targetPath, {});
-  target.mcpServers = { ...(target.mcpServers ?? {}), ...sourceServers };
-  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
+  const { file, projectKey } = parseClaudeMcpSource(targetPath);
+  const target = readJsonFile(file, {});
+  if (projectKey) {
+    target.projects ??= {};
+    target.projects[projectKey] ??= {};
+    target.projects[projectKey].mcpServers = { ...(target.projects[projectKey].mcpServers ?? {}), ...sourceServers };
+  } else {
+    target.mcpServers = { ...(target.mcpServers ?? {}), ...sourceServers };
+  }
+  writeFileSync(file, `${JSON.stringify(target, null, 2)}\n`);
 }
 
 function deleteClaudeMcpServers(targetPath, serverNames) {
-  const target = readJsonFile(targetPath, {});
-  target.mcpServers ??= {};
-  for (const name of serverNames) {
-    delete target.mcpServers[name];
+  const targets = Array.isArray(targetPath) ? targetPath : [targetPath];
+  for (const spec of targets) {
+    const { file, projectKey } = parseClaudeMcpSource(spec);
+    if (!existsSync(file)) continue;
+    const target = readJsonFile(file, {});
+    const bag = projectKey
+      ? (target.projects?.[projectKey]?.mcpServers)
+      : target.mcpServers;
+    if (!bag) continue;
+    let mutated = false;
+    for (const name of serverNames) {
+      if (name in bag) {
+        delete bag[name];
+        mutated = true;
+      }
+    }
+    if (mutated) writeFileSync(file, `${JSON.stringify(target, null, 2)}\n`);
   }
-  writeFileSync(targetPath, `${JSON.stringify(target, null, 2)}\n`);
 }
 
 function deleteCodexMcpServers(targetPath, serverNames) {
@@ -3717,8 +3742,12 @@ function readClaudeMcpServerDetails(path) {
   if (Array.isArray(path)) {
     return path.reduce((servers, item) => ({ ...servers, ...readClaudeMcpServerDetails(item) }), {});
   }
-  const data = readJsonFile(path, {});
-  return normalizeMcpServerDetails(data.mcpServers ?? data.servers ?? {});
+  const { file, projectKey } = parseClaudeMcpSource(path);
+  const data = readJsonFile(file, {});
+  const raw = projectKey
+    ? (data?.projects?.[projectKey]?.mcpServers ?? {})
+    : (data.mcpServers ?? data.servers ?? {});
+  return normalizeMcpServerDetails(raw);
 }
 
 function readCodexMcpServerDetails(path) {
@@ -3756,8 +3785,12 @@ function readClaudeMcpServers(path) {
   if (Array.isArray(path)) {
     return path.reduce((servers, item) => ({ ...servers, ...readClaudeMcpServers(item) }), {});
   }
-  const data = readJsonFile(path, {});
-  return normalizeMcpServers(data.mcpServers ?? data.servers ?? {});
+  const { file, projectKey } = parseClaudeMcpSource(path);
+  const data = readJsonFile(file, {});
+  const raw = projectKey
+    ? (data?.projects?.[projectKey]?.mcpServers ?? {})
+    : (data.mcpServers ?? data.servers ?? {});
+  return normalizeMcpServers(raw);
 }
 
 function readCodexMcpServers(path) {
@@ -4184,8 +4217,8 @@ function globalPaths() {
       skills: `${home}/.claude/skills`,
       skillsPaths: [`${home}/.claude/skills`],
       agents: `${home}/.claude/agents`,
-      mcp: `${home}/.claude/mcp.json`,
-      mcpPaths: [`${home}/.claude/mcp.json`, `${home}/.claude/settings.json`, `${home}/.claude.json`, `${home}/.mcp.json`],
+      mcp: `${home}/.claude.json`,
+      mcpPaths: [`${home}/.claude.json`],
       settings: `${home}/.claude/settings.json`
     },
     codex: {
@@ -4195,7 +4228,7 @@ function globalPaths() {
       skillsPaths: [`${home}/.agents/skills`, `${home}/.codex/skills`],
       agents: `${home}/.codex/agents`,
       mcp: `${home}/.codex/config.toml`,
-      mcpPaths: [`${home}/.codex/config.toml`, `${home}/.codex/mcp.json`, `${home}/.codex/settings.json`, `${home}/.mcp.json`],
+      mcpPaths: [`${home}/.codex/config.toml`, `${home}/.codex/mcp.json`, `${home}/.codex/settings.json`],
       settings: `${home}/.codex/config.toml`
     }
   };
@@ -4209,8 +4242,8 @@ function projectPaths(root) {
       skills: `${root}/.claude/skills`,
       skillsPaths: [`${root}/.claude/skills`],
       agents: `${root}/.claude/agents`,
-      mcp: firstExisting([`${root}/.claude/mcp.json`, `${root}/.mcp.json`]),
-      mcpPaths: [`${root}/.claude/mcp.json`, `${root}/.claude/settings.json`, `${root}/.mcp.json`],
+      mcp: `${root}/.mcp.json`,
+      mcpPaths: [`${root}/.mcp.json`, claudeProjectLocalMcpSpec(root)],
       settings: `${root}/.claude/settings.json`
     },
     codex: {
@@ -4220,7 +4253,7 @@ function projectPaths(root) {
       skillsPaths: [`${root}/.agents/skills`, `${root}/.codex/skills`],
       agents: `${root}/.codex/agents`,
       mcp: `${root}/.codex/config.toml`,
-      mcpPaths: [`${root}/.codex/config.toml`, `${root}/.codex/mcp.json`, `${root}/.codex/settings.json`, `${root}/.mcp.json`],
+      mcpPaths: [`${root}/.codex/config.toml`, `${root}/.codex/mcp.json`, `${root}/.codex/settings.json`],
       settings: `${root}/.codex/config.toml`
     }
   };
@@ -4232,11 +4265,46 @@ function firstExisting(paths) {
 
 function existingPaths(paths) {
   const list = Array.isArray(paths) ? paths : [paths];
-  return list.filter((path) => existsSync(path));
+  return list.filter((path) => existsSync(claudeMcpSourceFile(path)));
 }
 
 function mcpSourceExists(paths) {
   return existingPaths(paths).length > 0;
+}
+
+// Claude MCP sources can be expressed as either a plain file path or a file with a
+// `#projects:<absRoot>` suffix that points at `data.projects[absRoot].mcpServers`
+// inside `~/.claude.json`. Encoding stays a plain string so existing string-based
+// readers/writers continue to flow unchanged.
+function claudeProjectLocalMcpSpec(root) {
+  return `${home}/.claude.json#projects:${root}`;
+}
+
+function parseClaudeMcpSource(spec) {
+  if (typeof spec !== "string") return { file: spec, projectKey: null };
+  const marker = spec.indexOf("#projects:");
+  if (marker === -1) return { file: spec, projectKey: null };
+  return { file: spec.slice(0, marker), projectKey: spec.slice(marker + "#projects:".length) };
+}
+
+function claudeMcpSourceFile(spec) {
+  return parseClaudeMcpSource(spec).file;
+}
+
+// Display helper: pick the MCP source whose underlying file actually contains
+// servers. Falls back to the first existing source so status output never lies
+// about which file we inspected.
+function firstClaudeMcpDisplayPath(paths) {
+  if (!Array.isArray(paths) || paths.length === 0) return null;
+  for (const spec of paths) {
+    if (Object.keys(readClaudeMcpServers(spec)).length > 0) return formatClaudeMcpDisplayPath(spec);
+  }
+  return formatClaudeMcpDisplayPath(paths[0]);
+}
+
+function formatClaudeMcpDisplayPath(spec) {
+  const { file, projectKey } = parseClaudeMcpSource(spec);
+  return projectKey ? `${file} (projects.${projectKey})` : file;
 }
 
 function compareInstructions(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {

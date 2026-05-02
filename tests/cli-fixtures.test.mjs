@@ -51,7 +51,7 @@ test("status supports item selectors for MCP servers", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] },
       playwright: { command: "npx", args: ["playwright-mcp"] }
@@ -88,24 +88,22 @@ test("global MCP status reads Claude servers from configurable global paths", ()
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
-  assert.equal(report.entries[0].claudePath, join(fixture.home, ".claude/mcp.json"));
+  assert.equal(report.entries[0].claudePath, join(fixture.home, ".claude.json"));
   assert.deepEqual(report.entries[0].claudeMcpPaths, [join(fixture.home, ".claude.json")]);
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
 });
 
-test("global MCP status reads Claude settings and Codex JSON MCP paths", () => {
+test("global MCP status ignores Claude settings.json mcpServers (only ~/.claude.json is canonical)", () => {
+  // settings.json holds policy keys like enabledMcpjsonServers but cannot host
+  // server definitions. Only ~/.claude.json's top-level mcpServers is canonical.
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude/settings.json"), {
-    mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+    mcpServers: { ignored: { command: "noop" } }
   });
   writeJson(join(fixture.home, ".codex/mcp.json"), {
-    mcpServers: {
-      github: { command: "github-mcp-server" }
-    }
+    mcpServers: { github: { command: "github-mcp-server" } }
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
 
@@ -113,17 +111,17 @@ test("global MCP status reads Claude settings and Codex JSON MCP paths", () => {
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
-  assert.deepEqual(report.entries[0].claudeMcpPaths, [join(fixture.home, ".claude/settings.json")]);
+  assert.deepEqual(report.entries[0].claudeMcpPaths, []);
   assert.deepEqual(report.entries[0].codexMcpPaths, [join(fixture.home, ".codex/config.toml"), join(fixture.home, ".codex/mcp.json")]);
-  assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
   assert.deepEqual(report.entries[0].missingInClaude, ["github"]);
+  assert.deepEqual(report.entries[0].missingInCodex ?? [], []);
 });
 
 test("project MCP status reads Codex JSON MCP path", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
   writeJson(join(fixture.project, ".codex/mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
@@ -140,7 +138,7 @@ test("project MCP status reads Codex JSON MCP path", () => {
   assert.deepEqual(report.entries[0].missingInClaude, ["notion"]);
 });
 
-test("global MCP sync can copy from secondary Claude MCP path", () => {
+test("global MCP sync reads servers from ~/.claude.json", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
@@ -158,6 +156,206 @@ test("global MCP sync can copy from secondary Claude MCP path", () => {
   assert.match(config, /\[mcp_servers\.notion\]/);
   assert.match(config, /args = \["notion-mcp"\]/);
 });
+
+test("global MCP status reports parity when ~/.claude.json and codex config.toml hold the same server", () => {
+  // ~/.claude.json is the only canonical Claude global MCP source; settings.json
+  // and the legacy ~/.claude/mcp.json must not be probed.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), [
+    "[mcp_servers.notion]",
+    'command = "npx"',
+    'args = ["notion-mcp"]',
+    ""
+  ].join("\n"));
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp", "--json"]));
+
+  assert.equal(report.entries.length, 0);
+  assert.match(report.summary, /No diff detected/);
+});
+
+test("project MCP status detects servers in top-level .mcp.json", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "mcp");
+  assert.deepEqual(report.entries[0].claudeMcpPaths, [join(realpathSync(fixture.project), ".mcp.json")]);
+  assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
+});
+
+test("project MCP status detects servers in ~/.claude.json projects.<root>.mcpServers (local override)", () => {
+  const fixture = createFixture();
+  const projectRoot = realpathSync(fixture.project);
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    projects: {
+      [projectRoot]: {
+        mcpServers: {
+          notion: { command: "npx", args: ["notion-mcp"] }
+        }
+      }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "mcp");
+  assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
+  assert.deepEqual(
+    report.entries[0].claudeMcpPaths,
+    [`${join(fixture.home, ".claude.json")}#projects:${projectRoot}`]
+  );
+});
+
+test("project MCP sync apply merges into ~/.claude.json projects.<root>.mcpServers when that is the only Claude target", () => {
+  const fixture = createFixture();
+  const projectRoot = realpathSync(fixture.project);
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  // Pre-create ~/.claude.json without project-local section so apply can write back into it.
+  writeJson(join(fixture.home, ".claude.json"), {
+    projects: { [projectRoot]: {} }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), [
+    "[mcp_servers.notion]",
+    'command = "npx"',
+    'args = ["notion-mcp"]',
+    ""
+  ].join("\n"));
+
+  const output = runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  assert.match(output, /merged MCP servers codex -> claude: notion/);
+  // Default target stays ${root}/.mcp.json — that file should now own the merged server.
+  const projectMcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
+  assert.deepEqual(projectMcp.mcpServers.notion, { command: "npx", args: ["notion-mcp"] });
+});
+
+test("project MCP sync delete removes from both .mcp.json and ~/.claude.json projects.<root>", () => {
+  const fixture = createFixture();
+  const projectRoot = realpathSync(fixture.project);
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  // Same server name lives in both Claude project sources.
+  writeJson(join(fixture.project, ".mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] }
+    }
+  });
+  writeJson(join(fixture.home, ".claude.json"), {
+    projects: {
+      [projectRoot]: {
+        mcpServers: {
+          notion: { command: "npx", args: ["notion-mcp"] }
+        }
+      }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  // codex direction with no codex servers => Claude-side servers are deletes.
+  const output = runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  assert.match(output, /deleted mcp item\(s\) from claude: notion/);
+
+  const projectMcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
+  assert.deepEqual(projectMcp.mcpServers ?? {}, {});
+
+  const homeClaude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+  assert.deepEqual(homeClaude.projects[projectRoot].mcpServers ?? {}, {});
+});
+
+test("project MCP read merges both .mcp.json and ~/.claude.json projects.<root>; later source wins on key collisions", () => {
+  // The reader uses `path.reduce((servers, item) => ({ ...servers, ...readClaudeMcpServers(item) }))`,
+  // which means later entries in `mcpPaths` override earlier ones. The order is
+  // [`${root}/.mcp.json`, `${home}/.claude.json#projects:<root>`], so the local override wins.
+  const fixture = createFixture();
+  const projectRoot = realpathSync(fixture.project);
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".mcp.json"), {
+    mcpServers: {
+      shared: { command: "from-mcpjson" }
+    }
+  });
+  writeJson(join(fixture.home, ".claude.json"), {
+    projects: {
+      [projectRoot]: {
+        mcpServers: {
+          shared: { command: "from-claudejson" }
+        }
+      }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const plan = JSON.parse(runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:shared",
+    "--plan-json"
+  ]));
+
+  // Both sources contribute; status sees a single missing-in-codex item.
+  assert.equal(plan.operations.length, 1);
+  assert.equal(plan.operations[0].action, "merge-mcp-servers");
+  assert.deepEqual(plan.operations[0].serverNames, ["shared"]);
+
+  // The patch preview's command field reflects the winning source (project-local override).
+  const change = plan.operations[0].patchPreview[0].changes.find((line) => line.startsWith("command:"));
+  assert.equal(change, 'command: "from-claudejson"');
+});
+
+test("project MCP status display path reflects actual data location for ~/.claude.json projects.<root>", () => {
+  const fixture = createFixture();
+  const projectRoot = realpathSync(fixture.project);
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    projects: {
+      [projectRoot]: {
+        mcpServers: { notion: { command: "npx", args: ["notion-mcp"] } }
+      }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion"]);
+
+  // The diff line should disclose the ~/.claude.json (projects.<root>) location, not .mcp.json.
+  const claudePathMatch = new RegExp(`Claude: ${escapeRe(join(fixture.home, ".claude.json"))} \\(projects\\.${escapeRe(projectRoot)}\\)`);
+  assert.match(output, claudePathMatch);
+});
+
+function escapeRe(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 test("global instructions status reads Claude settings instructions", () => {
   const fixture = createFixture();
@@ -198,7 +396,7 @@ test("status supports compact and tree output formats", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -220,7 +418,7 @@ test("default status prints grouped apply-ready diff status", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -407,7 +605,7 @@ test("status ignore file also removes entries from sync plans", () => {
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -464,12 +662,12 @@ test("sync apply without scope applies global and project scopes", () => {
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.home, ".claude/mcp.json"), {
+  writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
       globalNotion: { command: "npx", args: ["global-notion-mcp"] }
     }
   });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       projectNotion: { command: "npx", args: ["project-notion-mcp"] }
     }
@@ -493,12 +691,12 @@ test("sync dry-run without scope plans global and project scopes", () => {
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.home, ".claude/mcp.json"), {
+  writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
       globalNotion: { command: "npx", args: ["global-notion-mcp"] }
     }
   });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       projectNotion: { command: "npx", args: ["project-notion-mcp"] }
     }
@@ -787,7 +985,7 @@ test("sync supports JSON plan output", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -820,7 +1018,7 @@ test("default sync plans Codex-only config toward Claude", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
   writeFileSync(join(fixture.project, ".codex/config.toml"), [
     "[mcp_servers.notion]",
     'command = "npx"',
@@ -858,7 +1056,7 @@ test("default sync applies Codex-only config to Claude", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
   writeFileSync(join(fixture.project, ".codex/config.toml"), [
     "[mcp_servers.notion]",
     'command = "npx"',
@@ -879,7 +1077,7 @@ test("default sync applies Codex-only config to Claude", () => {
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
-  const mcp = JSON.parse(readFileSync(join(fixture.project, ".claude/mcp.json"), "utf8"));
+  const mcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
 
   assert.match(output, /merged MCP servers codex -> claude: notion/);
   assert.deepEqual(mcp.mcpServers.notion, { command: "npx", args: ["notion-mcp"] });
@@ -892,7 +1090,7 @@ test("default sync propagates Codex deletion to Claude after baseline", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -912,7 +1110,7 @@ test("default sync propagates Codex deletion to Claude after baseline", () => {
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
-  const mcp = JSON.parse(readFileSync(join(fixture.project, ".claude/mcp.json"), "utf8"));
+  const mcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
 
   assert.match(output, /deleted mcp item\(s\) from claude: notion/);
   assert.deepEqual(mcp.mcpServers, {});
@@ -922,11 +1120,11 @@ test("default sync propagates Claude addition to Codex after baseline", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), { mcpServers: {} });
+  writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
   runCli(fixture, ["sync", "--scope", "project", "--apply"]);
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -1097,7 +1295,7 @@ test("direction-driven plan reports - symbol for missing-in-source items", () =>
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] }
     }
@@ -1322,7 +1520,7 @@ test("sync apply strips secret-like env values when AI_CONFIG_SYNC_STRIP_SECRETS
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: {
         command: "node",
@@ -4076,7 +4274,7 @@ test("sync apply copies secret env keys by default", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       figma: {
         command: "node",
@@ -4098,7 +4296,7 @@ test("sync apply strips secret env keys when AI_CONFIG_SYNC_STRIP_SECRETS is set
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       figma: {
         command: "node",
@@ -4126,7 +4324,7 @@ test("sync apply consolidates pre-existing top-level mcp_servers entries into ma
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       bar: { command: "npx", args: ["bar-mcp"] }
     }
@@ -4153,7 +4351,7 @@ test("sync apply strips pre-existing top-level entry even when sync target name 
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       shared: { command: "npx", args: ["shared-mcp"] }
     }
@@ -4178,7 +4376,7 @@ test("sync apply is idempotent — running twice produces identical output with 
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       bar: { command: "npx", args: ["bar-mcp"] }
     }
@@ -4207,7 +4405,7 @@ test("sync apply against the user's bug pattern produces valid TOML with no dupl
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/mcp.json"), {
+  writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       agentation: { command: "npx", args: ["agentation-mcp"] },
       browsermcp: { command: "npx", args: ["browsermcp"] },
