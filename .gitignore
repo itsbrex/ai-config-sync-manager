@@ -41,4 +41,6 @@ tmp/
 *.tmp
 
 # Agent
-.claude/
+.claude/*
+!.claude/docs/
+.codex/

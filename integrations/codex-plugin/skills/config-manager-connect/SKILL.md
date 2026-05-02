@@ -9,11 +9,12 @@ Use this skill when the user asks to connect Codex, Claude, or another supported
 
 ## Behavior
 
-- Resolve the bundled CLI first:
-  `AI_CONFIG_SYNC_ROOT="${AI_CONFIG_SYNC_ROOT:-$HOME/.codex/plugins/cache/local-plugins/ai-config-sync-manager/0.1.0}"; "$AI_CONFIG_SYNC_ROOT/bin/ai-config-sync" connect`.
+- Resolve the bundled CLI from the Codex plugin root:
+  `"$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" connect`.
+  The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
 - The connect command initializes the user config root at `$HOME/.ai-config-sync-manager` and creates `$HOME/.ai-config-sync-manager/status-ignore.json` when missing.
 - Do not edit Codex, Claude, skills, commands, MCP, permissions, or hooks directly from this skill.
-- If the bundled CLI is unavailable, report that the local plugin cache or repository must be installed and `AI_CONFIG_SYNC_ROOT` must point to that root.
+- If the bundled CLI is unavailable, report that the user must `npm install -g ai-config-sync-manager` (or run `npm link` from the repo) and re-run `connect`.
 - Prefer explicit user confirmation before installing, registering, or writing anything outside the current plugin flow.
 - Preserve the OSS purpose: this plugin is a thin open-source bridge to the bundled CLI, not a proprietary sync service.
 
