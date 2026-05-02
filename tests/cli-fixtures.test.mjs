@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -572,6 +573,34 @@ test("status keeps missing skills as safe copy candidates", () => {
   assert.equal(report.entries[0].area, "skills");
   assert.equal(report.entries[0].risk, "safe");
   assert.deepEqual(report.entries[0].missingInCodex, ["review"]);
+});
+
+test("status reports symlink skills as unsupported and excludes them from sync", async () => {
+  const fixture = createFixture();
+  const { symlinkSync } = await import("node:fs");
+  const sharedSkill = join(fixture.root, "shared-gstack");
+  mkdirSync(sharedSkill, { recursive: true });
+  mkdirSync(join(fixture.project, ".claude/skills"), { recursive: true });
+  writeFileSync(join(sharedSkill, "SKILL.md"), "# GStack\n");
+  symlinkSync(sharedSkill, join(fixture.project, ".claude/skills/gstack"), "dir");
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:gstack", "--json"]));
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].area, "skills");
+  assert.equal(report.entries[0].risk, "manual");
+  assert.equal(report.entries[0].statusOnly, true);
+  assert.deepEqual(report.entries[0].unsupported, ["gstack"]);
+  assert.equal(report.entries[0].itemQualities.gstack, "unsupported");
+  assert.equal(report.entries[0].missingInCodex?.length ?? 0, 0);
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:gstack"]);
+  assert.match(output, /project\/skills: !gstack \[unsupported\] \(unsupported, manual\)/);
+  assert.match(output, /action: manual review/);
+  assert.match(output, /apply: manual review/);
+
+  const plan = JSON.parse(runCli(fixture, ["sync", "--scope", "project", "--include", "skills:gstack", "--plan-json"]));
+  assert.deepEqual(plan.operations, []);
 });
 
 test("status ignore file hides diffs until the rule is removed", () => {
@@ -5009,4 +5038,344 @@ test("sync applies layered partial merge to agents-map: model tier id override e
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.equal(agents, "Use gpt-5.5 today and gpt-5.4 for chat.\n");
+});
+
+// ---------------------------------------------------------------------------
+// Distribution-C step-7 reinforcement tests:
+//   - build-dist thin output + launcher pin
+//   - host-launcher resolution branches
+//   - connect stale cleanup
+//   - connect version injection
+//   - state schemaVersion guard
+// ---------------------------------------------------------------------------
+
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+const rootPkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+
+test("build-dist emits thin host plugin trees with pinned launchers", () => {
+  // Run the real build-dist (skip cache sync; never touches network or ~/.claude).
+  execFileSync(process.execPath, [join(repoRoot, "scripts/build-dist.mjs"), "--skip-sync"], {
+    cwd: repoRoot,
+    encoding: "utf8"
+  });
+
+  const claudeBin = join(repoRoot, "dist/claude-marketplace/plugins/config-manager/bin");
+  const codexBin = join(repoRoot, "dist/codex-plugin/bin");
+  const claudeRoot = join(repoRoot, "dist/claude-marketplace/plugins/config-manager");
+  const codexRoot = join(repoRoot, "dist/codex-plugin");
+
+  // bin directories present
+  assert.ok(existsSync(claudeBin), "claude bin directory missing");
+  assert.ok(existsSync(codexBin), "codex bin directory missing");
+
+  // bundled heavy directories are NOT copied
+  for (const heavy of ["packages", "schemas", "rules"]) {
+    assert.ok(!existsSync(join(claudeRoot, heavy)), `unexpected ${heavy}/ in claude dist`);
+    assert.ok(!existsSync(join(codexRoot, heavy)), `unexpected ${heavy}/ in codex dist`);
+  }
+
+  // launcher exists, executable, references pinned version + package
+  const claudeLauncher = join(claudeBin, "ai-config-sync");
+  const codexLauncher = join(codexBin, "ai-config-sync");
+  assert.ok(existsSync(claudeLauncher));
+  assert.ok(existsSync(codexLauncher));
+
+  assert.equal(statSync(claudeLauncher).mode & 0o777, 0o755);
+  assert.equal(statSync(codexLauncher).mode & 0o777, 0o755);
+
+  const claudeText = readFileSync(claudeLauncher, "utf8");
+  const codexText = readFileSync(codexLauncher, "utf8");
+  assert.match(claudeText, new RegExp(`PINNED_VERSION="${escapeRe(rootPkg.version)}"`));
+  assert.match(claudeText, /PACKAGE_NAME="ai-config-sync-manager"/);
+  assert.match(claudeText, /AI_CONFIG_SYNC_HOST:-claude/);
+  assert.match(codexText, new RegExp(`PINNED_VERSION="${escapeRe(rootPkg.version)}"`));
+  assert.match(codexText, /AI_CONFIG_SYNC_HOST:-codex/);
+
+  // marketplace.json plugin entry version pinned to root version
+  const marketplace = JSON.parse(
+    readFileSync(join(repoRoot, "dist/claude-marketplace/.claude-plugin/marketplace.json"), "utf8")
+  );
+  const plugin = marketplace.plugins.find((p) => p.name === "config-manager");
+  assert.equal(plugin.version, rootPkg.version);
+});
+
+function readModeBits(path) {
+  return statSync(path).mode & 0o777;
+}
+
+async function writeLauncherFixture(tmpHost, host, pinnedVersion = "0.1.0", packageName = "ai-config-sync-manager") {
+  const { writeHostLauncher } = await import(
+    fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
+  );
+  const path = join(tmpHost, "ai-config-sync");
+  writeHostLauncher(path, host, { pinnedVersion, packageName });
+  return path;
+}
+
+test("host-launcher uses AI_CONFIG_SYNC_ROOT runtime when present", async () => {
+  const fixture = createFixture();
+  const launcher = await writeLauncherFixture(fixture.root, "claude");
+
+  // Create a fake runtime root with bin/ai-config-sync.mjs that prints a marker
+  const rootDir = join(fixture.root, "fake-runtime");
+  mkdirSync(join(rootDir, "bin"), { recursive: true });
+  writeFileSync(join(rootDir, "bin/ai-config-sync.mjs"), 'console.log("RUNTIME_OK:" + process.argv.slice(2).join(","));\n');
+
+  const out = execFileSync("bash", [launcher, "alpha", "beta"], {
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, AI_CONFIG_SYNC_ROOT: rootDir }
+  });
+  assert.match(out, /^RUNTIME_OK:alpha,beta$/m);
+});
+
+test("host-launcher aborts when AI_CONFIG_SYNC_ROOT is set but runtime is missing", async () => {
+  const fixture = createFixture();
+  const launcher = await writeLauncherFixture(fixture.root, "claude");
+
+  let error;
+  try {
+    execFileSync("bash", [launcher], {
+      encoding: "utf8",
+      env: { PATH: process.env.PATH, AI_CONFIG_SYNC_ROOT: join(fixture.root, "missing") }
+    });
+  } catch (caught) {
+    error = caught;
+  }
+  assert.ok(error, "expected non-zero exit when runtime missing");
+  assert.match(error.stderr ?? "", /AI_CONFIG_SYNC_ROOT=/);
+  assert.match(error.stderr ?? "", /does not exist/);
+});
+
+test("host-launcher self-excludes its own path during PATH lookup", async () => {
+  const fixture = createFixture();
+  // Stage launcher in a directory that we put on PATH, named ai-config-sync.
+  const launcherDir = join(fixture.root, "stage");
+  mkdirSync(launcherDir, { recursive: true });
+  const { writeHostLauncher } = await import(
+    fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
+  );
+  const launcher = join(launcherDir, "ai-config-sync");
+  writeHostLauncher(launcher, "claude", { pinnedVersion: "0.1.0", packageName: "ai-config-sync-manager" });
+
+  // Strip npm from PATH so step 3 also fails fast and reaches step 4.
+  // Use a minimal PATH containing only the launcher's own dir + /usr/bin (for `command`, `node`, `head`, `tr`).
+  const minimalPath = `${launcherDir}:/usr/bin:/bin`;
+
+  let error;
+  try {
+    execFileSync("bash", [launcher], {
+      encoding: "utf8",
+      env: { PATH: minimalPath, HOME: fixture.home }
+    });
+  } catch (caught) {
+    error = caught;
+  }
+
+  // If the launcher had not self-excluded, it would `exec "$FOUND"` and recurse
+  // (or succeed). Either way we expect to reach step 3 (npm exec). On most
+  // dev machines /usr/bin/npm exists so step 3 may run; we cannot rely on
+  // its absence. Instead, weakly verify the launcher contains realpath
+  // self-exclude logic so the recursion guard exists.
+  const text = readFileSync(launcher, "utf8");
+  assert.match(text, /realpathSync/);
+  assert.match(text, /LAUNCHER_REAL/);
+  assert.match(text, /FOUND_REAL/);
+  // The result of execution itself is environment-dependent; we only assert
+  // that *if* it errored, it was not the recursion-loop signature.
+  if (error) {
+    assert.doesNotMatch(error.stderr ?? "", /Maximum call stack/);
+  }
+});
+
+test("host-launcher delegates to PATH binary discovered after self-exclude", async () => {
+  // Verifies step-2 PATH lookup actually exec's the discovered binary.
+  // (The compare_versions branch matrix is environment-sensitive; we exercise
+  //  the "proceed" outcome which is the common case for equal/patch/unknown.)
+  const fixture = createFixture();
+
+  const stubDir = join(fixture.root, "stub");
+  mkdirSync(stubDir, { recursive: true });
+  const stub = join(stubDir, "ai-config-sync");
+  writeFileSync(
+    stub,
+    '#!/usr/bin/env bash\nif [ "${1:-}" = "--version" ]; then echo "0.1.0"; exit 0; fi\necho "STUB_RAN:${1:-}"\n'
+  );
+  chmodSync(stub, 0o755);
+
+  const launcherDir = join(fixture.root, "launcher");
+  mkdirSync(launcherDir, { recursive: true });
+  const { writeHostLauncher } = await import(
+    fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
+  );
+  const launcher = join(launcherDir, "launcher.sh");
+  writeHostLauncher(launcher, "claude", { pinnedVersion: "0.1.0", packageName: "ai-config-sync-manager" });
+
+  const env = { PATH: `${stubDir}:/usr/bin:/bin`, HOME: fixture.home };
+  const run = spawnSync("bash", [launcher, "hello"], { encoding: "utf8", env });
+  assert.equal(run.status, 0, `unexpected exit: ${run.stderr}`);
+  assert.match(run.stdout, /STUB_RAN:hello/);
+});
+
+test("host-launcher script body documents npm exec fallback", async () => {
+  const fixture = createFixture();
+  const launcher = await writeLauncherFixture(fixture.root, "claude", "9.9.9", "demo-pkg");
+  const text = readFileSync(launcher, "utf8");
+  assert.match(text, /npm exec --yes --package="\$PACKAGE_NAME@\$PINNED_VERSION"/);
+  assert.match(text, /PACKAGE_NAME="demo-pkg"/);
+  assert.match(text, /PINNED_VERSION="9\.9\.9"/);
+  assert.equal(readModeBits(launcher), 0o755);
+});
+
+test("connect cleans stale managed Claude plugin tree before reinstalling", () => {
+  // Claude reinstall is gated by installed_plugins.json (not directory existence),
+  // so a stale managed dir without a registry entry triggers a full reinstall +
+  // ensureManagedPluginTarget pattern check + rmSync sweep.
+  const fixture = createFixture();
+
+  const claudeTarget = join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager");
+  mkdirSync(join(claudeTarget, "bin"), { recursive: true });
+  mkdirSync(join(claudeTarget, "packages/junk"), { recursive: true });
+  writeFileSync(join(claudeTarget, "bin/old-stale-binary"), "stale\n");
+  writeFileSync(join(claudeTarget, "packages/junk/leftover.txt"), "stale\n");
+
+  runCli(fixture, ["connect"]);
+
+  assert.ok(!existsSync(join(claudeTarget, "bin/old-stale-binary")), "stale Claude binary should be removed");
+  assert.ok(!existsSync(join(claudeTarget, "packages/junk/leftover.txt")), "stale Claude junk should be removed");
+  assert.ok(!existsSync(join(claudeTarget, "packages")), "stale Claude packages dir should be swept");
+
+  // Fresh thin install present
+  assert.ok(existsSync(join(claudeTarget, "bin/ai-config-sync")), "claude launcher should be reinstalled");
+  assert.ok(
+    existsSync(join(claudeTarget, "skills/config-manager/SKILL.md")),
+    "claude integration shim should be installed"
+  );
+});
+
+test("connect injects root package version into installed_plugins.json and codex marketplace", () => {
+  const fixture = createFixture();
+  runCli(fixture, ["connect"]);
+
+  const installed = JSON.parse(
+    readFileSync(join(fixture.home, ".claude/plugins/installed_plugins.json"), "utf8")
+  );
+  const claudeEntry = installed.plugins["config-manager@ai-config-sync-manager"][0];
+  assert.equal(claudeEntry.version, rootPkg.version);
+
+  const marketplace = JSON.parse(
+    readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8")
+  );
+  const codexEntry = marketplace.plugins.find((plugin) => plugin.name === "ai-config-sync-manager");
+  assert.equal(codexEntry.version, rootPkg.version);
+});
+
+// state schemaVersion helpers
+function setupBaselineFixture() {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".mcp.json"), {
+    mcpServers: { notion: { command: "npx", args: ["notion-mcp"] } }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+  return fixture;
+}
+
+function projectStatePath(fixture) {
+  // project state filename is project-<sha256:16> of resolved cwd; use realpath to mirror runtime
+  const real = realpathSync(fixture.project);
+  const id = createHash("sha256").update(real).digest("hex").slice(0, 16);
+  return join(fixture.home, ".ai-config-sync-manager/state", `project-${id}.json`);
+}
+
+test("sync backfills schemaVersion when state file lacks it", () => {
+  const fixture = setupBaselineFixture();
+  const statePath = projectStatePath(fixture);
+
+  // Seed legacy state without schemaVersion
+  writeJson(statePath, {
+    version: 1,
+    scope: "project",
+    root: realpathSync(fixture.project),
+    updatedAt: new Date().toISOString(),
+    areas: {
+      mcp: { claude: [], codex: [] },
+      permissions: { claude: [], codex: [] },
+      hooks: { claude: [], codex: [] },
+      agents: { claude: [], codex: [] }
+    }
+  });
+
+  // Plain dry-run reads the state via createOperations. Capture stderr.
+  const result = spawnSync(
+    process.execPath,
+    [cliPath, "sync", "--scope", "project", "--include", "mcp:notion"],
+    {
+      cwd: fixture.project,
+      encoding: "utf8",
+      env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home }
+    }
+  );
+
+  assert.equal(result.status, 0, `unexpected exit: ${result.stderr}`);
+  assert.match(result.stderr, /missing schemaVersion; backfilled to 1/);
+
+  // Apply, then re-read state file: schemaVersion must be present
+  runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"]);
+  const after = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(after.schemaVersion, 1);
+});
+
+test("sync proceeds normally when state has schemaVersion 1", () => {
+  const fixture = setupBaselineFixture();
+  // First apply produces the canonical state with schemaVersion: 1
+  runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"]);
+
+  const statePath = projectStatePath(fixture);
+  const seeded = JSON.parse(readFileSync(statePath, "utf8"));
+  assert.equal(seeded.schemaVersion, 1);
+
+  // Second sync should not error and should not emit the schemaVersion notice
+  const result = spawnSync(
+    process.execPath,
+    [cliPath, "sync", "--scope", "project"],
+    {
+      cwd: fixture.project,
+      encoding: "utf8",
+      env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home }
+    }
+  );
+  assert.equal(result.status, 0, `unexpected exit: ${result.stderr}`);
+  assert.match(result.stdout, /AI Config Sync Manager sync/);
+  assert.doesNotMatch(result.stderr, /missing schemaVersion/);
+  assert.doesNotMatch(result.stderr, /baseline state schema mismatch/);
+});
+
+test("sync aborts when state schemaVersion is unknown", () => {
+  const fixture = setupBaselineFixture();
+  const statePath = projectStatePath(fixture);
+
+  writeJson(statePath, {
+    schemaVersion: 2,
+    version: 1,
+    scope: "project",
+    root: realpathSync(fixture.project),
+    updatedAt: new Date().toISOString(),
+    areas: {
+      mcp: { claude: [], codex: [] },
+      permissions: { claude: [], codex: [] },
+      hooks: { claude: [], codex: [] },
+      agents: { claude: [], codex: [] }
+    }
+  });
+
+  let error;
+  try {
+    runCli(fixture, ["sync", "--scope", "project"]);
+  } catch (caught) {
+    error = caught;
+  }
+  assert.ok(error, "expected schemaVersion mismatch to abort");
+  assert.match(error.stderr ?? error.message ?? "", /baseline state schema mismatch/);
+  assert.match(error.stderr ?? error.message ?? "", /expected 1, got 2/);
 });
