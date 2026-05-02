@@ -356,6 +356,10 @@ function statusTableRows(entries, ignoreRules = []) {
   return entries.flatMap((entry) => {
     const rows = [];
 
+    for (const item of entry.unsupported ?? []) {
+      rows.push(statusTableRow(entry, "unsupported", item, "manual review", ignoreRules));
+    }
+
     for (const item of entry.missingInCodex ?? []) {
       rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex"), ignoreRules));
     }
@@ -413,7 +417,7 @@ function statusTarget(change, action) {
 function statusSymbol(change, action) {
   if (action.startsWith("copy ")) return "+";
   if (action.startsWith("delete ")) return "-";
-  if (change === "conflict") return "!";
+  if (change === "conflict" || change === "unsupported") return "!";
   return "~";
 }
 
@@ -421,6 +425,7 @@ function statusDetails(entry, change) {
   const { from, to } = defaultSyncDirection();
   const fromLabel = from === "claude" ? "Claude" : "Codex";
   const toLabel = to === "claude" ? "Claude" : "Codex";
+  if (change === "unsupported") return `Skill symlink is unsupported and excluded from sync. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
   if (change === "missing in Codex") return `Claude has it; Codex missing. Claude: ${statusPathSummary(entry, "claude")} -> Codex: ${statusPathSummary(entry, "codex")}`;
   if (change === "missing in Claude") return `Codex has it; Claude missing. Codex: ${statusPathSummary(entry, "codex")} -> Claude: ${statusPathSummary(entry, "claude")}`;
   if (change === "conflict") return `Both hosts have this item with different content. Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
@@ -678,22 +683,25 @@ function filterIgnoredEntries(entries) {
 }
 
 function filterIgnoredEntry(entry, rules) {
-  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts) {
+  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts && !entry.unsupported) {
     return ignoreRulesMatchEntry(rules, entry, entry.area) ? null : entry;
   }
 
   const filtered = { ...entry };
+  filtered.unsupported = (entry.unsupported ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
   filtered.missingInCodex = (entry.missingInCodex ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
   filtered.missingInClaude = (entry.missingInClaude ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
   filtered.conflicts = (entry.conflicts ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
   filtered.itemQualities = filterItemQualities(entry.itemQualities ?? {}, [
+    ...filtered.unsupported,
     ...filtered.missingInCodex,
     ...filtered.missingInClaude,
     ...filtered.conflicts
   ]);
 
   if (
-    filtered.missingInCodex.length === 0
+    filtered.unsupported.length === 0
+    && filtered.missingInCodex.length === 0
     && filtered.missingInClaude.length === 0
     && filtered.conflicts.length === 0
   ) return null;
@@ -868,7 +876,7 @@ function selectorMatchesEntry(selector, entry) {
 }
 
 function filterEntryItems(entry, selectors) {
-  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts) return entry;
+  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts && !entry.unsupported) return entry;
 
   const includes = selectors.include.filter((selector) => selector.area === entry.area && selector.item);
   const excludes = selectors.exclude.filter((selector) => selector.area === entry.area && selector.item);
@@ -876,17 +884,20 @@ function filterEntryItems(entry, selectors) {
   const excludeItems = excludes.map((selector) => selector.item);
   const filtered = { ...entry };
 
+  filtered.unsupported = filterItems(entry.unsupported ?? [], includeItems, excludeItems);
   filtered.missingInCodex = filterItems(entry.missingInCodex ?? [], includeItems, excludeItems);
   filtered.missingInClaude = filterItems(entry.missingInClaude ?? [], includeItems, excludeItems);
   filtered.conflicts = filterItems(entry.conflicts ?? [], includeItems, excludeItems);
   filtered.itemQualities = filterItemQualities(entry.itemQualities ?? {}, [
+    ...filtered.unsupported,
     ...filtered.missingInCodex,
     ...filtered.missingInClaude,
     ...filtered.conflicts
   ]);
 
   if (
-    filtered.missingInCodex.length === 0
+    filtered.unsupported.length === 0
+    && filtered.missingInCodex.length === 0
     && filtered.missingInClaude.length === 0
     && filtered.conflicts.length === 0
   ) return null;
@@ -911,8 +922,8 @@ function itemMatchesSelector(item, selector) {
 }
 
 function entryItems(entry) {
-  if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
-    return [...(entry.missingInCodex ?? []), ...(entry.missingInClaude ?? []), ...(entry.conflicts ?? [])];
+  if (entry.missingInCodex || entry.missingInClaude || entry.conflicts || entry.unsupported) {
+    return [...(entry.unsupported ?? []), ...(entry.missingInCodex ?? []), ...(entry.missingInClaude ?? []), ...(entry.conflicts ?? [])];
   }
 
   return [entry.area];
@@ -958,6 +969,8 @@ function createSyncPlan(options, mode) {
 }
 
 function createOperations(entry, options) {
+  if (entry.statusOnly) return [];
+
   const { from, to } = options;
   const missingInTarget = to === "codex" ? entry.missingInCodex ?? [] : entry.missingInClaude ?? [];
   const missingInSource = to === "codex" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
@@ -4390,8 +4403,12 @@ function comparePresence(entries, scope, area, claudePath, codexPath, risk) {
 function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [claudeDir], codexDirs = [codexDir], ignoreRules = []) {
   const claudeIndex = enumerateSkillIndex(claudeDirs);
   const codexIndex = enumerateSkillIndex(codexDirs);
-  const claude = [...claudeIndex.keys()].sort();
-  const codex = [...codexIndex.keys()].sort();
+  const symlinkNames = uniqueStrings([
+    ...enumerateSkillSymlinkIndex(claudeDirs).keys(),
+    ...enumerateSkillSymlinkIndex(codexDirs).keys()
+  ]);
+  const claude = [...claudeIndex.keys()].filter((name) => !symlinkNames.includes(name)).sort();
+  const codex = [...codexIndex.keys()].filter((name) => !symlinkNames.includes(name)).sort();
   const missingInCodex = claude.filter((name) => !codexIndex.has(name));
   const missingInClaude = codex.filter((name) => !claudeIndex.has(name));
   const skillsCompareEntry = { scope, area: "skills", claudePath: claudeDir, codexPath: codexDir };
@@ -4401,6 +4418,24 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [cla
 
   const claudeSkillIndex = Object.fromEntries(claudeIndex);
   const codexSkillIndex = Object.fromEntries(codexIndex);
+
+  if (symlinkNames.length > 0) {
+    entries.push({
+      scope,
+      area: "skills",
+      risk: "manual",
+      summary: "skill symlink unsupported",
+      statusOnly: true,
+      claudePath: claudeDir,
+      codexPath: codexDir,
+      claudeSkillIndex,
+      codexSkillIndex,
+      claude: `${claude.length} skill(s)`,
+      codex: `${codex.length} skill(s)`,
+      unsupported: symlinkNames,
+      itemQualities: Object.fromEntries(symlinkNames.map((name) => [name, "unsupported"]))
+    });
+  }
 
   if (missingInCodex.length > 0 || missingInClaude.length > 0) {
     entries.push({
@@ -5118,7 +5153,17 @@ function skillNames(dir) {
   // its contents never enumerate as user skills.
   if (existsSync(join(dir, ".codex-system-skills.marker"))) return [];
   return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => !name.startsWith("."))
+    .sort();
+}
+
+function skillSymlinkNames(dir) {
+  if (!existsSync(dir)) return [];
+  if (existsSync(join(dir, ".codex-system-skills.marker"))) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isSymbolicLink())
     .map((entry) => entry.name)
     .filter((name) => !name.startsWith("."))
     .sort();
@@ -5131,6 +5176,18 @@ function enumerateSkillIndex(dirs) {
   for (const dir of list) {
     if (!dir) continue;
     for (const name of skillNames(dir)) {
+      if (!index.has(name)) index.set(name, dir);
+    }
+  }
+  return index;
+}
+
+function enumerateSkillSymlinkIndex(dirs) {
+  const list = Array.isArray(dirs) ? dirs : [dirs];
+  const index = new Map();
+  for (const dir of list) {
+    if (!dir) continue;
+    for (const name of skillSymlinkNames(dir)) {
       if (!index.has(name)) index.set(name, dir);
     }
   }
