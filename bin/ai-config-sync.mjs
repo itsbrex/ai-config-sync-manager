@@ -939,7 +939,11 @@ function filterItems(items, includeItems, excludeItems) {
 }
 
 function itemMatchesSelector(item, selector) {
-  return item === selector || item.replace(/^(allow|ask|deny):/, "") === selector;
+  const normalizedItem = item.replace(/^(allow|ask|deny):/, "");
+  if (item === selector || normalizedItem === selector) return true;
+  if (!/[*?]/.test(selector)) return false;
+  const pattern = globToRegExp(selector);
+  return pattern.test(item) || pattern.test(normalizedItem);
 }
 
 function entryItems(entry) {

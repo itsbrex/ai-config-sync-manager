@@ -74,6 +74,27 @@ test("status supports item selectors for MCP servers", () => {
   assert.deepEqual(report.entries[0].itemQualities, { notion: "exact" });
 });
 
+test("status supports glob item selectors", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".mcp.json"), {
+    mcpServers: {
+      notion: { command: "npx", args: ["notion-mcp"] },
+      playwright: { command: "npx", args: ["playwright-mcp"] }
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const included = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:not*", "--json"]));
+  assert.equal(included.entries.length, 1);
+  assert.deepEqual(included.entries[0].missingInCodex, ["notion"]);
+
+  const excluded = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp", "--exclude", "mcp:play*", "--json"]));
+  assert.equal(excluded.entries.length, 1);
+  assert.deepEqual(excluded.entries[0].missingInCodex, ["notion"]);
+});
+
 test("global MCP status reads Claude servers from configurable global paths", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
@@ -627,6 +648,25 @@ test("status ignore file hides diffs until the rule is removed", () => {
   const visible = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
   assert.equal(visible.statusIgnored, 0);
   assert.equal(visible.entries.length, 1);
+});
+
+test("status ignore file supports glob item selectors", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/review-api"), { recursive: true });
+  mkdirSync(join(fixture.project, ".claude/skills/review-ui"), { recursive: true });
+  mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/review-api/SKILL.md"), "# Review API\n");
+  writeFileSync(join(fixture.project, ".claude/skills/review-ui/SKILL.md"), "# Review UI\n");
+  writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
+    version: 1,
+    exclude: [
+      { scope: "project", area: "skills", item: "review-*" }
+    ]
+  });
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  assert.equal(report.statusIgnored, 2);
+  assert.equal(report.entries.length, 0);
 });
 
 test("status ignore file also removes entries from sync plans", () => {
