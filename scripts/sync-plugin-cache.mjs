@@ -1,4 +1,4 @@
-import { cpSync, existsSync, readdirSync } from "node:fs";
+import { cpSync, existsSync, readdirSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -8,12 +8,14 @@ const HOSTS = [
   {
     label: "Claude",
     cacheRoot: join(homedir(), ".claude/plugins/cache"),
-    distSource: join(process.cwd(), "dist/claude-marketplace/plugins/config-manager")
+    distSource: join(process.cwd(), "dist/claude-marketplace/plugins/config-manager"),
+    targetPattern: /\/\.claude\/plugins\/cache\/[^/]+\/[^/]+\/[^/]+(?:\/plugins\/[^/]+)?$/
   },
   {
     label: "Codex",
     cacheRoot: join(homedir(), ".codex/plugins/cache"),
-    distSource: join(process.cwd(), "dist/codex-plugin")
+    distSource: join(process.cwd(), "dist/codex-plugin"),
+    targetPattern: /\/\.codex\/plugins\/cache\/[^/]+\/[^/]+\/[^/]+(?:\/plugins\/[^/]+)?$/
   }
 ];
 
@@ -25,6 +27,11 @@ export function syncActivePluginCaches() {
       if (!existsSync(host.distSource)) continue;
       const targets = findActiveCaches(host.cacheRoot, PLUGIN_NAMES);
       for (const target of targets) {
+        if (!target.startsWith(`${host.cacheRoot}/`) || !host.targetPattern.test(target)) {
+          console.warn(`Plugin cache sync skipped (${host.label}): ${target} does not match expected cache pattern; remove it manually if you want a clean reinstall.`);
+          continue;
+        }
+        rmSync(target, { recursive: true, force: true });
         cpSync(host.distSource, target, { recursive: true, force: true });
         console.log(`Synced ${host.label} cache: ${target}`);
         synced += 1;

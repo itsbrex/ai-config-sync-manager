@@ -20,6 +20,17 @@ const hosts = new Set(["claude", "codex"]);
 const [command = "help", ...argv] = process.argv.slice(2);
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.AI_CONFIG_SYNC_HOME ?? homedir();
+const STATE_SCHEMA_VERSION = 1;
+const runtimePackage = readRuntimePackage();
+const runtimeVersion = runtimePackage.version;
+const runtimePackageName = runtimePackage.name;
+const CLAUDE_PLUGIN_TARGET_PATTERN = /\/\.claude\/plugins\/config-manager@ai-config-sync-manager$/;
+const CODEX_PLUGIN_TARGET_PATTERN = /\/plugins\/ai-config-sync-manager$/;
+
+if (command === "--version" || command === "-v") {
+  console.log(runtimeVersion);
+  process.exit(0);
+}
 
 try {
   await main();
@@ -34,7 +45,7 @@ async function main() {
       printConnectHelp();
     } else {
       noOptions(argv, "connect");
-      runConnect();
+      await runConnect();
     }
   } else if (command === "status") {
     if (isHelp(argv)) {
@@ -3934,6 +3945,21 @@ function readJsonFile(path, fallback) {
   }
 }
 
+function readRuntimePackage() {
+  const fallback = { name: "ai-config-sync-manager", version: "0.0.0" };
+  const path = join(runtimeRoot, "package.json");
+  if (!existsSync(path)) return fallback;
+  try {
+    const data = JSON.parse(readFileSync(path, "utf8"));
+    return {
+      name: typeof data.name === "string" ? data.name : fallback.name,
+      version: typeof data.version === "string" ? data.version : fallback.version
+    };
+  } catch {
+    return fallback;
+  }
+}
+
 function loadLayeredRule(candidates, defaults, mergeFn) {
   let merged = JSON.parse(JSON.stringify(defaults));
   const layers = [];
@@ -4176,11 +4202,28 @@ function syncStatePath(scope) {
 function readSyncState(scope) {
   const path = syncStatePath(scope);
   if (!existsSync(path)) return null;
+  let parsed;
   try {
-    return JSON.parse(readFileSync(path, "utf8"));
+    parsed = JSON.parse(readFileSync(path, "utf8"));
   } catch {
     return null;
   }
+
+  if (parsed === null || typeof parsed !== "object") return null;
+
+  if (parsed.schemaVersion === undefined) {
+    console.error(`ai-config-sync: state ${path} missing schemaVersion; backfilled to ${STATE_SCHEMA_VERSION}`);
+    parsed.schemaVersion = STATE_SCHEMA_VERSION;
+    return parsed;
+  }
+
+  if (parsed.schemaVersion !== STATE_SCHEMA_VERSION) {
+    throw new Error(
+      `baseline state schema mismatch (expected ${STATE_SCHEMA_VERSION}, got ${parsed.schemaVersion}); back up and remove ${path} or upgrade the CLI`
+    );
+  }
+
+  return parsed;
 }
 
 function writeSyncState(scope) {
@@ -4192,6 +4235,7 @@ function writeSyncState(scope) {
 function createSyncState(scope) {
   const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
   return {
+    schemaVersion: STATE_SCHEMA_VERSION,
     version: 1,
     scope,
     root: scope === "global" ? home : resolve(process.cwd()),
@@ -5442,9 +5486,9 @@ function label(area) {
   return area.replaceAll("-", " ");
 }
 
-function runConnect() {
+async function runConnect() {
   const state = connectState();
-  const results = registerMissingIntegrations(state);
+  const results = await registerMissingIntegrations(state);
   const nextState = connectState();
 
   console.log("AI Config Sync Manager connect");
@@ -5481,7 +5525,7 @@ function connectState() {
   };
 }
 
-function registerMissingIntegrations(state) {
+async function registerMissingIntegrations(state) {
   const results = [];
 
   tryConnectAction(results, "initialized config root", () => {
@@ -5492,20 +5536,13 @@ function registerMissingIntegrations(state) {
     writeDefaultStatusIgnore(state.statusIgnore);
   });
 
-  tryConnectAction(results, "registered Claude plugin", () => {
-    if (!state.claudePlugin) {
-      installClaudePlugin(state.claudePluginTarget);
-    }
+  await tryConnectActionAsync(results, "registered Claude plugin", async () => {
+    await installClaudePlugin(state.claudePluginTarget);
   });
 
-  tryConnectAction(results, "registered Codex plugin", () => {
-    if (!existsSync(state.codexPlugin)) {
-      installCodexPlugin(state.codexPlugin);
-    }
-
-    if (!codexMarketplaceIncludes(state.codexMarketplace)) {
-      updateCodexMarketplace(state.codexMarketplace, state.codexPlugin);
-    }
+  await tryConnectActionAsync(results, "registered Codex plugin", async () => {
+    await installCodexPlugin(state.codexPlugin);
+    updateCodexMarketplace(state.codexMarketplace, state.codexPlugin);
   });
 
   return results;
@@ -5540,8 +5577,25 @@ function tryConnectAction(results, message, action) {
   }
 }
 
-function installClaudePlugin(targetPath) {
+async function tryConnectActionAsync(results, message, action) {
+  try {
+    await action();
+    results.push({ status: "ok", message });
+  } catch (error) {
+    results.push({
+      status: "blocked",
+      message: `${message}: ${error instanceof Error ? error.message : "unknown error"}`
+    });
+  }
+}
+
+async function installClaudePlugin(targetPath) {
+  ensureManagedPluginTarget(targetPath, CLAUDE_PLUGIN_TARGET_PATTERN, "Claude");
+  rmSync(targetPath, { recursive: true, force: true });
+
   copyPluginRoot("integrations/claude-plugin", targetPath);
+  await writeLauncher(join(targetPath, "bin/ai-config-sync"), "claude");
+
   const installedPath = `${home}/.claude/plugins/installed_plugins.json`;
   const data = readJsonFile(installedPath, {});
 
@@ -5550,7 +5604,7 @@ function installClaudePlugin(targetPath) {
     {
       installPath: targetPath,
       source: "ai-config-sync-manager",
-      version: "0.1.0"
+      version: runtimeVersion
     }
   ];
 
@@ -5558,22 +5612,33 @@ function installClaudePlugin(targetPath) {
   writeFileSync(installedPath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
-function installCodexPlugin(targetPath) {
+async function installCodexPlugin(targetPath) {
+  ensureManagedPluginTarget(targetPath, CODEX_PLUGIN_TARGET_PATTERN, "Codex");
+  rmSync(targetPath, { recursive: true, force: true });
+
   copyPluginRoot("integrations/codex-plugin", targetPath);
+  await writeLauncher(join(targetPath, "bin/ai-config-sync"), "codex");
+}
+
+function ensureManagedPluginTarget(targetPath, pattern, hostLabel) {
+  if (!pattern.test(targetPath)) {
+    throw new Error(
+      `${hostLabel} plugin target ${targetPath} does not match expected pattern ${pattern}; refusing to clean. Remove it manually if you intend to reinstall.`
+    );
+  }
 }
 
 function copyPluginRoot(integrationDir, targetPath) {
   mkdirSync(dirname(targetPath), { recursive: true });
   cpSync(join(runtimeRoot, integrationDir), targetPath, { recursive: true, dereference: false });
+}
 
-  for (const name of ["bin", "packages", "schemas", "rules"]) {
-    cpSync(join(runtimeRoot, name), join(targetPath, name), { recursive: true, dereference: false });
-  }
-
-  for (const name of ["package.json", "tsconfig.json", "tsconfig.check.json", "package-lock.json"]) {
-    const source = join(runtimeRoot, name);
-    if (existsSync(source)) copyFileSync(source, join(targetPath, name));
-  }
+async function writeLauncher(launcherPath, host) {
+  const { writeHostLauncher } = await import(join(runtimeRoot, "scripts/lib/host-launcher.mjs"));
+  writeHostLauncher(launcherPath, host, {
+    pinnedVersion: runtimeVersion,
+    packageName: runtimePackageName
+  });
 }
 
 function updateCodexMarketplace(path, pluginPath) {
@@ -5584,7 +5649,7 @@ function updateCodexMarketplace(path, pluginPath) {
     ...plugins.filter((plugin) => plugin?.name !== "ai-config-sync-manager"),
     {
       name: "ai-config-sync-manager",
-      version: "0.1.0",
+      version: runtimeVersion,
       path: pluginPath,
       source: pluginPath
     }
