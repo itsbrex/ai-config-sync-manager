@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "description": "Per-line paraphrase overrides registered via `ai-config-sync paraphrase --apply`. When active, matching lines are masked during equivalence comparison and hidden from diff previews so the host-paraphrased file is not flagged as a conflict. Stale entries (where the current file line no longer matches the recorded before/after text) are auto-invalidated and the conflict reappears in status. Entries are keyed by id and identify both host file paths/lines/texts so either side can be checked for staleness.",
+  "overrides": []
+}

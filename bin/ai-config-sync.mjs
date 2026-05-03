@@ -14,6 +14,7 @@ import {
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const hosts = new Set(["claude", "codex"]);
@@ -86,6 +87,14 @@ async function main() {
         console.log(markdown);
       }
     }
+  } else if (command === "paraphrase") {
+    if (isHelp(argv)) {
+      printParaphraseHelp();
+    } else {
+      const options = parseParaphrase(argv);
+      const result = await runParaphrase(options);
+      console.log(options.json ? JSON.stringify(result, null, 2) : renderParaphrase(result, options));
+    }
   } else {
     printHelp();
   }
@@ -153,6 +162,7 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
     selectors,
     filtered.rules ?? []
   );
+  const paraphraseOverrides = activeParaphraseOverrides();
 
   return {
     source: direction.from,
@@ -167,15 +177,25 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
     scaffold: false,
     entries,
     vocabFindings,
-    summary: buildStatusSummary(entries.length, vocabFindings.length, scopes)
+    paraphraseOverrides,
+    summary: buildStatusSummary(
+      entries.length,
+      vocabFindings.length,
+      scopes,
+      paraphraseOverrides.active.length,
+      paraphraseOverrides.stale.length
+    )
   };
 }
 
-function buildStatusSummary(diffCount, vocabCount, scopes) {
+function buildStatusSummary(diffCount, vocabCount, scopes, overrideActiveCount = 0, overrideStaleCount = 0) {
   const scopeLabel = scopes.join("+");
   const parts = [];
   parts.push(diffCount === 0 ? `No diff detected for ${scopeLabel} scope.` : `${diffCount} diff(s) detected for ${scopeLabel} scope.`);
   if (vocabCount > 0) parts.push(`${vocabCount} vocab mismatch(es) detected.`);
+  if (overrideActiveCount > 0 || overrideStaleCount > 0) {
+    parts.push(`${overrideActiveCount} paraphrase override(s) active, ${overrideStaleCount} stale.`);
+  }
   return parts.join(" ");
 }
 
@@ -413,6 +433,20 @@ function writeStatusDetailFile(report) {
     lines.push("");
   }
 
+  const staleOverrides = report.paraphraseOverrides?.stale ?? [];
+  if (staleOverrides.length > 0) {
+    lines.push("stale paraphrase overrides:");
+    for (const entry of staleOverrides) {
+      lines.push(`  - ${entry.id} [${entry._staleReason}]`);
+      lines.push(`      scope: ${entry.scope ?? "?"}, area: ${entry.area ?? "?"}, item: ${entry.item ?? "?"}`);
+      lines.push(`      claude: ${entry.claude_path} L${entry.claude_line}`);
+      lines.push(`        - before: ${entry.claude_text}`);
+      lines.push(`      codex:  ${entry.codex_path} L${entry.codex_line}`);
+      lines.push(`        - before: ${entry.codex_text}`);
+    }
+    lines.push("");
+  }
+
   mkdirSync(dirname(detailPath), { recursive: true });
   writeFileSync(detailPath, `${lines.join("\n").trimEnd()}\n`);
   return detailPath;
@@ -512,11 +546,14 @@ function statusPreview(entry, change, item, ignoreRules = []) {
   if (change === "content differs" && entry.area === "instructions") {
     const targetContent = to === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
     const sourceContent = from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    const transformedSource = transformTextForHost(sourceContent ?? "", from, to);
+    const overrides = activeOverridesForFilePair(entry.claudePath, entry.codexPath);
+    const masked = maskBodiesForHosts(targetContent ?? "", transformedSource, to, from, overrides);
     return contentChangePreview(
       `${toLabel} current`,
-      targetContent ?? "",
+      masked.target,
       `After apply from ${fromLabel}`,
-      transformTextForHost(sourceContent ?? "", from, to),
+      masked.source,
       terms
     );
   }
@@ -529,7 +566,11 @@ function statusPreview(entry, change, item, ignoreRules = []) {
       to
     );
     const sourceContent = normalizeYamlFrontmatter(transformed);
-    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
+    const targetManifest = skillManifestPathFor(to === "claude" ? entry.claudePath : entry.codexPath, item);
+    const sourceManifest = skillManifestPathFor(from === "claude" ? entry.claudePath : entry.codexPath, item);
+    const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to, from);
+    const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
+    return contentChangePreview(`${toLabel} current`, masked.target, `After apply from ${fromLabel}`, masked.source, terms);
   }
 
   if (change === "conflict" && entry.area === "agents") {
@@ -540,7 +581,9 @@ function statusPreview(entry, change, item, ignoreRules = []) {
     const sourceContent = from === "claude"
       ? transformTextForHost(rawSource, "claude", "codex")
       : transformTextForHost(stripAgentMigrationPreamble(rawSource), "codex", "claude");
-    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
+    const overrides = activeManifestOverridesForPair(targetPath, sourcePath, to, from);
+    const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
+    return contentChangePreview(`${toLabel} current`, masked.target, `After apply from ${fromLabel}`, masked.source, terms);
   }
 
   if (change === "conflict" && entry.area === "mcp") {
@@ -1237,6 +1280,10 @@ function createOperation(entry, from, to, options = {}) {
       };
     }
 
+    const targetContent = to === "claude" ? entry.claudeInstructionContent ?? "" : entry.codexInstructionContent ?? "";
+    const sourceContent = instructionContent ?? fileText(sourcePath);
+    const overrides = activeOverridesForFilePair(entry.claudePath, entry.codexPath);
+    const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
     return {
       scope: entry.scope,
       area: entry.area,
@@ -1249,9 +1296,9 @@ function createOperation(entry, from, to, options = {}) {
       targetTemplatePath: targetTemplatePath(),
       changePreview: contentChangePreview(
         `${toLabel(to)} current`,
-        to === "claude" ? entry.claudeInstructionContent ?? "" : entry.codexInstructionContent ?? "",
+        masked.target,
         `After apply from ${fromLabel(from)}`,
-        instructionContent ?? fileText(sourcePath),
+        masked.source,
         entryMaskTerms(entry, entry.area, options.ignoreRules ?? [])
       ),
       backupRequired: true,
@@ -1653,6 +1700,236 @@ function mergeHostStrictVocab(base, override) {
     }
   }
   return out;
+}
+
+function paraphraseMapPath() {
+  return paraphraseMapSource().path;
+}
+
+function paraphraseMapSource() {
+  return loadLayeredRule(
+    paraphraseMapCandidates(),
+    { claude_only: {}, codex_only: {} },
+    mergeParaphraseMap
+  );
+}
+
+function paraphraseMapCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/paraphrase-map.json"),
+    `${home}/.ai-config-sync-manager/rules/paraphrase-map.json`,
+    join(runtimeRoot, "rules/paraphrase-map.json")
+  ];
+}
+
+function mergeParaphraseMap(base, override) {
+  const out = {
+    claude_only: { ...(base.claude_only ?? {}) },
+    codex_only: { ...(base.codex_only ?? {}) }
+  };
+  for (const key of ["claude_only", "codex_only"]) {
+    const add = override?.[key];
+    if (!add || typeof add !== "object") continue;
+    for (const [token, paraphrase] of Object.entries(add)) {
+      if (typeof token !== "string" || !token) continue;
+      if (typeof paraphrase !== "string" || !paraphrase) continue;
+      out[key][token] = paraphrase;
+    }
+  }
+  return out;
+}
+
+function paraphraseOverridesPath() {
+  return paraphraseOverridesSource().path;
+}
+
+function paraphraseOverridesSource() {
+  return loadLayeredRule(
+    paraphraseOverridesCandidates(),
+    { overrides: [] },
+    mergeParaphraseOverrides
+  );
+}
+
+function paraphraseOverridesCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/paraphrase-overrides.json"),
+    `${home}/.ai-config-sync-manager/rules/paraphrase-overrides.json`,
+    join(runtimeRoot, "rules/paraphrase-overrides.json")
+  ];
+}
+
+function mergeParaphraseOverrides(base, override) {
+  const baseList = Array.isArray(base.overrides) ? base.overrides : [];
+  const overlayList = Array.isArray(override?.overrides) ? override.overrides : [];
+  const byId = new Map();
+  for (const entry of baseList) {
+    if (entry && typeof entry === "object" && typeof entry.id === "string") byId.set(entry.id, entry);
+  }
+  for (const entry of overlayList) {
+    if (entry && typeof entry === "object" && typeof entry.id === "string") byId.set(entry.id, entry);
+  }
+  return { overrides: [...byId.values()] };
+}
+
+function activeParaphraseOverrides() {
+  const list = paraphraseOverridesSource().data?.overrides ?? [];
+  const active = [];
+  const stale = [];
+  for (const entry of list) {
+    if (!isParaphraseOverrideShape(entry)) continue;
+    const status = paraphraseOverrideStatus(entry);
+    if (status === "active") active.push(entry);
+    else stale.push({ ...entry, _staleReason: status });
+  }
+  return { active, stale };
+}
+
+function isParaphraseOverrideShape(entry) {
+  return entry
+    && typeof entry === "object"
+    && typeof entry.id === "string" && entry.id
+    && typeof entry.claude_path === "string" && entry.claude_path
+    && typeof entry.codex_path === "string" && entry.codex_path
+    && Number.isInteger(entry.claude_line) && entry.claude_line >= 1
+    && Number.isInteger(entry.codex_line) && entry.codex_line >= 1
+    && typeof entry.claude_text === "string"
+    && typeof entry.codex_text === "string";
+}
+
+function paraphraseOverrideStatus(entry) {
+  const claudePath = expandHome(entry.claude_path);
+  const codexPath = expandHome(entry.codex_path);
+  if (!existsSync(claudePath)) return "stale:claude-missing";
+  if (!existsSync(codexPath)) return "stale:codex-missing";
+  const claudeLine = readHostBodyLine(entry.area, "claude", claudePath, entry.claude_line);
+  const codexLine = readHostBodyLine(entry.area, "codex", codexPath, entry.codex_line);
+  if (claudeLine !== entry.claude_text) return "stale:claude-text";
+  if (codexLine !== entry.codex_text) return "stale:codex-text";
+  return "active";
+}
+
+function readHostFileBody(area, host, path) {
+  if (!path || !existsSync(path)) return "";
+  if (area === "agents") {
+    if (host === "claude") return parseClaudeAgentFile(path).body ?? "";
+    return parseCodexAgentFile(path).developer_instructions ?? "";
+  }
+  return readFileSync(path, "utf8");
+}
+
+function writeHostFileBody(area, host, path, newBody) {
+  if (area === "agents") {
+    if (host === "claude") {
+      const parsed = parseClaudeAgentFile(path);
+      writeFileSync(path, serializeClaudeAgentFile(parsed.frontmatter, newBody));
+    } else {
+      const parsed = parseCodexAgentFile(path);
+      writeFileSync(path, serializeCodexAgentFile({ ...parsed, developer_instructions: newBody }));
+    }
+    return;
+  }
+  writeFileSync(path, newBody);
+}
+
+function readHostBodyLine(area, host, path, lineNumber) {
+  if (!Number.isInteger(lineNumber) || lineNumber < 1) return null;
+  const body = readHostFileBody(area, host, path);
+  if (!body) return null;
+  const lines = body.split(/\r?\n/);
+  return lineNumber <= lines.length ? lines[lineNumber - 1] : null;
+}
+
+function findCounterpartLineByText(area, host, path, expectedText, preferredLineNumber) {
+  if (typeof expectedText !== "string") return null;
+  const body = readHostFileBody(area, host, path);
+  if (!body) return null;
+  const lines = body.split(/\r?\n/);
+  const matches = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i] === expectedText) matches.push(i + 1);
+  }
+  if (matches.length === 0) return null;
+  const anchor = Number.isInteger(preferredLineNumber) ? preferredLineNumber : matches[0];
+  let best = matches[0];
+  let bestDelta = Math.abs(best - anchor);
+  for (const lineNumber of matches) {
+    const delta = Math.abs(lineNumber - anchor);
+    if (delta < bestDelta) {
+      best = lineNumber;
+      bestDelta = delta;
+    }
+  }
+  return best;
+}
+
+function activeOverridesForFilePair(claudePath, codexPath) {
+  if (!claudePath || !codexPath) return [];
+  const expectedClaude = expandHome(claudePath);
+  const expectedCodex = expandHome(codexPath);
+  const { active } = activeParaphraseOverrides();
+  return active.filter((entry) =>
+    expandHome(entry.claude_path) === expectedClaude
+    && expandHome(entry.codex_path) === expectedCodex
+  );
+}
+
+function maskBodyAtLine(body, lineNumber, expectedText, sentinel) {
+  if (typeof body !== "string" || !body) return body ?? "";
+  if (!Number.isInteger(lineNumber) || lineNumber < 1) return body;
+  const lines = body.split(/\r?\n/);
+  if (lineNumber > lines.length) return body;
+  if (lines[lineNumber - 1] !== expectedText) return body;
+  lines[lineNumber - 1] = sentinel;
+  return lines.join("\n");
+}
+
+function maskBodiesWithOverrides(claudeBody, codexBody, overrides) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return { claudeBody: claudeBody ?? "", codexBody: codexBody ?? "" };
+  }
+  let left = claudeBody ?? "";
+  let right = codexBody ?? "";
+  for (const entry of overrides) {
+    const sentinel = ` PO:${entry.id} `;
+    left = maskBodyAtLine(left, entry.claude_line, entry.claude_text, sentinel);
+    right = maskBodyAtLine(right, entry.codex_line, entry.codex_text, sentinel);
+  }
+  return { claudeBody: left, codexBody: right };
+}
+
+function maskBodiesForHosts(targetBody, sourceBody, targetHost, sourceHost, overrides) {
+  if (!Array.isArray(overrides) || overrides.length === 0) {
+    return { target: targetBody ?? "", source: sourceBody ?? "" };
+  }
+  let target = targetBody ?? "";
+  let source = sourceBody ?? "";
+  for (const entry of overrides) {
+    const sentinel = ` PO:${entry.id} `;
+    const targetLine = targetHost === "claude" ? entry.claude_line : entry.codex_line;
+    const targetText = targetHost === "claude" ? entry.claude_text : entry.codex_text;
+    const sourceLine = sourceHost === "claude" ? entry.claude_line : entry.codex_line;
+    const sourceText = sourceHost === "claude" ? entry.claude_text : entry.codex_text;
+    target = maskBodyAtLine(target, targetLine, targetText, sentinel);
+    source = maskBodyAtLine(source, sourceLine, sourceText, sentinel);
+  }
+  return { target, source };
+}
+
+function activeManifestOverridesForPair(targetPath, sourcePath, targetHost, sourceHost) {
+  if (!targetPath || !sourcePath) return [];
+  const claudePath = targetHost === "claude" ? targetPath : sourcePath;
+  const codexPath = targetHost === "codex" ? targetPath : sourcePath;
+  return activeOverridesForFilePair(claudePath, codexPath);
+}
+
+function skillManifestPathFor(basePath, skillName) {
+  if (!basePath || !skillName) return null;
+  const skillPath = join(basePath, skillName);
+  const manifest = findSkillManifest(skillPath);
+  if (manifest) return manifest;
+  if (existsSync(skillPath) && !lstatSync(skillPath).isDirectory()) return skillPath;
+  return null;
 }
 
 function lintHostVocab(text, targetHost) {
@@ -2620,14 +2897,19 @@ function fileText(path) {
 
 function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceIndex = {}, entry = null, ignoreRules = []) {
   const lines = [];
+  const to = from === "claude" ? "codex" : "claude";
   for (const skillName of skillNames) {
     const sourceDir = sourceIndex[skillName] ?? sourcePath;
-    const transformed = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, from === "claude" ? "codex" : "claude");
+    const transformed = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, to);
     const source = normalizeYamlFrontmatter(transformed);
     const target = skillPreviewContent(targetPath, skillName);
     const terms = entry ? entryMaskTerms(entry, skillName, ignoreRules) : [];
+    const targetManifest = skillManifestPathFor(targetPath, skillName);
+    const sourceManifest = skillManifestPathFor(sourceDir, skillName);
+    const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to, from);
+    const masked = maskBodiesForHosts(target, source, to, from, overrides);
     lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
-    lines.push(...contentChangePreview("Target current", target, `After apply from ${fromLabel(from)}`, source, terms).map((line) => `  ${line}`));
+    lines.push(...contentChangePreview("Target current", masked.target, `After apply from ${fromLabel(from)}`, masked.source, terms).map((line) => `  ${line}`));
   }
   return lines;
 }
@@ -2654,7 +2936,9 @@ function agentChangePreview(sourceDir, targetDir, agentNames, from, to, claudeAg
       ? transformTextForHost(sourceRaw, "claude", "codex")
       : transformTextForHost(stripAgentMigrationPreamble(sourceRaw), "codex", "claude");
     const terms = entry ? entryMaskTerms(entry, agentName, ignoreRules) : [];
-    lines.push(...contentChangePreview("Target current", targetContent, `After apply from ${fromLabel(from)}`, transformedSource, terms).map((line) => `  ${line}`));
+    const overrides = activeManifestOverridesForPair(targetPaths[agentName], sourcePaths[agentName], to, from);
+    const masked = maskBodiesForHosts(targetContent, transformedSource, to, from, overrides);
+    lines.push(...contentChangePreview("Target current", masked.target, `After apply from ${fromLabel(from)}`, masked.source, terms).map((line) => `  ${line}`));
   }
   return lines;
 }
@@ -4702,7 +4986,9 @@ function compareInstructions(entries, scope, claudePath, codexPath, claudePaths 
   const codex = instructionState("codex", codexPaths);
 
   if (!claude.exists && !codex.exists) return;
-  if (instructionsEquivalent(claude.content, codex.content)) return;
+  const overrides = activeOverridesForFilePair(claudePath, codexPath);
+  const masked = maskBodiesWithOverrides(claude.content, codex.content, overrides);
+  if (instructionsEquivalent(masked.claudeBody, masked.codexBody)) return;
 
   if (claude.hash !== codex.hash) {
     entries.push({
@@ -4956,7 +5242,13 @@ function agentsEquivalent(claudeAgent, codexAgent, entry, item, rules) {
       ...applicableTermRules(rules ?? [], entry, item, "codex")
     ])
     : [];
-  return agentBodiesEqual(claude.body, codex.developer_instructions, terms);
+  const overrides = activeOverridesForFilePair(claudeAgent.path, codexAgent.path);
+  const { claudeBody, codexBody } = maskBodiesWithOverrides(
+    claude.body,
+    codex.developer_instructions,
+    overrides
+  );
+  return agentBodiesEqual(claudeBody, codexBody, terms);
 }
 
 function agentBodiesEqual(claudeBody, codexBody, terms) {
@@ -5790,6 +6082,11 @@ function skillDirsEquivalent(claudePath, codexPath, entry, item, rules) {
       if (maskedSkillContentHash(claudePath, "claude", "claude", terms) === maskedSkillContentHash(codexPath, "codex", "claude", terms)) return true;
     }
   }
+
+  const overrides = activeSkillOverridesForDirPair(claudePath, codexPath);
+  if (overrides.length > 0) {
+    if (overriddenSkillContentHash(claudePath, "claude", overrides) === overriddenSkillContentHash(codexPath, "codex", overrides)) return true;
+  }
   return false;
 }
 
@@ -5823,6 +6120,47 @@ function maskedSkillContentHash(path, sourceHost, targetHost, terms) {
         ? canonical.toString("utf8")
         : transformTextForHost(canonical.toString("utf8"), sourceHost, targetHost);
       content = Buffer.from(maskLinesContaining(text, terms), "utf8");
+    } else {
+      content = canonical;
+    }
+    hash.update(normalized);
+    hash.update(content);
+  }
+
+  return hash.digest("hex").slice(0, 12);
+}
+
+function activeSkillOverridesForDirPair(claudeDir, codexDir) {
+  if (!claudeDir || !codexDir) return [];
+  const claudeRoot = expandHome(claudeDir);
+  const codexRoot = expandHome(codexDir);
+  const { active } = activeParaphraseOverrides();
+  return active.filter((entry) =>
+    expandHome(entry.claude_path).startsWith(`${claudeRoot}/`)
+    && expandHome(entry.codex_path).startsWith(`${codexRoot}/`)
+  );
+}
+
+function overriddenSkillContentHash(path, host, overrides) {
+  if (!existsSync(path)) return "missing";
+  const hash = createHash("sha256");
+  const root = expandHome(path);
+  const pathKey = host === "claude" ? "claude_path" : "codex_path";
+  const lineKey = host === "claude" ? "claude_line" : "codex_line";
+  const textKey = host === "claude" ? "claude_text" : "codex_text";
+
+  for (const { raw, normalized } of sortedSkillFiles(path)) {
+    const absolute = join(path, raw);
+    const canonical = readSkillFileForHash(path, raw);
+    let content;
+    if (isTextMappingFile(absolute)) {
+      let text = canonical.toString("utf8");
+      const fileOverrides = overrides.filter((entry) => expandHome(entry[pathKey]) === `${root}/${raw}`);
+      for (const entry of fileOverrides) {
+        const sentinel = ` PO:${entry.id} `;
+        text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
+      }
+      content = Buffer.from(text, "utf8");
     } else {
       content = canonical;
     }
@@ -6139,7 +6477,12 @@ function printHelp() {
   ai-config-sync sync --from codex --to claude
   ai-config-sync reference
   ai-config-sync reference --help
-  ai-config-sync reference --output ~/.ai-config-sync-manager/reference.md`);
+  ai-config-sync reference --output ~/.ai-config-sync-manager/reference.md
+  ai-config-sync paraphrase
+  ai-config-sync paraphrase --help
+  ai-config-sync paraphrase --apply
+  ai-config-sync paraphrase --map "Read=Inspection,Write=Author" --apply
+  ai-config-sync paraphrase --scope global --include agents:code-structure-analyst --apply`);
 }
 
 function printConnectHelp() {
@@ -6232,6 +6575,424 @@ Examples:
   ai-config-sync reference --output ~/.ai-config-sync-manager/reference.md`);
 }
 
+function parseParaphrase(argv) {
+  let apply = false;
+  let json = false;
+  let scopes = ["global", "project"];
+  let nonInteractive = false;
+  const cliMap = { claude_only: {}, codex_only: {} };
+  const selectors = emptySelectors();
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--apply") {
+      apply = true;
+    } else if (token === "--json") {
+      json = true;
+    } else if (token === "--non-interactive") {
+      nonInteractive = true;
+    } else if (token === "--scope") {
+      const value = argv[index + 1];
+      scopes = parseScopes(value, true);
+      index += 1;
+    } else if (token === "--include" || token === "--exclude") {
+      addSelectors(selectors, token, argv[index + 1]);
+      index += 1;
+    } else if (token === "--map") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("Missing value for --map");
+      parseParaphraseMapArg(value, cliMap);
+      index += 1;
+    } else {
+      throw new Error(`Unknown option for paraphrase: ${token}`);
+    }
+  }
+
+  return { apply, json, scopes, nonInteractive, cliMap, selectors };
+}
+
+function parseParaphraseMapArg(value, target) {
+  const data = hostStrictVocabSource().data ?? {};
+  const claudeTokens = new Set(Array.isArray(data.claude_only) ? data.claude_only : []);
+  const codexTokens = new Set(Array.isArray(data.codex_only) ? data.codex_only : []);
+  for (const segment of value.split(",")) {
+    const trimmed = segment.trim();
+    if (!trimmed) continue;
+    let side = null;
+    let body = trimmed;
+    const sideMatch = trimmed.match(/^(claude_only|codex_only):(.+)$/);
+    if (sideMatch) {
+      side = sideMatch[1];
+      body = sideMatch[2];
+    }
+    const eq = body.indexOf("=");
+    if (eq < 0) throw new Error(`Invalid --map entry: ${trimmed} (expected token=paraphrase)`);
+    const token = body.slice(0, eq).trim();
+    const paraphrase = body.slice(eq + 1).trim();
+    if (!token || !paraphrase) throw new Error(`Invalid --map entry: ${trimmed}`);
+    if (!side) {
+      if (claudeTokens.has(token)) side = "claude_only";
+      else if (codexTokens.has(token)) side = "codex_only";
+      else throw new Error(`--map token "${token}" not in host-strict-vocab; prefix with claude_only: or codex_only:`);
+    }
+    target[side][token] = paraphrase;
+  }
+}
+
+async function runParaphrase(options) {
+  const { apply, scopes, selectors, cliMap, nonInteractive } = options;
+  const ignoreSource = ignoreListSource();
+  const ignoreRules = (ignoreSource.data?.exclude ?? []).filter(Boolean);
+
+  const allFindings = scopes.flatMap((scope) =>
+    filterVocabFindings(lintScopeForVocab(scope), selectors, ignoreRules)
+  );
+  const manualFindings = allFindings.filter((f) => !f.recommended);
+
+  const fileMap = paraphraseMapSource().data ?? { claude_only: {}, codex_only: {} };
+  const effectiveMap = mergeParaphraseMap(fileMap, cliMap);
+  const newMapEntries = mergeParaphraseMap({ claude_only: {}, codex_only: {} }, cliMap);
+
+  const skipped = [];
+  const pendingTokenMap = new Map();
+
+  const fileWork = new Map();
+  for (const f of manualFindings) {
+    const paraphrase = effectiveMap[f.side]?.[f.token];
+    if (!paraphrase) {
+      const key = `${f.side}:${f.token}`;
+      const acc = pendingTokenMap.get(key) ?? { token: f.token, side: f.side, count: 0 };
+      acc.count += 1;
+      pendingTokenMap.set(key, acc);
+      continue;
+    }
+    queueParaphraseFinding(fileWork, f, paraphrase);
+  }
+  let pending = [...pendingTokenMap.values()];
+
+  if (apply && pending.length > 0 && !nonInteractive && process.stdin.isTTY) {
+    for (const p of pending) {
+      const answer = await promptParaphraseToken(p);
+      if (!answer) {
+        skipped.push({ token: p.token, side: p.side, reason: "user-skipped" });
+        continue;
+      }
+      effectiveMap[p.side][p.token] = answer;
+      newMapEntries[p.side][p.token] = answer;
+      for (const f of manualFindings) {
+        if (f.token === p.token && f.side === p.side) {
+          queueParaphraseFinding(fileWork, f, answer);
+        }
+      }
+    }
+    pending = [];
+  }
+
+  const applied = [];
+  const overridesToRegister = [];
+
+  for (const [path, info] of fileWork) {
+    if (!existsSync(path)) {
+      skipped.push({ path, reason: "file-missing" });
+      continue;
+    }
+    const originalBody = readHostFileBody(info.area, info.host, path);
+    const originalLines = originalBody.split(/\r?\n/);
+    const updatedLines = [...originalLines];
+
+    const byLine = new Map();
+    for (const f of info.findings) {
+      if (!byLine.has(f.line)) byLine.set(f.line, []);
+      byLine.get(f.line).push(f);
+    }
+
+    const lineChanges = [];
+    for (const [lineNumber, list] of byLine) {
+      if (lineNumber < 1 || lineNumber > originalLines.length) continue;
+      const before = originalLines[lineNumber - 1];
+      let after = before;
+      const tokens = [];
+      for (const f of list) {
+        const re = new RegExp(`\\b${escapeRegExp(f.token)}\\b`, "g");
+        if (!re.test(after)) continue;
+        after = after.replace(new RegExp(`\\b${escapeRegExp(f.token)}\\b`, "g"), f.paraphrase);
+        tokens.push({ token: f.token, paraphrase: f.paraphrase });
+      }
+      if (after !== before) {
+        lineChanges.push({ lineNumber, before, after, tokens });
+        updatedLines[lineNumber - 1] = after;
+      }
+    }
+
+    if (lineChanges.length === 0) continue;
+
+    const counterpart = findCounterpartFile(info);
+    const counterpartHost = info.host === "claude" ? "codex" : "claude";
+
+    for (const change of lineChanges) {
+      const directLine = counterpart
+        ? readHostBodyLine(info.area, counterpartHost, counterpart.path, change.lineNumber)
+        : null;
+      const directMatched = directLine !== null && directLine === change.before;
+
+      let cpLine = directLine;
+      let cpLineNumber = directMatched ? change.lineNumber : null;
+      let counterpartMatched = directMatched;
+
+      if (counterpart && !directMatched) {
+        const fallbackLineNumber = findCounterpartLineByText(
+          info.area,
+          counterpartHost,
+          counterpart.path,
+          change.before,
+          change.lineNumber
+        );
+        if (fallbackLineNumber !== null) {
+          cpLineNumber = fallbackLineNumber;
+          cpLine = change.before;
+          counterpartMatched = true;
+        }
+      }
+
+      const claudePath = info.host === "claude" ? path : counterpart?.path ?? null;
+      const codexPath = info.host === "codex" ? path : counterpart?.path ?? null;
+      const claudeLine = info.host === "claude" ? change.lineNumber : (cpLineNumber ?? change.lineNumber);
+      const codexLine = info.host === "codex" ? change.lineNumber : (cpLineNumber ?? change.lineNumber);
+      const claudeText = info.host === "claude" ? change.after : (counterpartMatched ? cpLine : null);
+      const codexText = info.host === "codex" ? change.after : (counterpartMatched ? cpLine : null);
+      const overrideId = `${info.scope}-${info.area}-${sanitizeOverrideIdSegment(info.item)}-${info.host}-L${change.lineNumber}`;
+
+      const record = {
+        path,
+        host: info.host,
+        scope: info.scope,
+        area: info.area,
+        item: info.item,
+        line: change.lineNumber,
+        before: change.before,
+        after: change.after,
+        tokens: change.tokens,
+        counterpart_path: counterpart?.path ?? null,
+        counterpart_line: counterpartMatched ? cpLineNumber : null,
+        counterpart_text: cpLine,
+        counterpart_matched: counterpartMatched,
+        override_id: overrideId
+      };
+
+      if (!counterpartMatched) {
+        skipped.push({
+          path,
+          line: change.lineNumber,
+          reason: counterpart ? "counterpart-line-mismatch" : "counterpart-file-not-found",
+          ...record
+        });
+        continue;
+      }
+
+      applied.push(record);
+
+      if (apply && claudePath && codexPath) {
+        overridesToRegister.push({
+          id: overrideId,
+          scope: info.scope,
+          area: info.area,
+          item: info.item,
+          claude_path: claudePath,
+          codex_path: codexPath,
+          claude_line: claudeLine,
+          codex_line: codexLine,
+          claude_text: claudeText,
+          codex_text: codexText,
+          tokens: change.tokens,
+          registered_at: new Date().toISOString()
+        });
+      }
+    }
+
+    if (apply) {
+      const updated = updatedLines.join("\n");
+      writeHostFileBody(info.area, info.host, path, updated);
+    }
+  }
+
+  if (apply) {
+    if (overridesToRegister.length > 0) registerParaphraseOverrides(overridesToRegister);
+    if (Object.keys(newMapEntries.claude_only).length > 0 || Object.keys(newMapEntries.codex_only).length > 0) {
+      persistParaphraseMap(newMapEntries);
+    }
+  }
+
+  return {
+    mode: apply ? "apply" : "dry-run",
+    scopes,
+    total: manualFindings.length,
+    applied,
+    skipped,
+    pendingTokens: pending
+  };
+}
+
+function queueParaphraseFinding(fileWork, f, paraphrase) {
+  if (!fileWork.has(f.path)) {
+    fileWork.set(f.path, { host: f.host, area: f.area, item: f.item, scope: f.scope, findings: [] });
+  }
+  fileWork.get(f.path).findings.push({ ...f, paraphrase });
+}
+
+function sanitizeOverrideIdSegment(value) {
+  return String(value ?? "").replace(/[^A-Za-z0-9_.-]+/g, "_");
+}
+
+function findCounterpartFile(info) {
+  const paths = info.scope === "global" ? globalPaths() : projectPaths(process.cwd());
+  const counterpartHost = info.host === "claude" ? "codex" : "claude";
+  if (info.area === "agents") {
+    const dir = paths[counterpartHost].agents;
+    if (!dir || !existsSync(dir)) return null;
+    const list = counterpartHost === "claude" ? enumerateClaudeAgents(dir) : enumerateCodexAgents(dir);
+    const match = list.find((a) => a.name === info.item || a.name.split("/").pop() === info.item.split("/").pop());
+    return match ? { path: match.path } : null;
+  }
+  if (info.area === "skills") {
+    const dirs = paths[counterpartHost].skillsPaths ?? [paths[counterpartHost].skills];
+    for (const dir of dirs) {
+      if (!dir || !existsSync(dir)) continue;
+      const skillDir = join(dir, info.item);
+      if (!existsSync(skillDir)) continue;
+      const manifest = findSkillManifest(skillDir);
+      if (manifest) return { path: manifest };
+    }
+    return null;
+  }
+  if (info.area === "instructions") {
+    const path = paths[counterpartHost].instructions;
+    return path && existsSync(path) ? { path } : null;
+  }
+  return null;
+}
+
+async function promptParaphraseToken(p) {
+  return await new Promise((resolveAnswer) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const sideLabel = p.side.replace("_only", "-only");
+    const occurrences = `${p.count} occurrence${p.count === 1 ? "" : "s"}`;
+    rl.question(`paraphrase token "${p.token}" [${sideLabel}, ${occurrences}] as (empty to skip): `, (answer) => {
+      rl.close();
+      resolveAnswer(answer.trim() || null);
+    });
+  });
+}
+
+function paraphraseOverridesHomePath() {
+  return `${home}/.ai-config-sync-manager/rules/paraphrase-overrides.json`;
+}
+
+function paraphraseMapHomePath() {
+  return `${home}/.ai-config-sync-manager/rules/paraphrase-map.json`;
+}
+
+function registerParaphraseOverrides(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return;
+  const path = paraphraseOverridesHomePath();
+  const data = readJsonFile(path, { version: 1, overrides: [] });
+  const overrides = Array.isArray(data.overrides) ? data.overrides : [];
+  const filtered = overrides.filter((existing) => !entries.some((entry) => existing?.id === entry.id));
+  const next = { version: 1, overrides: [...filtered, ...entries] };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+function persistParaphraseMap(newEntries) {
+  const path = paraphraseMapHomePath();
+  const data = readJsonFile(path, { version: 1, claude_only: {}, codex_only: {} });
+  const next = {
+    version: 1,
+    claude_only: { ...(data.claude_only ?? {}), ...(newEntries.claude_only ?? {}) },
+    codex_only: { ...(data.codex_only ?? {}), ...(newEntries.codex_only ?? {}) }
+  };
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
+}
+
+function renderParaphrase(result, options) {
+  const lines = [
+    "AI Config Sync Manager paraphrase",
+    `Mode: ${result.mode}`,
+    `Scopes: ${result.scopes.join(", ")}`,
+    `Manual mismatches scanned: ${result.total}`
+  ];
+  lines.push(`Applied: ${result.applied.length} line change(s)`);
+  if (result.skipped.length > 0) lines.push(`Skipped: ${result.skipped.length}`);
+  if (result.pendingTokens.length > 0) {
+    lines.push("");
+    lines.push("Tokens needing a paraphrase mapping (no entry in paraphrase-map.json):");
+    for (const p of result.pendingTokens) {
+      lines.push(`  - ${p.token} [${p.side.replace("_only", "-only")}] (${p.count} occurrence${p.count === 1 ? "" : "s"})`);
+    }
+    lines.push("Provide via `--map token=paraphrase` or run with TTY for interactive prompt.");
+  }
+  if (result.applied.length > 0) {
+    lines.push("");
+    lines.push("Changes:");
+    for (const change of result.applied) {
+      lines.push(`  - ${change.scope}/${change.area}: ${change.item} (${change.host} L${change.line})`);
+      lines.push(`    file: ${change.path}`);
+      lines.push(`      - before: ${change.before}`);
+      lines.push(`      + after:  ${change.after}`);
+      if (change.counterpart_path) {
+        lines.push(`    counterpart: ${change.counterpart_path} L${change.counterpart_line ?? "?"} (${change.counterpart_matched ? "matched" : "mismatch"})`);
+      }
+    }
+  }
+  if (result.skipped.length > 0) {
+    lines.push("");
+    lines.push("Skipped:");
+    for (const item of result.skipped) {
+      const where = item.path ? `${item.path}${item.line ? `:L${item.line}` : ""}` : `${item.token ?? ""}`;
+      lines.push(`  - ${item.reason}: ${where}`);
+    }
+  }
+  if (result.mode === "dry-run") {
+    lines.push("");
+    lines.push("Run with --apply to rewrite files and register overrides.");
+  } else {
+    lines.push("");
+    lines.push(`Overrides registered to: ${paraphraseOverridesHomePath()}`);
+    if (options.cliMap && (Object.keys(options.cliMap.claude_only).length > 0 || Object.keys(options.cliMap.codex_only).length > 0)) {
+      lines.push(`Map updated: ${paraphraseMapHomePath()}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function printParaphraseHelp() {
+  console.log(`Usage:
+  ai-config-sync paraphrase [options]
+
+Rewrites manual-review vocab mismatches in agent/skill/instruction files using rules/paraphrase-map.json (token-to-paraphrase) and registers per-line overrides so the result is masked from future status diffs and equivalence checks. Both directions are processed: claude-only tokens in codex files become codex-side paraphrases, codex-only tokens in claude files become claude-side paraphrases.
+
+Options:
+  --apply                        Rewrite files, append entries to paraphrase-overrides.json, and persist any new mappings to paraphrase-map.json (defaults to dry-run preview)
+  --json                         Print the result as JSON
+  --non-interactive              Skip the TTY prompt for tokens missing from paraphrase-map.json
+  --map token=paraphrase[,...]   Inline token-to-paraphrase mappings (prefix with claude_only: or codex_only: when the token is ambiguous)
+  --scope global|project|all     Limit paraphrase scope (default: global+project)
+  --include area[:item][,...]    Include only selected areas or items
+  --exclude area[:item][,...]    Exclude selected areas or items
+  -h, --help                     Show paraphrase help
+
+Behavior:
+  - Only manual-review findings (those without a sync auto-fix) are rewritten — sync auto-fixes are still handled by \`sync --apply\`.
+  - Each rewritten line is paired with the counterpart host file's same-numbered line; if the counterpart line text does not match the pre-rewrite text exactly, the line is skipped (logged under skipped) so a partial override is never registered.
+  - Stale overrides (counterpart text drifted) are auto-invalidated at status time, restoring the conflict.
+
+Examples:
+  ai-config-sync paraphrase
+  ai-config-sync paraphrase --apply
+  ai-config-sync paraphrase --map "Read=Inspection,Write=Author" --apply
+  ai-config-sync paraphrase --scope global --include agents:code-structure-analyst --apply`);
+}
+
 function generateReferenceMarkdown() {
   return [
     "# AI Config Sync Manager Reference",
@@ -6244,6 +7005,7 @@ function generateReferenceMarkdown() {
     referenceMappingQualitiesSection(),
     referenceSyncActionsSection(),
     referenceTerminologyLayersSection(),
+    referenceParaphraseSection(),
     referenceHiddenMarkersSection(),
     referenceDefaultDirectionSection(),
     referenceFileLocationsSection()
@@ -6292,6 +7054,19 @@ function referenceCommandsSection() {
     "",
     "- `--output <path>` — Write the reference markdown to `<path>` (parent directories are created)",
     "- `-h, --help` — Show reference help",
+    "",
+    "### `paraphrase`",
+    "",
+    "Recover bidirectional manual-review vocab mismatches by rewriting host-native tokens into shared paraphrases. Records each rewrite as a paraphrase override so future status/sync runs treat both sides as in sync. Stale overrides whose anchor lines no longer match are auto-invalidated.",
+    "",
+    "- `--apply` — Persist rewrites, paraphrase map entries, and override archive (default is dry-run)",
+    "- `--json` — Emit the full paraphrase report as JSON",
+    "- `--non-interactive` — Skip the TTY prompt for unmapped tokens (still emits them under `pendingTokens`)",
+    "- `--map \"token=paraphrase[,...]\"` — Provide one or more inline token→paraphrase mappings (CLI overrides paraphrase-map.json)",
+    "- `--scope global|project|all` — Limit paraphrase scope",
+    "- `--include area[:item][,...]` — Include only selected areas or items",
+    "- `--exclude area[:item][,...]` — Exclude selected areas or items",
+    "- `-h, --help` — Show paraphrase help",
     ""
   ].join("\n");
 }
@@ -6419,6 +7194,32 @@ function referenceTerminologyLayersSection() {
   return lines.join("\n");
 }
 
+function referenceParaphraseSection() {
+  return [
+    "## Paraphrase",
+    "",
+    "Paraphrase recovers bidirectional manual-review vocab mismatches that the terminology map cannot translate (host-native tokens listed in `rules/host-strict-vocab.json`). It rewrites both sides to a shared paraphrase and registers an override so subsequent status runs treat the pair as in sync.",
+    "",
+    "### Map and override files",
+    "",
+    "- `rules/paraphrase-map.json` — Token→paraphrase entries grouped under `claude_only` / `codex_only`. Layered with the same precedence as terminology rules: `<project>/rules/paraphrase-map.json` → `~/.ai-config-sync-manager/rules/paraphrase-map.json` → `<repo>/rules/paraphrase-map.json`.",
+    "- `rules/paraphrase-overrides.json` — Override archive of accepted rewrites; each entry pins host paths, line numbers, anchor texts, and the rewriting tokens. Same layered precedence as the map.",
+    "",
+    "### Counterpart matching",
+    "",
+    "For each rewrite the paraphrase command resolves the counterpart line on the other host:",
+    "",
+    "1. Read the counterpart file at the same line number; accept when text matches `before` exactly.",
+    "2. Otherwise scan the counterpart body for any line whose text equals `before`; pick the candidate closest to the original line number.",
+    "3. If neither step finds a match the rewrite is skipped with `counterpart-line-mismatch` (or `counterpart-file-not-found` when the counterpart file is missing).",
+    "",
+    "### Override staleness",
+    "",
+    "Overrides are auto-invalidated when the pinned anchor text no longer matches the current file content, so manual edits on either host cleanly retire the recorded pairing without leaving stale entries.",
+    ""
+  ].join("\n");
+}
+
 function referenceHiddenMarkersSection() {
   return [
     "## Hidden markers",
@@ -6463,12 +7264,17 @@ function referenceFileLocationsSection() {
     "- `~/.ai-config-sync-manager/status-details/<timestamp>.txt` — Full diff detail when status is collapsed.",
     "- `~/.ai-config-sync-manager/rules/agents-map.json` — Agent field and model alias rules (user customization point).",
     "- `~/.ai-config-sync-manager/rules/status-ignore.json` — Persistent ignore rules used by `status` and `sync`. Template at `<repo>/docs/status-ignore.example.json`.",
+    "- `~/.ai-config-sync-manager/rules/paraphrase-map.json` — Persistent token→paraphrase entries learned from `paraphrase --apply` (layered: project/home/repo).",
+    "- `~/.ai-config-sync-manager/rules/paraphrase-overrides.json` — Override archive of accepted paraphrase rewrites; each entry pins matched line numbers and texts so status treats both sides as in sync.",
     "",
     "### Bundled defaults (under the runtime root)",
     "",
     "- `<repo>/rules/terminology-map.json` — Bundled terminology defaults (override at home or project).",
     "- `<repo>/rules/host-target-templates.json` — Bundled target templates.",
     "- `<repo>/rules/call-templates.json` — Bundled SDK call transform templates.",
+    "- `<repo>/rules/paraphrase-map.json` — Bundled paraphrase map defaults (override at home or project).",
+    "- `<repo>/rules/paraphrase-overrides.json` — Bundled paraphrase override archive defaults (override at home or project).",
+    "- `<repo>/rules/host-strict-vocab.json` — Host-native token list driving vocab-mismatch detection (`claude_only`, `codex_only`, `claude_only_patterns`).",
     "",
     "Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`. Layers are merged by id (rule.id, template.id, areas key, fields claude+codex pair, models.tiers id) — partial overlays only need to declare the entries they want to add or change.",
     ""

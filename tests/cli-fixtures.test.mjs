@@ -5754,3 +5754,314 @@ function collectBackupFiles(rootDir) {
   }
   return out;
 }
+
+// Helper: write a Codex agent file whose developer_instructions body lines
+// align 1:1 with the matching Claude agent. Claude's frontmatter parser leaves
+// a leading blank line in the body (so user content starts at L2), so the
+// codex side mirrors that by embedding a leading and trailing newline inside
+// the JSON-quoted scalar. Without this alignment the paraphrase counterpart
+// match (cpLine === before) fails and the override is never registered.
+function writeCodexAgentBodyAligned(path, fields, bodyText) {
+  mkdirSync(dirname(path), { recursive: true });
+  const order = ["name", "description", "model"];
+  const lines = [];
+  for (const key of order) {
+    if (fields[key] === undefined || fields[key] === null) continue;
+    lines.push(`${key} = ${JSON.stringify(String(fields[key]))}`);
+  }
+  lines.push(`developer_instructions = ${JSON.stringify(`\n${bodyText}\n`)}`);
+  writeFileSync(path, `${lines.join("\n")}\n`);
+}
+
+test("paraphrase dry-run reports planned line changes without writing files", () => {
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo", model: "opus" },
+    "Use Read tool to inspect."
+  );
+  const codexPath = join(fixture.project, ".codex/agents/sample.toml");
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use Read tool to inspect."
+  );
+  const codexBefore = readFileSync(codexPath, "utf8");
+
+  const result = JSON.parse(
+    runCli(fixture, ["paraphrase", "--scope", "project", "--map", "Read=Inspection", "--json"])
+  );
+
+  assert.equal(result.mode, "dry-run");
+  assert.ok(result.applied.length > 0, `expected applied entries, got: ${JSON.stringify(result)}`);
+  const change = result.applied[0];
+  assert.match(change.before, /\bRead\b/);
+  assert.match(change.after, /\bInspection\b/);
+  assert.equal(change.counterpart_matched, true);
+
+  // Codex source unchanged in dry-run.
+  assert.equal(readFileSync(codexPath, "utf8"), codexBefore);
+  // Override file should not be written either.
+  assert.equal(
+    existsSync(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json")),
+    false
+  );
+});
+
+test("paraphrase --apply registers an active override that masks the conflict in status", () => {
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo", model: "opus" },
+    "Use Read tool to inspect."
+  );
+  const codexPath = join(fixture.project, ".codex/agents/sample.toml");
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use Read tool to inspect."
+  );
+
+  // Baseline: codex side has a claude_only token (Read) so vocab-mismatch fires.
+  const before = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  assert.equal(before.vocabFindings.length, 1);
+  assert.equal(before.vocabFindings[0].token, "Read");
+  assert.equal(before.paraphraseOverrides.active.length, 0);
+
+  runCli(fixture, ["paraphrase", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"]);
+
+  // Codex source rewritten in place.
+  const codexAfter = readFileSync(codexPath, "utf8");
+  assert.match(codexAfter, /Inspection/);
+  assert.doesNotMatch(codexAfter, /\bRead\b/);
+
+  // Override file written under AI_CONFIG_SYNC_HOME.
+  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  assert.equal(existsSync(overridesPath), true);
+  const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
+  assert.equal(overrides.overrides.length, 1);
+
+  // Status now masks both the vocab finding and the agent conflict.
+  const after = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  assert.equal(after.vocabFindings.length, 0);
+  assert.equal(after.entries.length, 0);
+  assert.equal(after.paraphraseOverrides.active.length, 1);
+  assert.equal(after.paraphraseOverrides.stale.length, 0);
+});
+
+test("paraphrase override is auto-invalidated as stale when the codex line drifts", () => {
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo", model: "opus" },
+    "Use Read tool to inspect."
+  );
+  const codexPath = join(fixture.project, ".codex/agents/sample.toml");
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use Read tool to inspect."
+  );
+
+  runCli(fixture, ["paraphrase", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"]);
+
+  // Confirm baseline active override after apply.
+  const masked = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  assert.equal(masked.paraphraseOverrides.active.length, 1);
+  assert.equal(masked.entries.length, 0);
+
+  // Externally edit the codex file so the recorded codex_text no longer matches.
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use something else entirely."
+  );
+
+  const drift = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  assert.equal(drift.paraphraseOverrides.active.length, 0);
+  assert.equal(drift.paraphraseOverrides.stale.length, 1);
+  // Conflict resurfaces because the override no longer masks the diff.
+  assert.equal(drift.entries.length, 1);
+  assert.equal(drift.entries[0].area, "agents");
+  assert.deepEqual(drift.entries[0].conflicts, ["sample"]);
+});
+
+// Note on coverage: every codex_only token (wait_agent, apply_patch,
+// spawn_agent, send_input, exec_command) currently has a tool-paraphrase or
+// terminology-map auto-fix, which fills `recommended` and removes the finding
+// from paraphrase's manual-review queue. So the "codex_only token in claude
+// file" direction has no manual targets to drive through `paraphrase --apply`.
+// Instead, this case exercises a second manual claude_only token (Write) at
+// the global scope to confirm the override registration path is independent
+// of scope and works for tokens beyond the one in the previous case.
+test("paraphrase --apply at global scope registers an override for a second manual token", () => {
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.home, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo", model: "opus" },
+    "Use Write tool to record output."
+  );
+  const codexPath = join(fixture.home, ".codex/agents/sample.toml");
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use Write tool to record output."
+  );
+
+  const before = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--json"]));
+  const writeFinding = before.vocabFindings.find((f) => f.token === "Write");
+  assert.ok(writeFinding, `expected Write vocab finding, got: ${JSON.stringify(before.vocabFindings)}`);
+
+  runCli(fixture, ["paraphrase", "--scope", "global", "--map", "Write=Author", "--apply", "--json"]);
+
+  const codexAfter = readFileSync(codexPath, "utf8");
+  assert.match(codexAfter, /Author/);
+  assert.doesNotMatch(codexAfter, /\bWrite\b/);
+
+  const after = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--json"]));
+  assert.equal(after.vocabFindings.filter((f) => f.token === "Write").length, 0);
+  assert.equal(after.paraphraseOverrides.active.length, 1);
+  assert.equal(after.paraphraseOverrides.stale.length, 0);
+  assert.equal(after.entries.filter((e) => e.area === "agents").length, 0);
+});
+
+// update_plan is a codex_only manual token (no terminology-map / paraphrase-map
+// entry), so when it appears in a claude file it surfaces as a vocab-mismatch
+// finding with no auto-fix. The bidirectional recall flow drives it through
+// `paraphrase --apply` (claude side rewritten, override registered, status
+// clean afterwards).
+test("paraphrase --apply rewrites codex_only manual token (update_plan) on claude side", () => {
+  const fixture = createFixture();
+  const claudePath = join(fixture.project, ".claude/agents/sample.md");
+  writeClaudeAgent(
+    claudePath,
+    { name: "sample", description: "demo", model: "opus" },
+    "Use update_plan to outline steps."
+  );
+  const codexPath = join(fixture.project, ".codex/agents/sample.toml");
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use update_plan to outline steps."
+  );
+
+  // Baseline: claude side has a codex_only token (update_plan) so vocab-mismatch fires.
+  const before = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  const updatePlanFinding = before.vocabFindings.find((f) => f.token === "update_plan");
+  assert.ok(
+    updatePlanFinding,
+    `expected update_plan vocab finding, got: ${JSON.stringify(before.vocabFindings)}`
+  );
+  assert.equal(updatePlanFinding.host, "claude");
+  assert.equal(before.paraphraseOverrides.active.length, 0);
+
+  const result = JSON.parse(
+    runCli(fixture, [
+      "paraphrase",
+      "--scope",
+      "project",
+      "--map",
+      "update_plan=update the plan",
+      "--apply",
+      "--json"
+    ])
+  );
+
+  assert.equal(result.mode, "apply");
+  assert.ok(result.applied.length > 0, `expected applied entries, got: ${JSON.stringify(result)}`);
+  const change = result.applied[0];
+  assert.equal(change.host, "claude");
+  assert.match(change.before, /\bupdate_plan\b/);
+  assert.match(change.after, /update the plan/);
+  assert.equal(change.counterpart_matched, true);
+
+  // Claude source rewritten in place; codex source untouched.
+  const claudeAfter = readFileSync(claudePath, "utf8");
+  assert.match(claudeAfter, /update the plan/);
+  assert.doesNotMatch(claudeAfter, /\bupdate_plan\b/);
+
+  // paraphrase-overrides.json registers the entry.
+  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  assert.equal(existsSync(overridesPath), true);
+  const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
+  assert.equal(overrides.overrides.length, 1);
+
+  // Bidirectional recall: status now shows clean state (vocab + conflicts masked).
+  const after = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  assert.equal(after.vocabFindings.filter((f) => f.token === "update_plan").length, 0);
+  assert.equal(after.entries.filter((e) => e.area === "agents").length, 0);
+  assert.equal(after.paraphraseOverrides.active.length, 1);
+  assert.equal(after.paraphraseOverrides.stale.length, 0);
+});
+
+// When the counterpart file's body has the exact same text but at a different
+// line number (drift caused by edits on one side only), `runParaphrase` falls
+// back from direct line-number matching to a text-search across the
+// counterpart body. The override is registered with each host's own line
+// number.
+test("paraphrase --apply uses text-search fallback when counterpart line offset differs", () => {
+  const fixture = createFixture();
+  // claude body: padding line A on L2, target text on L3.
+  // (writeClaudeAgent emits "---", "", body — so user content starts at L2.)
+  const claudePath = join(fixture.project, ".claude/agents/sample.md");
+  writeClaudeAgent(
+    claudePath,
+    { name: "sample", description: "demo", model: "opus" },
+    "Padding context line.\nRead-only — no modifications unless explicitly asked."
+  );
+  // codex body: target text on L2, trailing context on L3.
+  // (writeCodexAgentBodyAligned wraps with leading/trailing newline — so user
+  // content starts at L2.)
+  const codexPath = join(fixture.project, ".codex/agents/sample.toml");
+  writeCodexAgentBodyAligned(
+    codexPath,
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Read-only — no modifications unless explicitly asked.\nExtra trailing context."
+  );
+
+  // Read is claude_only — present in codex file → finding host=codex, line=2.
+  // Counterpart (claude) line 2 holds "Padding context line." (mismatch),
+  // but line 3 holds the same target text → text-search fallback recovers it.
+  const result = JSON.parse(
+    runCli(fixture, [
+      "paraphrase",
+      "--scope",
+      "project",
+      "--map",
+      "Read=Inspection",
+      "--apply",
+      "--json"
+    ])
+  );
+
+  assert.equal(result.mode, "apply");
+  assert.ok(result.applied.length > 0, `expected applied entries, got: ${JSON.stringify(result)}`);
+  const change = result.applied[0];
+  assert.equal(change.host, "codex");
+  assert.equal(change.line, 2);
+  assert.equal(change.counterpart_matched, true);
+  assert.equal(change.counterpart_line, 3);
+  assert.match(change.before, /\bRead-only\b/);
+  assert.match(change.after, /Inspection-only/);
+
+  // Codex source rewritten; claude source untouched (counterpart only stores line/text).
+  const codexAfter = readFileSync(codexPath, "utf8");
+  assert.match(codexAfter, /Inspection-only/);
+  assert.doesNotMatch(codexAfter, /\bRead-only\b/);
+  const claudeAfter = readFileSync(claudePath, "utf8");
+  assert.match(claudeAfter, /Read-only/);
+
+  // Override file records each host's own line number.
+  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
+  assert.equal(overrides.overrides.length, 1);
+  const entry = overrides.overrides[0];
+  assert.equal(entry.codex_line, 2);
+  assert.equal(entry.claude_line, 3);
+
+  // The override is active and unstaled; any residual diff comes from the
+  // intentionally non-paraphrase padding lines, not from the masked target.
+  const after = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
+  assert.equal(after.paraphraseOverrides.active.length, 1);
+  assert.equal(after.paraphraseOverrides.stale.length, 0);
+});

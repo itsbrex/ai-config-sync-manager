@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "description": "User-confirmed paraphrase map for host-only vocabulary tokens. Each key is a token from rules/host-strict-vocab.json (claude_only or codex_only); each value is the prose paraphrase to substitute when the token is rewritten on the wrong host. Auto-populated by `ai-config-sync paraphrase --apply` when a new token-paraphrase pair is supplied interactively, but users may edit this file directly. Layered override at `~/.ai-config-sync-manager/rules/paraphrase-map.json` or `<project>/rules/paraphrase-map.json`.",
+  "claude_only": {},
+  "codex_only": {}
+}
