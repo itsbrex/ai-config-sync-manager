@@ -148,6 +148,11 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
     selectors
   ));
   const entries = filtered.entries;
+  const vocabFindings = filterVocabFindings(
+    scopes.flatMap((scope) => lintScopeForVocab(scope)),
+    selectors,
+    filtered.rules ?? []
+  );
 
   return {
     source: direction.from,
@@ -161,17 +166,24 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
     statusIgnored: filtered.ignored,
     scaffold: false,
     entries,
-    summary:
-      entries.length === 0
-        ? `No diff detected for ${scopes.join("+")} scope.`
-        : `${entries.length} diff(s) detected for ${scopes.join("+")} scope.`
+    vocabFindings,
+    summary: buildStatusSummary(entries.length, vocabFindings.length, scopes)
   };
+}
+
+function buildStatusSummary(diffCount, vocabCount, scopes) {
+  const scopeLabel = scopes.join("+");
+  const parts = [];
+  parts.push(diffCount === 0 ? `No diff detected for ${scopeLabel} scope.` : `${diffCount} diff(s) detected for ${scopeLabel} scope.`);
+  if (vocabCount > 0) parts.push(`${vocabCount} vocab mismatch(es) detected.`);
+  return parts.join(" ");
 }
 
 function renderStatus(report, format = "default") {
   if (format === "compact") return renderCompactStatus(report);
   if (format === "tree") return renderTreeStatus(report);
-  const detailPath = report.entries.length > 0 ? writeStatusDetailFile(report) : null;
+  const hasDetail = report.entries.length > 0 || (Array.isArray(report.vocabFindings) && report.vocabFindings.length > 0);
+  const detailPath = hasDetail ? writeStatusDetailFile(report) : null;
 
   const lines = [
     "AI Config Sync Manager status",
@@ -190,15 +202,57 @@ function renderStatus(report, format = "default") {
     lines.push("Diff status:");
     lines.push(renderDiffStatus(report.entries, report.statusIgnoreRules ?? []));
     lines.push("");
-    if (detailPath) {
-      lines.push(`Detail file: ${detailPath}`);
-      lines.push("Open the detail file for the full item list and before/after diff preview.");
-      lines.push("");
-    }
+  }
+
+  if (Array.isArray(report.vocabFindings) && report.vocabFindings.length > 0) {
+    lines.push("");
+    lines.push(...renderVocabFindings(report.vocabFindings));
+    lines.push("");
+  }
+
+  if (hasDetail && detailPath) {
+    lines.push(`Detail file: ${detailPath}`);
+    lines.push("Open the detail file for the full item list and before/after diff preview.");
+    lines.push("");
+  }
+
+  if (report.entries.length > 0) {
     lines.push("Run a listed command with --dry-run first when risk is manual.");
   }
 
   return lines.join("\n");
+}
+
+function renderVocabFindings(findings) {
+  const auto = findings.filter((f) => f.recommended);
+  const manual = findings.filter((f) => !f.recommended);
+  const sortFn = (a, b) =>
+    a.host.localeCompare(b.host) || a.area.localeCompare(b.area) || a.path.localeCompare(b.path) || a.line - b.line;
+
+  const lines = [`Vocab mismatches (${findings.length} total: ${auto.length} auto-fix, ${manual.length} manual):`];
+
+  if (auto.length > 0) {
+    lines.push("");
+    lines.push("Auto-fix (sync --apply rewrites source files using these replacements):");
+    for (const f of [...auto].sort(sortFn)) {
+      const hostLabel = f.host === "claude" ? "Claude" : "Codex";
+      lines.push(`  ${hostLabel} ${f.area}/${f.item} L${f.line} @ ${f.path}`);
+      lines.push(`    - ${f.token}`);
+      lines.push(`    + ${f.recommended}`);
+    }
+  }
+
+  if (manual.length > 0) {
+    lines.push("");
+    lines.push("Manual review (no auto-equivalent):");
+    for (const f of [...manual].sort(sortFn)) {
+      const hostLabel = f.host === "claude" ? "Claude" : "Codex";
+      const sideLabel = f.side.replace("_only", "-only");
+      lines.push(`  ${hostLabel} ${f.area}/${f.item} L${f.line}: ${f.token} [${sideLabel}; not callable on ${f.host}] @ ${f.path}`);
+    }
+  }
+
+  return lines;
 }
 
 function renderStatusList(entries, ignoreRules = []) {
@@ -353,6 +407,12 @@ function writeStatusDetailFile(report) {
     lines.push("");
   }
 
+  if (Array.isArray(report.vocabFindings) && report.vocabFindings.length > 0) {
+    lines.push("vocab:");
+    for (const line of renderVocabFindings(report.vocabFindings)) lines.push(`  ${line}`);
+    lines.push("");
+  }
+
   mkdirSync(dirname(detailPath), { recursive: true });
   writeFileSync(detailPath, `${lines.join("\n").trimEnd()}\n`);
   return detailPath;
@@ -463,11 +523,12 @@ function statusPreview(entry, change, item, ignoreRules = []) {
 
   if (change === "conflict" && entry.area === "skills") {
     const targetContent = skillPreviewContent(to === "claude" ? entry.claudePath : entry.codexPath, item);
-    const sourceContent = transformTextForHost(
+    const transformed = transformTextForHost(
       skillPreviewContent(from === "claude" ? entry.claudePath : entry.codexPath, item),
       from,
       to
     );
+    const sourceContent = normalizeYamlFrontmatter(transformed);
     return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
   }
 
@@ -972,6 +1033,12 @@ function createSyncPlan(options, mode) {
   const operations = entries.flatMap((entry) => createOperations(entry, operationOptions)).filter(Boolean);
   const backupRoot = `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`;
 
+  const vocabFindings = filterVocabFindings(
+    lintScopeForVocab(options.scope),
+    options.selectors,
+    filtered.rules ?? []
+  );
+
   return {
     from: options.from,
     to: options.to,
@@ -982,6 +1049,7 @@ function createSyncPlan(options, mode) {
     hasBaseline: Boolean(baseline),
     include: renderSelectors(options.selectors.include),
     exclude: renderSelectors(options.selectors.exclude),
+    selectors: options.selectors,
     ignorePath: filtered.path,
     ignoreRules: filtered.rules ?? [],
     ignored: filtered.ignored,
@@ -990,6 +1058,7 @@ function createSyncPlan(options, mode) {
     callArchive,
     callArchivePath: join(backupRoot, "unsupported-calls.json"),
     operations,
+    vocabFindings,
     results: []
   };
 }
@@ -1154,6 +1223,7 @@ function createOperation(entry, from, to, options = {}) {
       to,
       { callArchive: options.callArchive }
     );
+    recordVocabFindings(options.callArchive, lintHostVocab(instructionContent, to), from, to);
     if (!existsSync(sourcePath) && !instructionContent) {
       return {
         scope: entry.scope,
@@ -1444,6 +1514,11 @@ function renderSyncPlan(plan) {
     }
   }
 
+  if (Array.isArray(plan.vocabFindings) && plan.vocabFindings.length > 0) {
+    lines.push("");
+    lines.push(...renderVocabFindings(plan.vocabFindings));
+  }
+
   if (plan.mode === "apply" && plan.results.length > 0) {
     lines.push("");
     lines.push("Apply results:");
@@ -1547,6 +1622,213 @@ function callTemplatesCandidates() {
     `${home}/.ai-config-sync-manager/rules/call-templates.json`,
     join(runtimeRoot, "rules/call-templates.json")
   ];
+}
+
+function hostStrictVocabSource() {
+  return loadLayeredRule(
+    hostStrictVocabCandidates(),
+    { claude_only: [], codex_only: [], claude_only_patterns: [] },
+    mergeHostStrictVocab
+  );
+}
+
+function hostStrictVocabCandidates() {
+  return [
+    join(resolve(process.cwd()), "rules/host-strict-vocab.json"),
+    `${home}/.ai-config-sync-manager/rules/host-strict-vocab.json`,
+    join(runtimeRoot, "rules/host-strict-vocab.json")
+  ];
+}
+
+function mergeHostStrictVocab(base, override) {
+  const out = {
+    claude_only: [...(base.claude_only ?? [])],
+    codex_only: [...(base.codex_only ?? [])],
+    claude_only_patterns: [...(base.claude_only_patterns ?? [])]
+  };
+  for (const key of ["claude_only", "codex_only", "claude_only_patterns"]) {
+    const add = Array.isArray(override?.[key]) ? override[key] : [];
+    for (const item of add) {
+      if (typeof item === "string" && item && !out[key].includes(item)) out[key].push(item);
+    }
+  }
+  return out;
+}
+
+function lintHostVocab(text, targetHost) {
+  const findings = [];
+  const value = String(text ?? "");
+  if (!value) return findings;
+  const wrongSide = targetHost === "claude" ? "codex_only" : targetHost === "codex" ? "claude_only" : null;
+  if (!wrongSide) return findings;
+  const data = hostStrictVocabSource().data ?? {};
+  const tokens = Array.isArray(data[wrongSide]) ? data[wrongSide] : [];
+  // claude_only_patterns are namespace prefixes (e.g. mcp__) only meaningful to flag on codex.
+  const patterns = targetHost === "codex" && Array.isArray(data.claude_only_patterns) ? data.claude_only_patterns : [];
+
+  const lines = value.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    // Skip ai-config-sync marker JSON so round-trip-preserved call names are not flagged.
+    if (line.includes('"call":"')) continue;
+    if (line.includes("ai-config-sync:")) continue;
+    for (const token of tokens) {
+      const re = new RegExp(`\\b${escapeRegExp(token)}\\b`, "g");
+      let m;
+      while ((m = re.exec(line)) !== null) {
+        findings.push({ token, line: i + 1, col: m.index + 1, side: wrongSide });
+      }
+    }
+    for (const pat of patterns) {
+      const re = new RegExp(`\\b(${pat})[A-Za-z0-9_-]+\\b`, "g");
+      let m;
+      while ((m = re.exec(line)) !== null) {
+        findings.push({ token: m[0], line: i + 1, col: m.index + 1, side: "claude_only" });
+      }
+    }
+  }
+  return findings;
+}
+
+function recordVocabFindings(archive, findings, from, to) {
+  if (!Array.isArray(archive) || !Array.isArray(findings) || findings.length === 0) return;
+  for (const f of findings) {
+    pushArchiveEntry(archive, {
+      direction: `${from}->${to}`,
+      rule_id: "host-strict-vocab",
+      call: f.token,
+      action: "vocab-mismatch",
+      original: `line ${f.line}: ${f.token}`,
+      fields: { side: f.side, lineNumber: f.line, column: f.col },
+      reason: `${f.token} is ${f.side.replace("_only", "-only")} — not callable on ${to}`
+    });
+  }
+}
+
+function sanitizeAgentToolsField(toolsValue, targetHost) {
+  const raw = String(toolsValue ?? "");
+  if (!raw) return { sanitized: "", removed: [] };
+  const data = hostStrictVocabSource().data ?? {};
+  const wrongSide = targetHost === "claude" ? "codex_only" : targetHost === "codex" ? "claude_only" : null;
+  const wrongTokens = wrongSide && Array.isArray(data[wrongSide]) ? new Set(data[wrongSide]) : new Set();
+  const wrongPatterns = targetHost === "codex" && Array.isArray(data.claude_only_patterns)
+    ? data.claude_only_patterns.map((p) => new RegExp(`^${p}`))
+    : [];
+  const tokens = raw.split(/\s*,\s*/).map((t) => t.trim()).filter(Boolean);
+  const removed = [];
+  const kept = [];
+  for (const t of tokens) {
+    if (wrongTokens.has(t)) { removed.push(t); continue; }
+    if (wrongPatterns.some((re) => re.test(t))) { removed.push(t); continue; }
+    kept.push(t);
+  }
+  return { sanitized: kept.join(","), removed };
+}
+
+function lintAgentFileForVocab(path, host) {
+  if (!existsSync(path)) return [];
+  if (host === "claude") {
+    const parsed = parseClaudeAgentFile(path);
+    return lintHostVocab(parsed.body ?? "", host);
+  }
+  const parsed = parseCodexAgentFile(path);
+  return lintHostVocab(parsed.developer_instructions ?? "", host);
+}
+
+function lintSkillManifestForVocab(path, host) {
+  if (!existsSync(path)) return [];
+  return lintHostVocab(readFileSync(path, "utf8"), host);
+}
+
+function lintInstructionFileForVocab(path, host) {
+  if (!existsSync(path)) return [];
+  return lintHostVocab(readFileSync(path, "utf8"), host);
+}
+
+function scanAgentsForVocab(dir, host, scope, findings) {
+  if (!dir || !existsSync(dir)) return;
+  const list = host === "claude" ? enumerateClaudeAgents(dir) : enumerateCodexAgents(dir);
+  for (const agent of list) {
+    for (const f of lintAgentFileForVocab(agent.path, host)) {
+      findings.push({ scope, area: "agents", host, item: agent.name, path: agent.path, ...f });
+    }
+  }
+}
+
+function scanSkillsForVocab(dirs, host, scope, findings) {
+  const list = Array.isArray(dirs) ? dirs : [dirs];
+  for (const dir of list) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const skillName of skillNames(dir)) {
+      const manifest = findSkillManifest(join(dir, skillName));
+      if (!manifest) continue;
+      for (const f of lintSkillManifestForVocab(manifest, host)) {
+        findings.push({ scope, area: "skills", host, item: skillName, path: manifest, ...f });
+      }
+    }
+  }
+}
+
+function scanInstructionForVocab(path, host, scope, findings) {
+  for (const f of lintInstructionFileForVocab(path, host)) {
+    findings.push({ scope, area: "instructions", host, item: "instructions", path, ...f });
+  }
+}
+
+function lintScopeForVocab(scope) {
+  const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
+  const findings = [];
+  scanAgentsForVocab(paths.claude.agents, "claude", scope, findings);
+  scanAgentsForVocab(paths.codex.agents, "codex", scope, findings);
+  scanSkillsForVocab(paths.claude.skillsPaths ?? [paths.claude.skills], "claude", scope, findings);
+  scanSkillsForVocab(paths.codex.skillsPaths ?? [paths.codex.skills], "codex", scope, findings);
+  scanInstructionForVocab(paths.claude.instructions, "claude", scope, findings);
+  scanInstructionForVocab(paths.codex.instructions, "codex", scope, findings);
+  for (const f of findings) f.recommended = suggestVocabReplacement(f);
+  return findings;
+}
+
+function suggestVocabReplacement(finding) {
+  const nativeHost = finding.side === "codex_only" ? "codex" : "claude";
+  const fileHost = finding.host;
+  if (nativeHost === fileHost) return null;
+  // Term-mapping pass only — skip applyTargetTemplates/applyCallTransforms which expand
+  // single tokens into verbose canonical phrases ("Claude Task-tool delegation") that
+  // are noisy for an inline suggestion. Term rules give 1:1 token replacements.
+  const probe = ` ${finding.token} `;
+  const transformed = applyTermMappings(probe, nativeHost, fileHost);
+  if (transformed === probe) return null;
+  const stripped = transformed.replace(/^\s+|\s+$/g, "");
+  return stripped && stripped !== finding.token ? stripped : null;
+}
+
+function filterVocabFindings(findings, selectors, ignoreRules) {
+  return findings.filter((f) => {
+    if (!includesArea(selectors, f.area, f.item)) return false;
+    if (vocabFindingIgnored(f, ignoreRules)) return false;
+    return true;
+  });
+}
+
+function includesArea(selectors, area, item) {
+  if (!selectors) return true;
+  const includes = Array.isArray(selectors.include) ? selectors.include : [];
+  const excludes = Array.isArray(selectors.exclude) ? selectors.exclude : [];
+  if (excludes.some((s) => s.area === area && (!s.item || s.item === item))) return false;
+  if (includes.length === 0) return true;
+  return includes.some((s) => s.area === area && (!s.item || s.item === item));
+}
+
+function vocabFindingIgnored(finding, ignoreRules) {
+  if (!Array.isArray(ignoreRules) || ignoreRules.length === 0) return false;
+  for (const rule of ignoreRules) {
+    if (typeof rule?.term === "string" && rule.term && finding.path.includes(rule.term)) return true;
+    if (rule?.area && rule.area === finding.area) {
+      if (typeof rule.item === "string" && rule.item && rule.item === finding.item) return true;
+      if (typeof rule.path === "string" && rule.path && finding.path.includes(rule.path.replace(/\*+/g, ""))) return true;
+    }
+  }
+  return false;
 }
 
 function routeMappingsSource(direction) {
@@ -2340,7 +2622,8 @@ function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceInde
   const lines = [];
   for (const skillName of skillNames) {
     const sourceDir = sourceIndex[skillName] ?? sourcePath;
-    const source = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, from === "claude" ? "codex" : "claude");
+    const transformed = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, from === "claude" ? "codex" : "claude");
+    const source = normalizeYamlFrontmatter(transformed);
     const target = skillPreviewContent(targetPath, skillName);
     const terms = entry ? entryMaskTerms(entry, skillName, ignoreRules) : [];
     lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
@@ -2490,6 +2773,7 @@ function copyFileWithMappings(source, target, from, to, options = {}) {
   mkdirSync(dirname(target), { recursive: true });
   if (isTextMappingFile(source)) {
     let text = transformTextForHost(readFileSync(source, "utf8"), from, to, options);
+    recordVocabFindings(options?.callArchive, lintHostVocab(text, to), from, to);
     const sourceBasename = source.split("/").pop();
     if (isSkillManifestBasename(sourceBasename)) {
       text = normalizeYamlFrontmatter(text);
@@ -2601,6 +2885,8 @@ function applySyncPlan(plan) {
     }
   }
 
+  applyVocabFixes(plan);
+
   if (plan.results.length === 0) {
     plan.results.push({ status: "noop", message: "No operations to apply" });
   }
@@ -2609,6 +2895,36 @@ function applySyncPlan(plan) {
 
   if (plan.results.every((result) => result.status === "applied" || result.status === "noop")) {
     writeSyncState(plan.scope);
+  }
+}
+
+function applyVocabFixes(plan) {
+  const findings = filterVocabFindings(
+    lintScopeForVocab(plan.scope),
+    plan.selectors,
+    plan.ignoreRules ?? []
+  );
+  const fixable = findings.filter((f) => f.recommended);
+  if (fixable.length === 0) return;
+
+  const byPath = new Map();
+  for (const f of fixable) {
+    if (!byPath.has(f.path)) byPath.set(f.path, { fileHost: f.host, items: [] });
+    byPath.get(f.path).items.push(f);
+  }
+
+  for (const [path, info] of byPath) {
+    if (!existsSync(path)) continue;
+    const original = readFileSync(path, "utf8");
+    const nativeHost = info.fileHost === "claude" ? "codex" : "claude";
+    const updated = applyTermMappings(original, nativeHost, info.fileHost);
+    if (updated === original) continue;
+    backupPath(plan, path);
+    writeFileSync(path, updated);
+    plan.results.push({
+      status: "applied",
+      message: `vocab-fix: rewrote ${info.items.length} token(s) in ${path}`
+    });
   }
 }
 
@@ -4773,6 +5089,7 @@ function mapAgentToCodex(claude, options = {}) {
   const fm = claude.frontmatter ?? {};
   const rawBody = claude.body ?? "";
   const body = transformTextForHost(rawBody, "claude", "codex", { callArchive: options.callArchive });
+  recordVocabFindings(options.callArchive, lintHostVocab(body, "codex"), "claude", "codex");
   const fallbackName = (typeof options.fallbackName === "string" && options.fallbackName) || "";
   const name = (fm.name && String(fm.name).trim()) || fallbackName;
   const description = (fm.description && String(fm.description).trim()) || extractDescriptionFromBody(rawBody) || name;
@@ -4804,6 +5121,7 @@ function extractDescriptionFromBody(body) {
 function mapAgentToClaude(codex, options = {}) {
   const aliases = modelAliasMap("codex", "claude");
   const body = transformTextForHost(stripAgentMigrationPreamble(codex.developer_instructions ?? ""), "codex", "claude", { callArchive: options.callArchive });
+  recordVocabFindings(options.callArchive, lintHostVocab(body, "claude"), "codex", "claude");
   const frontmatter = {
     name: codex.name ?? "",
     description: codex.description ?? "",
@@ -4811,7 +5129,24 @@ function mapAgentToClaude(codex, options = {}) {
   };
   const preserved = options.preserveClaude ?? {};
   for (const key of ["tools", "color", "memory"]) {
-    if (preserved[key] !== undefined && preserved[key] !== "") frontmatter[key] = preserved[key];
+    if (preserved[key] === undefined || preserved[key] === "") continue;
+    if (key === "tools") {
+      const { sanitized, removed } = sanitizeAgentToolsField(preserved.tools, "claude");
+      if (sanitized) frontmatter.tools = sanitized;
+      if (removed.length && Array.isArray(options.callArchive)) {
+        pushArchiveEntry(options.callArchive, {
+          direction: "preserve->claude",
+          rule_id: "host-strict-vocab",
+          call: "agent.tools",
+          action: "vocab-mismatch-sanitized",
+          original: preserved.tools,
+          fields: { removed, kept: sanitized },
+          reason: `tools field had codex-only tokens stripped: ${removed.join(", ")}`
+        });
+      }
+    } else {
+      frontmatter[key] = preserved[key];
+    }
   }
   return { frontmatter, body };
 }

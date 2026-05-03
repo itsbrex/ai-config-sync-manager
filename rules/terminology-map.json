@@ -158,6 +158,181 @@
           "codex_pattern": "\\bsend_input\\b",
           "claude_replace": "SendMessage",
           "codex_replace": "send_input"
+        },
+        {
+          "id": "exec-command-call",
+          "description": "Translate prose mentions of Codex's exec_command tool to Claude's Bash. Word boundary keeps it from matching inside identifiers; lookbehind avoids matching inside ai-config-sync marker JSON; lookahead avoids the bare-call form Bash(...).",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bBash\\b(?!\\s*\\()",
+          "codex_pattern": "\\bexec_command\\b",
+          "claude_replace": "Bash",
+          "codex_replace": "exec_command"
+        }
+      ]
+    },
+    {
+      "id": "tool-paraphrase",
+      "description": "Paraphrase mappings for host-native tools that have no 1:1 cross-host equivalent. Each rule fires one-way (the host-native side carries the empty pattern). Risky common-word tokens (Read, Write, Edit, Glob, Grep, Skill, Monitor) are intentionally NOT included here because a bare-token regex would mis-fire on prose; they remain in host-strict-vocab manual-review until a stricter context anchor exists.",
+      "rules": [
+        {
+          "id": "wait-agent-paraphrase",
+          "description": "Translate codex's wait_agent tool to a claude prose equivalent. Claude's Agent calls block by default so there is no 1:1 callable; the paraphrase keeps the intent readable on claude side.",
+          "regex": true,
+          "claude_pattern": "(?!)",
+          "codex_pattern": "(?<!\"call\":\")\\bwait_agent\\b(?!\\s*\\()",
+          "claude_replace": "wait for the spawned agent",
+          "codex_replace": ""
+        },
+        {
+          "id": "apply-patch-paraphrase",
+          "description": "Translate codex's apply_patch tool to a claude prose equivalent. Claude's nearest analogue is Edit/Write composition; the paraphrase keeps the description host-agnostic.",
+          "regex": true,
+          "claude_pattern": "(?!)",
+          "codex_pattern": "(?<!\"call\":\")\\bapply_patch\\b(?!\\s*\\()",
+          "claude_replace": "apply a patch",
+          "codex_replace": ""
+        },
+        {
+          "id": "webfetch-paraphrase",
+          "description": "Translate Claude's WebFetch tool to a codex prose equivalent. Codex has no built-in URL fetcher; users invoke curl/wget through exec_command.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bWebFetch\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "fetch a URL"
+        },
+        {
+          "id": "websearch-paraphrase",
+          "description": "Translate Claude's WebSearch tool. No codex built-in equivalent exists.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bWebSearch\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "search the web"
+        },
+        {
+          "id": "notebookedit-paraphrase",
+          "description": "Translate Claude's NotebookEdit tool. Codex has no built-in notebook tool; users edit cells via exec_command.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bNotebookEdit\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "edit a notebook cell"
+        },
+        {
+          "id": "toolsearch-paraphrase",
+          "description": "Translate Claude's ToolSearch tool. Codex tool schemas are static; this becomes a description.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bToolSearch\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "look up tool schema"
+        },
+        {
+          "id": "enterplanmode-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bEnterPlanMode\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "enter plan mode"
+        },
+        {
+          "id": "exitplanmode-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bExitPlanMode\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "exit plan mode"
+        },
+        {
+          "id": "enterworktree-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bEnterWorktree\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "create a worktree"
+        },
+        {
+          "id": "exitworktree-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bExitWorktree\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "leave the worktree"
+        },
+        {
+          "id": "schedulewakeup-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bScheduleWakeup\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "schedule a wake-up timer"
+        },
+        {
+          "id": "pushnotification-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bPushNotification\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "send a push notification"
+        },
+        {
+          "id": "croncreate-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bCronCreate\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "create a cron schedule"
+        },
+        {
+          "id": "crondelete-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bCronDelete\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "delete a cron schedule"
+        },
+        {
+          "id": "cronlist-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bCronList\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "list cron schedules"
+        },
+        {
+          "id": "askuserquestion-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bAskUserQuestion\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "ask the user a question"
+        },
+        {
+          "id": "remotetrigger-paraphrase",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bRemoteTrigger\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "trigger a remote action"
+        },
+        {
+          "id": "grep-paraphrase",
+          "description": "Translate Claude's Grep tool to a codex prose form. Capitalized 'Grep' is almost exclusively the tool name in agent prose; lowercase 'grep' is left alone.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bGrep\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "search file contents via grep"
+        },
+        {
+          "id": "glob-paraphrase",
+          "description": "Translate Claude's Glob tool to a codex prose form. Capitalized 'Glob' refers to the tool; lowercase 'glob' (common shell pattern term) is left alone.",
+          "regex": true,
+          "claude_pattern": "(?<!\"call\":\")\\bGlob\\b(?!\\s*\\()",
+          "codex_pattern": "(?!)",
+          "claude_replace": "",
+          "codex_replace": "match paths via glob pattern"
         }
       ]
     },

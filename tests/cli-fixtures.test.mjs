@@ -1807,7 +1807,7 @@ test("status instruction diff preview labels follow AI_CONFIG_SYNC_HOST=codex di
   const detail = readFileSync(statusDetailPath(output), "utf8");
   assert.match(detail, /Claude current L1: claude line one/);
   assert.match(detail, /After apply from Codex L1:/);
-  assert.doesNotMatch(detail, /Codex current L1:/);
+  assert.doesNotMatch(detail, /(?<!After )Codex current L1: codex line one/);
   assert.doesNotMatch(detail, /After apply from Claude L1:/);
 });
 
@@ -5419,3 +5419,338 @@ test("sync aborts when state schemaVersion is unknown", () => {
   assert.match(error.stderr ?? error.message ?? "", /baseline state schema mismatch/);
   assert.match(error.stderr ?? error.message ?? "", /expected 1, got 2/);
 });
+
+function readUnsupportedCallsArchive(output) {
+  const archivePath = join(backupRoot(output), "unsupported-calls.json");
+  if (!existsSync(archivePath)) return [];
+  const data = JSON.parse(readFileSync(archivePath, "utf8"));
+  return Array.isArray(data) ? data : [];
+}
+
+test("sync apply rewrites exec_command in codex agent body to Bash on claude side", () => {
+  // exec-command-call terminology rule: codex `exec_command` -> claude `Bash`
+  // (auto-rewrite via transformTextForHost). After rewrite, no vocab-mismatch
+  // should remain for that token.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/sample.toml"), {
+    name: "sample",
+    description: "Sample",
+    model: "gpt-5.4",
+    developer_instructions: "Use exec_command to run shell commands."
+  });
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+  const claudeBody = readFileSync(join(fixture.project, ".claude/agents/sample.md"), "utf8");
+
+  assert.match(claudeBody, /\bBash\b/);
+  assert.doesNotMatch(claudeBody, /\bexec_command\b/);
+});
+
+test("sync apply paraphrases wait_agent on claude side via tool-paraphrase rule", () => {
+  // wait_agent is codex_only with no 1:1 callable on claude. The
+  // tool-paraphrase rule rewrites it to a descriptive phrase so the
+  // resulting claude file is readable rather than referencing a tool
+  // claude cannot invoke.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/sample.toml"), {
+    name: "sample",
+    description: "Sample",
+    model: "gpt-5.4",
+    developer_instructions: "Then wait_agent for completion."
+  });
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  const claudeAgent = readFileSync(join(fixture.project, ".claude/agents/sample.md"), "utf8");
+  assert.match(claudeAgent, /wait for the spawned agent/);
+  assert.doesNotMatch(claudeAgent, /\bwait_agent\b/);
+});
+
+test("sync apply records vocab-mismatch when claude agent body uses Read", () => {
+  // Read is claude_only — when copied claude->codex (default direction), it
+  // is flagged as vocab-mismatch on the codex side.
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "Sample", model: "opus" },
+    "Use Read tool to inspect files."
+  );
+  mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
+
+  const output = runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]
+  );
+  const archive = readUnsupportedCallsArchive(output);
+
+  const finding = archive.find(
+    (entry) => entry.action === "vocab-mismatch"
+      && entry.call === "Read"
+      && entry.direction === "claude->codex"
+  );
+  assert.ok(finding, `expected vocab-mismatch entry for Read, got: ${JSON.stringify(archive)}`);
+});
+
+test("sync apply strips codex-only tokens from preserved claude agent.tools field", () => {
+  // sanitizeAgentToolsField removes tokens that only exist on the wrong host
+  // namespace (codex) when preserving the claude tools frontmatter during a
+  // codex->claude overwrite. Removed tokens are recorded as
+  // vocab-mismatch-sanitized in the archive.
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    {
+      name: "sample",
+      description: "Sample",
+      model: "opus",
+      tools: "Agent, Bash, wait_agent, apply_patch"
+    },
+    "Older claude body"
+  );
+  writeCodexAgent(join(fixture.project, ".codex/agents/sample.toml"), {
+    name: "sample",
+    description: "Sample",
+    model: "gpt-5.4",
+    developer_instructions: "Codex side body"
+  });
+
+  const output = runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+  const claudeFile = readFileSync(join(fixture.project, ".claude/agents/sample.md"), "utf8");
+
+  assert.match(claudeFile, /^tools: Agent,Bash$/m);
+  assert.doesNotMatch(claudeFile, /wait_agent/);
+  assert.doesNotMatch(claudeFile, /apply_patch/);
+
+  const archive = readUnsupportedCallsArchive(output);
+  const finding = archive.find(
+    (entry) => entry.action === "vocab-mismatch-sanitized" && entry.call === "agent.tools"
+  );
+  assert.ok(finding, `expected vocab-mismatch-sanitized entry, got: ${JSON.stringify(archive)}`);
+  assert.deepEqual(
+    [...finding.fields.removed].sort(),
+    ["apply_patch", "wait_agent"]
+  );
+});
+
+test("sync apply paraphrases wait_agent inside a skill body via tool-paraphrase rule", () => {
+  // Skill body goes through copyFileWithMappings on codex->claude, which
+  // applies term mappings including the tool-paraphrase layer. wait_agent
+  // (codex_only) becomes its claude prose form so the resulting claude
+  // SKILL.md no longer references an uncallable tool.
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".agents/skills/foo"),
+    "codex",
+    [
+      "# Foo",
+      "Use wait_agent to coordinate.",
+      ""
+    ].join("\n")
+  );
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "skills:foo", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  const claudeManifest = readFileSync(join(fixture.project, ".claude/skills/foo/SKILL.md"), "utf8");
+  assert.match(claudeManifest, /wait for the spawned agent/);
+  assert.doesNotMatch(claudeManifest, /\bwait_agent\b/);
+});
+
+test("status surfaces vocab-mismatch when claude agent body uses spawn_agent", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude/agents"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex/agents"), { recursive: true });
+  writeClaudeAgent(
+    join(fixture.home, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo agent", model: "opus" },
+    "spawn_agent를 호출한다.\n"
+  );
+  writeCodexAgent(join(fixture.home, ".codex/agents/sample.toml"), {
+    name: "sample",
+    description: "demo agent",
+    model: "gpt-5.5",
+    developer_instructions: "spawn_agent를 호출한다.\n"
+  });
+
+  const output = runCli(fixture, ["status", "--scope", "global"]);
+  assert.match(output, /Vocab mismatches \(\d+ total/);
+  // spawn_agent has a claude term-mapping equivalent ("Task tool"), so it lands in
+  // the auto-suggest bucket which renders as a before/after diff pair.
+  assert.match(output, /Claude agents\/sample L\d+ @/);
+  assert.match(output, /-\s+spawn_agent/);
+  assert.match(output, /\+\s+Task tool/);
+
+  const detailPath = statusDetailPath(output);
+  const detail = readFileSync(detailPath, "utf8");
+  assert.match(detail, /^vocab:$/m);
+  assert.match(detail, /-\s+spawn_agent/);
+  assert.match(detail, /\+\s+Task tool/);
+});
+
+test("sync dry-run skill change preview normalizes YAML frontmatter quotes", () => {
+  // Conflicting skill manifests where the claude (source) side has an
+  // unquoted YAML scalar containing a colon. skillChangePreview should
+  // run the source through normalizeYamlFrontmatter so the After-apply
+  // line surfaces the value as a JSON-quoted string rather than the raw
+  // ambiguous form.
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/quote-demo"),
+    "claude",
+    [
+      "---",
+      "name: quote-demo",
+      "description: 어쩌고: 콜론 포함",
+      "---",
+      "",
+      "Claude body line.",
+      ""
+    ].join("\n")
+  );
+  writeSkillManifest(
+    join(fixture.project, ".agents/skills/quote-demo"),
+    "codex",
+    [
+      "---",
+      "name: quote-demo",
+      'description: "기존 codex 설명"',
+      "---",
+      "",
+      "Codex body line.",
+      ""
+    ].join("\n")
+  );
+
+  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:quote-demo", "--dry-run"]);
+  assert.match(output, /Change preview:/);
+  assert.match(output, /\+ After apply from Claude L\d+: description: "어쩌고: 콜론 포함"/);
+});
+
+test("sync apply auto-fixes wait_agent in claude source agent file", () => {
+  // wait_agent is codex_only with a tool-paraphrase rule. The auto-fix pass
+  // should rewrite the source claude .md (where the wrong-host token lives)
+  // in place after the main sync runs, replacing wait_agent with its claude
+  // paraphrase. The codex side also gets an applied operation since the
+  // agents area has a diff.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo", model: "opus" },
+    "Then wait_agent for completion.\n"
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]);
+
+  const claudeAfter = readFileSync(join(fixture.project, ".claude/agents/sample.md"), "utf8");
+  assert.match(claudeAfter, /wait for the spawned agent/);
+  assert.doesNotMatch(claudeAfter, /\bwait_agent\b/);
+});
+
+test("sync apply auto-fixes Grep tool reference in codex source agent file", () => {
+  // Grep is claude_only with a tool-paraphrase rule. Codex source containing
+  // 'Grep' should be rewritten to the codex paraphrase 'search file contents
+  // via grep' so codex actually understands the intent (codex has no Grep).
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/sample.toml"), {
+    name: "sample",
+    description: "demo",
+    model: "gpt-5.4",
+    developer_instructions: "Use Grep to scan files."
+  });
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  const codexAfter = readFileSync(join(fixture.project, ".codex/agents/sample.toml"), "utf8");
+  assert.match(codexAfter, /search file contents via grep/);
+  assert.doesNotMatch(codexAfter, /\bGrep\b/);
+});
+
+test("sync apply auto-fix backs up source file before rewriting", () => {
+  // The rewrite path goes through backupPath(plan, source) so the original
+  // wait_agent line is preserved under backupRoot before the in-place edit.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
+  const claudePath = join(fixture.project, ".claude/agents/sample.md");
+  writeClaudeAgent(
+    claudePath,
+    { name: "sample", description: "demo", model: "opus" },
+    "Then wait_agent for completion.\n"
+  );
+
+  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]);
+  const backupRootDir = backupRoot(output);
+
+  const backupCandidates = collectBackupFiles(backupRootDir).filter((p) => p.endsWith("sample.md"));
+  assert.ok(backupCandidates.length > 0, `expected backup of sample.md, got: ${JSON.stringify(collectBackupFiles(backupRootDir))}`);
+
+  const backedUp = readFileSync(backupCandidates[0], "utf8");
+  assert.match(backedUp, /\bwait_agent\b/);
+});
+
+test("sync apply leaves manual review tokens (Read/Write/Edit) untouched in source", () => {
+  // Read/Write/Edit are claude_only but intentionally NOT in the
+  // tool-paraphrase layer (false-positive risk in prose). They surface as
+  // "Manual review" in status and stay raw after --apply.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  const codexPath = join(fixture.project, ".codex/agents/sample.toml");
+  writeCodexAgent(codexPath, {
+    name: "sample",
+    description: "demo",
+    model: "gpt-5.4",
+    developer_instructions: "Use Read tool to inspect files."
+  });
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  const codexAfter = readFileSync(codexPath, "utf8");
+  assert.match(codexAfter, /\bRead\b/);
+});
+
+function collectBackupFiles(rootDir) {
+  if (!existsSync(rootDir)) return [];
+  const out = [];
+  const stack = [rootDir];
+  while (stack.length) {
+    const current = stack.pop();
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const full = join(current, entry.name);
+      if (entry.isDirectory()) stack.push(full);
+      else out.push(full);
+    }
+  }
+  return out;
+}

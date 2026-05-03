@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Host-native tokens. Found in the wrong host's text, they are flagged as vocab-mismatch warnings. Tokens with cross-host equivalents (e.g. spawn_agent ↔ Agent tool) are still listed here because raw token forms must not appear in the wrong host's files even when mapping rules can translate them during sync.",
+  "claude_only": [
+    "Read", "Write", "Edit", "Glob", "Grep",
+    "WebFetch", "WebSearch", "NotebookEdit",
+    "ToolSearch", "Skill",
+    "EnterPlanMode", "ExitPlanMode",
+    "EnterWorktree", "ExitWorktree",
+    "ScheduleWakeup", "Monitor", "PushNotification",
+    "CronCreate", "CronDelete", "CronList",
+    "AskUserQuestion", "RemoteTrigger",
+    "SendMessage",
+    "TaskCreate", "TaskUpdate", "TaskGet", "TaskList", "TaskOutput", "TaskStop",
+    "TeamCreate", "TeamDelete"
+  ],
+  "codex_only": [
+    "wait_agent", "apply_patch",
+    "spawn_agent", "send_input", "exec_command"
+  ],
+  "claude_only_patterns": ["^mcp__"]
+}
