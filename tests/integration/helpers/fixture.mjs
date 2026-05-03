@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,6 +42,20 @@ export function layExpectedClaude(expectedHome, areaSpecs) {
     cpSync(src, expectedHome, { recursive: true });
   }
   return expectedHome;
+}
+
+export function mergeCodexConfigToml(home, areaSpecs) {
+  const parts = [];
+  for (const { area, variant } of areaSpecs) {
+    const src = join(fixturesRoot, area, variant, "codex-home", ".codex", "config.toml");
+    if (!existsSync(src)) {
+      throw new Error(`config.toml missing for fixture: ${area}/${variant}`);
+    }
+    parts.push(readFileSync(src, "utf8").trimEnd());
+  }
+  const codexDir = join(home, ".codex");
+  mkdirSync(codexDir, { recursive: true });
+  writeFileSync(join(codexDir, "config.toml"), parts.join("\n\n") + "\n");
 }
 
 export function cleanupFixture(fixture) {

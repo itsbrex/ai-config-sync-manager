@@ -38,3 +38,9 @@ variant 매트릭스(현행):
 - `hooks`: manual-pre-tool-use
 
 후속(미커버): 양방향(claude→codex), `commands` area, deletion 시나리오.
+
+## Fixture 작성 제약
+
+- **Frontmatter (SKILL.md / agents)**: `key: value` 단일 라인만. multi-line literal(`|`) / folded scalar(`>`) / nested object 미지원 (`helpers/readers.mjs` 의 `parseFrontmatter` 가 단순 파서).
+- **Symlink**: `cpSync({ verbatimSymlinks: true })` 로 relative target 보존 — fixture 도 relative 로 작성. raw `readlinkSync()` 비교만 수행, canonicalize 안 함.
+- **Secret-like 값**: `secret-env` 류 fixture 에는 `secret-token-value` 같은 합성 placeholder 만 사용. `KEEP_FIXTURE=1` 디버그 시 `/tmp/...` 가 보존되므로 실 토큰을 fixture 에 넣으면 leak 위험.

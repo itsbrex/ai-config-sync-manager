@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import test from "node:test";
 
 import {
   cleanupFixture,
   createIntegrationFixture,
-  layCodexHome
+  layCodexHome,
+  mergeCodexConfigToml
 } from "../helpers/fixture.mjs";
 import { runSync } from "../helpers/run-cli.mjs";
 import {
@@ -17,21 +18,6 @@ import {
   scanClaudeSkills
 } from "../helpers/readers.mjs";
 import { assertSourceUnchanged, snapshotTree } from "../helpers/snapshot.mjs";
-
-const COMBINED_CONFIG_TOML = `sandbox_mode = "workspace-write"
-web_search = "live"
-
-[mcp_servers.notion]
-command = "npx"
-args = ["-y", "@notionhq/notion-mcp-server"]
-
-[[hooks.PreToolUse]]
-matcher = "Bash"
-
-[[hooks.PreToolUse.hooks]]
-type = "command"
-command = "echo Pre"
-`;
 
 function withFixture(scenario, body) {
   const fixture = createIntegrationFixture({ scenario });
@@ -52,17 +38,16 @@ function withFixture(scenario, body) {
 }
 
 function layAllHappy(home) {
-  // instructions/skills/agents are independent files; safe to lay via cpSync.
   layCodexHome(home, [
     { area: "instructions", variant: "happy" },
     { area: "skills", variant: "happy" },
     { area: "agents", variant: "happy" }
   ]);
-  // mcp/permissions/hooks all live in .codex/config.toml — write a single merged file
-  // to avoid the second cpSync overwriting earlier content.
-  const codexDir = join(home, ".codex");
-  mkdirSync(codexDir, { recursive: true });
-  writeFileSync(join(codexDir, "config.toml"), COMBINED_CONFIG_TOML);
+  mergeCodexConfigToml(home, [
+    { area: "mcp", variant: "happy" },
+    { area: "permissions", variant: "manual-allow" },
+    { area: "hooks", variant: "manual-pre-tool-use" }
+  ]);
 }
 
 function applyAll(fixture, env = {}) {

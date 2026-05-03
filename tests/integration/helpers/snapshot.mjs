@@ -8,8 +8,16 @@ function toPosix(p) {
 }
 
 function shouldIgnore(relPath, ignore) {
-  for (const prefix of ignore) {
-    if (relPath === prefix || relPath.startsWith(prefix)) return true;
+  for (const entry of ignore) {
+    if (entry.endsWith("/")) {
+      const dir = entry.slice(0, -1);
+      if (relPath === dir || relPath.startsWith(entry)) return true;
+    } else {
+      if (relPath === entry) return true;
+      const idx = relPath.lastIndexOf("/");
+      const base = idx === -1 ? relPath : relPath.slice(idx + 1);
+      if (base === entry) return true;
+    }
   }
   return false;
 }
@@ -72,7 +80,7 @@ function entriesEqual(a, b) {
   if (!a || !b) return false;
   if (a.isSymlink !== b.isSymlink) return false;
   if (a.isSymlink) return a.linkTarget === b.linkTarget;
-  return a.sha256 === b.sha256 && a.size === b.size;
+  return a.sha256 === b.sha256 && a.size === b.size && a.mode === b.mode;
 }
 
 export function diffTrees(actualMap, expectedMap, { ignore = [] } = {}) {
