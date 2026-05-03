@@ -16,7 +16,8 @@
   ],
   "codex_only": [
     "wait_agent", "apply_patch",
-    "spawn_agent", "send_input", "exec_command"
+    "spawn_agent", "send_input", "exec_command",
+    "update_plan"
   ],
   "claude_only_patterns": ["^mcp__"]
 }
