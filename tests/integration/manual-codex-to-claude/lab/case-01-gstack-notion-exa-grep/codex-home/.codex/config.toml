@@ -1,0 +1,15 @@
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+[mcp_servers.notion]
+command = "npx"
+args = ["-y", "@notionhq/notion-mcp-server"]
+
+[mcp_servers.exa]
+url = "https://mcp.exa.ai/mcp"
+
+[mcp_servers.notion.tools.search]
+approval_mode = "approve"
+
+[mcp_servers.exa.tools.web_search_exa]
+approval_mode = "prompt"

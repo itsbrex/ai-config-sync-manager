@@ -48,3 +48,9 @@ tmp/
 !tests/integration/fixtures/**/.claude/
 !tests/integration/fixtures/**/.codex/
 !tests/integration/fixtures/**/.agents/
+!tests/integration/manual-codex-to-claude/**/.claude/
+!tests/integration/manual-codex-to-claude/**/.claude/**
+!tests/integration/manual-codex-to-claude/**/.codex/
+!tests/integration/manual-codex-to-claude/**/.codex/**
+!tests/integration/manual-codex-to-claude/**/.agents/
+!tests/integration/manual-codex-to-claude/**/.agents/**

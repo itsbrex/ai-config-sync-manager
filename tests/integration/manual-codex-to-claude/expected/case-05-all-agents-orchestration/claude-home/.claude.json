@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "all-agents-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "all-agents-mcp"
+      ],
+      "env": {
+        "AA_MCP_LOG_LEVEL": "warn",
+        "AA_MCP_CODEX_ANALYSIS_LEVEL": "medium"
+      }
+    }
+  }
+}

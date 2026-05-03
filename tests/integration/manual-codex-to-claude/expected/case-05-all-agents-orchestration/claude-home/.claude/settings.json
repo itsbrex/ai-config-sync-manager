@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__all_agents_mcp__ask_agent"
+    ],
+    "ask": [
+      "Bash(claude -p:*)",
+      "Bash(codex exec:*)",
+      "mcp__all_agents_mcp__delegate_task"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ]
+  }
+}

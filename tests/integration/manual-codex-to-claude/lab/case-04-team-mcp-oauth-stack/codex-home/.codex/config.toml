@@ -1,0 +1,20 @@
+[mcp_servers.github]
+url = "https://mcp.github.com"
+
+[mcp_servers.linear]
+url = "https://mcp.linear.app"
+
+[mcp_servers.sentry]
+url = "https://mcp.sentry.io"
+env = { SENTRY_AUTH_TOKEN = "${SENTRY_AUTH_TOKEN}" }
+
+[mcp_servers.postgres]
+command = "docker"
+args = ["run", "-i", "--rm", "mcp/postgres"]
+env = { POSTGRES_CONNECTION_STRING = "${POSTGRES_CONNECTION_STRING}" }
+
+[mcp_servers.github.tools.create_pull_request]
+approval_mode = "approve"
+
+[mcp_servers.postgres.tools.execute_query]
+approval_mode = "prompt"
