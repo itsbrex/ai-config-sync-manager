@@ -43,3 +43,8 @@ tmp/
 # Agent
 .claude/
 .codex/
+
+# Test fixtures simulate $HOME — keep their dotdirs tracked
+!tests/integration/fixtures/**/.claude/
+!tests/integration/fixtures/**/.codex/
+!tests/integration/fixtures/**/.agents/
