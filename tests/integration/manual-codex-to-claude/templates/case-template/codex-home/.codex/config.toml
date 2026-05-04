@@ -1,9 +1,0 @@
-sandbox_mode = "workspace-write"
-web_search = "live"
-
-[mcp_servers.example]
-command = "npx"
-args = ["-y", "example-mcp-server"]
-
-[mcp_servers.example.tools.search]
-approval_mode = "prompt"

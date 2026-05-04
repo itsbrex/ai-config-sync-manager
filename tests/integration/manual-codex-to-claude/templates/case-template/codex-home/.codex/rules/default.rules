@@ -1,1 +1,0 @@
-prefix_rule(pattern=["npm","test"], decision="prompt", justification="Template prompt rule.")

@@ -1,2 +1,0 @@
-prefix_rule(pattern=["gcloud","logging","read"], decision="allow", justification="Allow read-only log inspection.")
-prefix_rule(pattern=["kubectl","delete"], decision="forbidden", justification="Block cluster mutation in diagnostics.")
