@@ -583,6 +583,224 @@ test("status reports same-name skill content drift as a manual conflict", () => 
   assert.match(readFileSync(statusDetailPath(output), "utf8"), /\+ After apply from Claude L2: model: gpt-5\.5/);
 });
 
+test("status treats skill as equivalent when transform and override jointly equalize content", () => {
+  // Verifies skillDirsEquivalent's transform+override combined-path: SKILL.md
+  // diverges in BOTH a model token (opus <-> gpt-5.5, closed by terminology
+  // transform) AND a free-prose line (closed only by an active paraphrase
+  // override). Neither path alone makes them equal, but applied together they
+  // must — otherwise the skill surfaces as a manual conflict.
+  const fixture = createFixture();
+  // realpath because macOS tmpdir resolves /var -> /private/var; the CLI uses
+  // the canonical form internally so override path matching needs the same.
+  const projectReal = realpathSync(fixture.project);
+  const claudeSkill = join(projectReal, ".claude/skills/jointly");
+  const codexSkill = join(projectReal, ".agents/skills/jointly");
+  mkdirSync(claudeSkill, { recursive: true });
+  mkdirSync(codexSkill, { recursive: true });
+
+  // opus4.7(latest) <-> gpt-5.5 is a baked-in terminology mapping (agents-map.json
+  // models.tiers, latest-frontier-model). Used here to force one-directional
+  // transform equivalence for the model-token line.
+  const claudeBody = "# Jointly\nUse opus4.7(latest) for hard reasoning.\nRead the docs.\n";
+  const codexBody = "# Jointly\nUse gpt-5.5 for hard reasoning.\nInspect the docs.\n";
+  writeFileSync(join(claudeSkill, "SKILL.md"), claudeBody);
+  writeFileSync(join(codexSkill, "SKILL.md"), codexBody);
+
+  // Register a paraphrase override masking the prose-only diff (Read <-> Inspect)
+  // on line 3 of each manifest. Line 1 = "# Jointly", line 2 = model-token line
+  // (handled by terminology-map transform), line 3 = the override target.
+  writeJson(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json"), {
+    version: 1,
+    overrides: [
+      {
+        id: "jointly-line3",
+        area: "skills",
+        claude_path: join(claudeSkill, "SKILL.md"),
+        codex_path: join(codexSkill, "SKILL.md"),
+        claude_line: 3,
+        codex_line: 3,
+        claude_text: "Read the docs.",
+        codex_text: "Inspect the docs."
+      }
+    ]
+  });
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:jointly", "--json"]));
+  assert.equal(report.entries.length, 0);
+  assert.equal(report.paraphraseOverrides.active.length, 1);
+  assert.equal(report.paraphraseOverrides.stale.length, 0);
+});
+
+test("status preview shows diff in references/* file when manifest is masked", () => {
+  // Verifies skillDirChangePreview iterates beyond SKILL.md so a real diff in
+  // references/foo.md becomes visible even when the manifest is fully masked
+  // by an active paraphrase override (which would otherwise leave only the
+  // legacy "No line-level preview available." fallback).
+  const fixture = createFixture();
+  const projectReal = realpathSync(fixture.project);
+  const claudeSkill = join(projectReal, ".claude/skills/multi");
+  const codexSkill = join(projectReal, ".agents/skills/multi");
+  mkdirSync(join(claudeSkill, "references"), { recursive: true });
+  mkdirSync(join(codexSkill, "references"), { recursive: true });
+
+  const claudeManifest = "# Multi\nRead the spec.\n";
+  const codexManifest = "# Multi\nInspect the spec.\n";
+  writeFileSync(join(claudeSkill, "SKILL.md"), claudeManifest);
+  writeFileSync(join(codexSkill, "SKILL.md"), codexManifest);
+  writeFileSync(join(claudeSkill, "references/foo.md"), "alpha line\nshared tail\n");
+  writeFileSync(join(codexSkill, "references/foo.md"), "omega line\nshared tail\n");
+
+  // Mask the manifest divergence so the only remaining diff is in references/foo.md.
+  writeJson(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json"), {
+    version: 1,
+    overrides: [
+      {
+        id: "multi-manifest",
+        area: "skills",
+        claude_path: join(claudeSkill, "SKILL.md"),
+        codex_path: join(codexSkill, "SKILL.md"),
+        claude_line: 2,
+        codex_line: 2,
+        claude_text: "Read the spec.",
+        codex_text: "Inspect the spec."
+      }
+    ]
+  });
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:multi"]);
+  assert.match(output, /references\/foo\.md:/);
+  assert.match(output, /- Codex current L1: omega line/);
+  assert.match(output, /\+ After apply from Claude L1: alpha line/);
+  assert.doesNotMatch(output, /No line-level preview available\./);
+});
+
+test("status preview masks skill overrides before host transform", () => {
+  const fixture = createFixture();
+  const projectReal = realpathSync(fixture.project);
+  const claudeSkill = join(projectReal, ".claude/skills/transform-mask");
+  const codexSkill = join(projectReal, ".agents/skills/transform-mask");
+  mkdirSync(join(claudeSkill, "references"), { recursive: true });
+  mkdirSync(join(codexSkill, "references"), { recursive: true });
+
+  writeFileSync(join(claudeSkill, "skill.md"), "# Transform Mask\nUse Bash and Read.\nAgent path: `~/.claude/agents/team/{name}.md`\n");
+  writeFileSync(join(codexSkill, "SKILL.md"), "# Transform Mask\nUse exec_command and Inspect.\nAgent path: `~/.codex/agents/{name}.toml`\n");
+  writeFileSync(join(claudeSkill, "references/foo.md"), "alpha line\n");
+  writeFileSync(join(codexSkill, "references/foo.md"), "omega line\n");
+
+  writeJson(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json"), {
+    version: 1,
+    overrides: [
+      {
+        id: "skill-transform-mask",
+        area: "skills",
+        claude_path: join(claudeSkill, "skill.md"),
+        codex_path: join(codexSkill, "SKILL.md"),
+        claude_line: 2,
+        codex_line: 2,
+        claude_text: "Use Bash and Read.",
+        codex_text: "Use exec_command and Inspect."
+      }
+    ]
+  });
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:transform-mask"]);
+  const detail = readFileSync(statusDetailPath(output), "utf8");
+
+  assert.match(detail, /references\/foo\.md:/);
+  assert.match(detail, /- Codex current L1: omega line/);
+  assert.match(detail, /\+ After apply from Claude L1: alpha line/);
+  assert.doesNotMatch(detail, /skill-transform-mask|Use Bash and Read|Use exec_command and Inspect|Use exec_command and Read|agents\/team\/\{name\}\.md|agents\/\{name\}\.toml/);
+
+  const syncOutput = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:transform-mask", "--dry-run"]);
+  assert.doesNotMatch(syncOutput, /skill-transform-mask|Use Bash and Read|Use exec_command and Inspect|Use exec_command and Read|agents\/team\/\{name\}\.md|agents\/\{name\}\.toml/);
+});
+
+test("status treats grouped and flat agent path references as equivalent inside skills", () => {
+  const fixture = createFixture();
+  const projectReal = realpathSync(fixture.project);
+  const claudeSkill = join(projectReal, ".claude/skills/path-equivalent");
+  const codexSkill = join(projectReal, ".agents/skills/path-equivalent");
+  mkdirSync(join(claudeSkill, "references"), { recursive: true });
+  mkdirSync(join(codexSkill, "references"), { recursive: true });
+
+  writeFileSync(
+    join(claudeSkill, "skill.md"),
+    [
+      "---",
+      "name: path-equivalent",
+      "description: agent path: grouped",
+      "---",
+      "Agent path: `~/.claude/agents/insight-pipeline/{name}.md`",
+      "Use Bash, Read, Write.",
+      "Agent(",
+      ")",
+      ""
+    ].join("\n")
+  );
+  writeFileSync(
+    join(codexSkill, "SKILL.md"),
+    [
+      "---",
+      "name: path-equivalent",
+      'description: "agent path: grouped"',
+      "---",
+      "Agent path: `~/.codex/agents/{name}.toml`",
+      "Use exec_command, Inspect, Emit.",
+      '<!-- ai-config-sync:manual-review reason="cannot parse Agent arguments: argument is not a single object literal" -->Agent(',
+      ")",
+      ""
+    ].join("\n")
+  );
+  writeFileSync(join(claudeSkill, "references/foo.md"), "Cache: `~/.claude/agent-memory/notion/`\n");
+  writeFileSync(join(codexSkill, "references/foo.md"), "Cache: `~/.codex/agent-memory/notion/`\n");
+
+  writeJson(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json"), {
+    version: 1,
+    overrides: [
+      {
+        id: "path-equivalent-tools",
+        area: "skills",
+        claude_path: join(claudeSkill, "skill.md"),
+        codex_path: join(codexSkill, "SKILL.md"),
+        claude_line: 6,
+        codex_line: 6,
+        claude_text: "Use Bash, Read, Write.",
+        codex_text: "Use exec_command, Inspect, Emit."
+      }
+    ]
+  });
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:path-equivalent", "--json"]));
+  assert.equal(report.entries.length, 0);
+});
+
+test("contentChangePreview centers window on diff position when line tail differs", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/long-tail"), { recursive: true });
+  mkdirSync(join(fixture.project, ".agents/skills/long-tail"), { recursive: true });
+
+  // Build a long shared prefix so the actual divergence sits well past the
+  // legacy 140-char head-truncation window. Without diff-aware truncation the
+  // diff bytes ("ALPHA" vs "OMEGA") would be sliced off and the preview would
+  // render two visually identical lines.
+  const sharedPrefix = `# Long Tail\nshared start line\n${"shared body word ".repeat(20)}`;
+  const claudeBody = `${sharedPrefix}TAIL_DIFF_MARKER_ALPHA trailing words after diff position\n`;
+  const codexBody = `${sharedPrefix}TAIL_DIFF_MARKER_OMEGA trailing words after diff position\n`;
+  writeFileSync(join(fixture.project, ".claude/skills/long-tail/SKILL.md"), claudeBody);
+  writeFileSync(join(fixture.project, ".agents/skills/long-tail/SKILL.md"), codexBody);
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:long-tail"]);
+
+  // Both diff markers must appear in the preview — proving the window is
+  // centered around the first divergence rather than truncated from the head.
+  assert.match(output, /TAIL_DIFF_MARKER_ALPHA/);
+  assert.match(output, /TAIL_DIFF_MARKER_OMEGA/);
+  // Truncation should be marked with leading ellipsis since the diff sits past
+  // the maxWidth threshold.
+  assert.match(output, /- Codex current L\d+: \.\.\./);
+  assert.match(output, /\+ After apply from Claude L\d+: \.\.\./);
+});
+
 test("status keeps missing skills as safe copy candidates", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
@@ -1684,6 +1902,83 @@ test("sync apply keeps unsupported hooks as managed metadata", () => {
   assert.doesNotMatch(config, /\[\[hooks\.Notification\]\]/);
 });
 
+test("sync apply with hook subset preserves previously synced hooks", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    hooks: {
+      Notification: [
+        { hooks: [{ type: "command", command: "echo notify" }] }
+      ],
+      PreToolUse: [
+        { matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }
+      ],
+      Stop: [
+        { hooks: [{ type: "command", command: "echo stop" }] }
+      ]
+    }
+  });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "hooks:Notification,hooks:PreToolUse,hooks:Stop",
+    "--apply"
+  ]);
+
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    hooks: {
+      Notification: [
+        { hooks: [{ type: "command", command: "echo notify" }] }
+      ],
+      PreToolUse: [
+        { matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }
+      ],
+      Stop: [
+        { hooks: [{ type: "command", command: "echo stop" }] }
+      ],
+      UserPromptSubmit: [
+        { hooks: [{ type: "command", command: "echo ups" }] }
+      ]
+    }
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "hooks:UserPromptSubmit",
+    "--apply"
+  ]);
+  const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /\[features\]/);
+  assert.match(config, /codex_hooks = true/);
+  assert.match(config, /\[\[hooks\.Notification\]\]/);
+  assert.match(config, /\[\[hooks\.PreToolUse\]\]/);
+  assert.match(config, /\[\[hooks\.Stop\]\]/);
+  assert.match(config, /\[\[hooks\.UserPromptSubmit\]\]/);
+  assert.match(config, /command = "echo notify"/);
+  assert.match(config, /command = "echo pre"/);
+  assert.match(config, /command = "echo stop"/);
+  assert.match(config, /command = "echo ups"/);
+
+  const beginIndex = config.indexOf("# BEGIN ai-config-sync native-hooks");
+  const endIndex = config.indexOf("# END ai-config-sync native-hooks");
+  assert.ok(beginIndex !== -1, "managed native-hooks block should be present");
+  assert.ok(endIndex > beginIndex, "managed native-hooks block should close after begin marker");
+  const managedBlock = config.slice(beginIndex, endIndex);
+  assert.match(managedBlock, /\[\[hooks\.Notification\]\]/);
+  assert.match(managedBlock, /\[\[hooks\.PreToolUse\]\]/);
+  assert.match(managedBlock, /\[\[hooks\.Stop\]\]/);
+  assert.match(managedBlock, /\[\[hooks\.UserPromptSubmit\]\]/);
+});
+
 test("sync apply converts Codex native hooks back to Claude settings", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
@@ -2386,6 +2681,39 @@ test("sync apply leaves unparseable Agent call intact and emits a manual-review 
 
   assert.match(codexBody, /Agent\(\{/);
   assert.match(codexBody, /<!-- ai-config-sync:manual-review [^>]*-->Agent\(\{/);
+});
+
+test("sync apply strips manual-review marker when copying Codex skill back to Claude", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".agents/skills/preview"),
+    "codex",
+    [
+      "# Preview",
+      '<!-- ai-config-sync:manual-review reason="cannot parse Agent arguments: argument is not a single object literal" -->Agent(',
+      '  subagent_type: "insight-analyzer",',
+      '  prompt: "Run it"',
+      ")",
+      ""
+    ].join("\n")
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--scope",
+    "project",
+    "--include",
+    "skills:preview",
+    "--apply"
+  ]);
+  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/skill.md"), "utf8");
+
+  assert.match(claudeBody, /^Agent\($/m);
+  assert.doesNotMatch(claudeBody, /ai-config-sync:manual-review/);
 });
 
 test("sync apply does not transform identifier-suffixed call names like MyAgent", () => {

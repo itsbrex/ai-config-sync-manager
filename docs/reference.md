@@ -43,6 +43,19 @@ Print this markdown reference document.
 - `--output <path>` — Write the reference markdown to `<path>` (parent directories are created)
 - `-h, --help` — Show reference help
 
+### `paraphrase`
+
+Recover bidirectional manual-review vocab mismatches by rewriting host-native tokens into shared paraphrases. Records each rewrite as a paraphrase override so future status/sync runs treat both sides as in sync. Stale overrides whose anchor lines no longer match are auto-invalidated.
+
+- `--apply` — Persist rewrites, paraphrase map entries, and override archive (default is dry-run)
+- `--json` — Emit the full paraphrase report as JSON
+- `--non-interactive` — Skip the TTY prompt for unmapped tokens (still emits them under `pendingTokens`)
+- `--map "token=paraphrase[,...]"` — Provide one or more inline token→paraphrase mappings (CLI overrides paraphrase-map.json)
+- `--scope global|project|all` — Limit paraphrase scope
+- `--include area[:item][,...]` — Include only selected areas or items
+- `--exclude area[:item][,...]` — Exclude selected areas or items
+- `-h, --help` — Show paraphrase help
+
 ## Areas
 
 Areas are the canonical buckets diffed and synced between hosts.
@@ -94,8 +107,6 @@ Plan operations carry an `action` field that `applySyncPlan` dispatches on.
 
 Terminology rules live in `rules/terminology-map.json` (override at `~/.ai-config-sync-manager/rules/terminology-map.json` or `<project>/rules/terminology-map.json`). Each layer groups rules that rewrite host-specific vocabulary when transforming text between Claude and Codex.
 
-See [docs/customizing-rules.md](customizing-rules.md) for override precedence, merge semantics, and per-file recipes.
-
 ### `files`
 
 Host-specific config and instruction file names.
@@ -104,9 +115,11 @@ Host-specific config and instruction file names.
 - `instruction-file`
 - `global-settings-file`
 - `mcp-config-file`
+- `agent-file-path-grouped` — regex rule
 - `agent-file-path` — regex rule
 - `skill-file-path` — regex rule
 - `skill-manifest-filename` — regex rule
+- `claude-codex-prefix` — regex rule
 
 ### `host-surfaces`
 
@@ -124,6 +137,34 @@ Generic agent delegation and reasoning vocabulary. Workflow-specific intents liv
 - `subagent-term`
 - `task-delegation`
 - `agent-team`
+- `team-create-call` — regex rule
+- `task-create-call` — regex rule
+- `send-message-call` — regex rule
+- `exec-command-call` — regex rule
+
+### `tool-paraphrase`
+
+Paraphrase mappings for host-native tools that have no 1:1 cross-host equivalent. Each rule fires one-way (the host-native side carries the empty pattern). Risky common-word tokens (Read, Write, Edit, Glob, Grep, Skill, Monitor) are intentionally NOT included here because a bare-token regex would mis-fire on prose; they remain in host-strict-vocab manual-review until a stricter context anchor exists.
+
+- `wait-agent-paraphrase` — regex rule
+- `apply-patch-paraphrase` — regex rule
+- `webfetch-paraphrase` — regex rule
+- `websearch-paraphrase` — regex rule
+- `notebookedit-paraphrase` — regex rule
+- `toolsearch-paraphrase` — regex rule
+- `enterplanmode-paraphrase` — regex rule
+- `exitplanmode-paraphrase` — regex rule
+- `enterworktree-paraphrase` — regex rule
+- `exitworktree-paraphrase` — regex rule
+- `schedulewakeup-paraphrase` — regex rule
+- `pushnotification-paraphrase` — regex rule
+- `croncreate-paraphrase` — regex rule
+- `crondelete-paraphrase` — regex rule
+- `cronlist-paraphrase` — regex rule
+- `askuserquestion-paraphrase` — regex rule
+- `remotetrigger-paraphrase` — regex rule
+- `grep-paraphrase` — regex rule
+- `glob-paraphrase` — regex rule
 
 ### `permissions`
 
@@ -133,6 +174,12 @@ Permission and sandbox vocabulary used in text instructions.
 - `bash-permission-term`
 - `workspace-write-term`
 - `approval-policy-term`
+
+### `commands`
+
+Host CLI invocation vocabulary used in text instructions (headless / non-interactive forms).
+
+- `headless-cli`
 
 ### `hooks-mcp`
 
@@ -151,6 +198,27 @@ Model alias rules come from `rules/agents-map.json` `models.tiers` rather than t
 - `balanced-model` — `sonnet` ↔ `gpt-5.4`
 - `small-fast-model` — `haiku` ↔ `gpt-5.4-mini`
 
+## Paraphrase
+
+Paraphrase recovers bidirectional manual-review vocab mismatches that the terminology map cannot translate (host-native tokens listed in `rules/host-strict-vocab.json`). It rewrites both sides to a shared paraphrase and registers an override so subsequent status runs treat the pair as in sync.
+
+### Map and override files
+
+- `rules/paraphrase-map.json` — Token→paraphrase entries grouped under `claude_only` / `codex_only`. Layered with the same precedence as terminology rules: `<project>/rules/paraphrase-map.json` → `~/.ai-config-sync-manager/rules/paraphrase-map.json` → `<repo>/rules/paraphrase-map.json`.
+- `rules/paraphrase-overrides.json` — Override archive of accepted rewrites; each entry pins host paths, line numbers, anchor texts, and the rewriting tokens. Same layered precedence as the map.
+
+### Counterpart matching
+
+For each rewrite the paraphrase command resolves the counterpart line on the other host:
+
+1. Read the counterpart file at the same line number; accept when text matches `before` exactly.
+2. Otherwise scan the counterpart body for any line whose text equals `before`; pick the candidate closest to the original line number.
+3. If neither step finds a match the rewrite is skipped with `counterpart-line-mismatch` (or `counterpart-file-not-found` when the counterpart file is missing).
+
+### Override staleness
+
+Overrides are auto-invalidated when the pinned anchor text no longer matches the current file content, so manual edits on either host cleanly retire the recorded pairing without leaving stale entries.
+
 ## Hidden markers
 
 HTML comment markers the call compiler emits inside transformed text. They round-trip on a reverse sync and are not user-visible during normal use.
@@ -167,6 +235,12 @@ HTML comment markers the call compiler emits inside transformed text. They round
 
 `status` follows the same default direction so that `+/-/~` symbols and `details` text describe the apply that would run with no override.
 
+## Environment variables
+
+- `AI_CONFIG_SYNC_HOST=codex` — Set default sync direction to `codex -> claude`.
+- `AI_CONFIG_SYNC_HOME=<path>` — Override the home directory used for global config and state (primarily for tests).
+- `AI_CONFIG_SYNC_STRIP_SECRETS=1` — Opt in to defensively stripping MCP env values whose keys look like secrets (`TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `AUTH`). Default behavior copies them because the source already stores the secret in plaintext under the same user's home; enable this if your source config is exposed beyond that trust boundary (e.g. dotfiles committed to git that include `.codex/config.toml`).
+
 ## File locations
 
 ### User-writable
@@ -176,12 +250,17 @@ HTML comment markers the call compiler emits inside transformed text. They round
 - `~/.ai-config-sync-manager/backups/<timestamp>/unsupported-calls.json` — Archive of stripped or manual-review calls (when applicable).
 - `~/.ai-config-sync-manager/status-details/<timestamp>.txt` — Full diff detail when status is collapsed.
 - `~/.ai-config-sync-manager/rules/agents-map.json` — Agent field and model alias rules (user customization point).
-- `~/.ai-config-sync-manager/rules/status-ignore.json` — Persistent ignore rules used by `status` and `sync`.
+- `~/.ai-config-sync-manager/rules/status-ignore.json` — Persistent ignore rules used by `status` and `sync`. Template at `<repo>/docs/status-ignore.example.json`.
+- `~/.ai-config-sync-manager/rules/paraphrase-map.json` — Persistent token→paraphrase entries learned from `paraphrase --apply` (layered: project/home/repo).
+- `~/.ai-config-sync-manager/rules/paraphrase-overrides.json` — Override archive of accepted paraphrase rewrites; each entry pins matched line numbers and texts so status treats both sides as in sync.
 
 ### Bundled defaults (under the runtime root)
 
 - `<repo>/rules/terminology-map.json` — Bundled terminology defaults (override at home or project).
 - `<repo>/rules/host-target-templates.json` — Bundled target templates.
 - `<repo>/rules/call-templates.json` — Bundled SDK call transform templates.
+- `<repo>/rules/paraphrase-map.json` — Bundled paraphrase map defaults (override at home or project).
+- `<repo>/rules/paraphrase-overrides.json` — Bundled paraphrase override archive defaults (override at home or project).
+- `<repo>/rules/host-strict-vocab.json` — Host-native token list driving vocab-mismatch detection (`claude_only`, `codex_only`, `claude_only_patterns`).
 
 Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`. Layers are merged by id (rule.id, template.id, areas key, fields claude+codex pair, models.tiers id) — partial overlays only need to declare the entries they want to add or change.

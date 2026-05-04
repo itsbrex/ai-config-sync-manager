@@ -92,8 +92,13 @@ async function main() {
       printParaphraseHelp();
     } else {
       const options = parseParaphrase(argv);
-      const result = await runParaphrase(options);
-      console.log(options.json ? JSON.stringify(result, null, 2) : renderParaphrase(result, options));
+      const result = options.register
+        ? await runParaphraseRegister(options)
+        : await runParaphrase(options);
+      const text = options.register
+        ? renderParaphraseRegister(result, options)
+        : renderParaphrase(result, options);
+      console.log(options.json ? JSON.stringify(result, null, 2) : text);
     }
   } else {
     printHelp();
@@ -559,18 +564,9 @@ function statusPreview(entry, change, item, ignoreRules = []) {
   }
 
   if (change === "conflict" && entry.area === "skills") {
-    const targetContent = skillPreviewContent(to === "claude" ? entry.claudePath : entry.codexPath, item);
-    const transformed = transformTextForHost(
-      skillPreviewContent(from === "claude" ? entry.claudePath : entry.codexPath, item),
-      from,
-      to
-    );
-    const sourceContent = normalizeYamlFrontmatter(transformed);
-    const targetManifest = skillManifestPathFor(to === "claude" ? entry.claudePath : entry.codexPath, item);
-    const sourceManifest = skillManifestPathFor(from === "claude" ? entry.claudePath : entry.codexPath, item);
-    const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to, from);
-    const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
-    return contentChangePreview(`${toLabel} current`, masked.target, `After apply from ${fromLabel}`, masked.source, terms);
+    const claudeSkillDir = join(entry.claudePath, item);
+    const codexSkillDir = join(entry.codexPath, item);
+    return skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabel, toLabel, terms);
   }
 
   if (change === "conflict" && entry.area === "agents") {
@@ -1869,9 +1865,21 @@ function activeOverridesForFilePair(claudePath, codexPath) {
   const expectedCodex = expandHome(codexPath);
   const { active } = activeParaphraseOverrides();
   return active.filter((entry) =>
-    expandHome(entry.claude_path) === expectedClaude
-    && expandHome(entry.codex_path) === expectedCodex
+    pathsEqualOrSkillManifestAlias(entry.claude_path, expectedClaude)
+    && pathsEqualOrSkillManifestAlias(entry.codex_path, expectedCodex)
   );
+}
+
+function pathsEqualOrSkillManifestAlias(leftPath, rightPath) {
+  const left = expandHome(leftPath);
+  const right = expandHome(rightPath);
+  if (left === right) return true;
+  const leftSlash = left.lastIndexOf("/");
+  const rightSlash = right.lastIndexOf("/");
+  if (leftSlash === -1 || rightSlash === -1) return false;
+  if (left.slice(0, leftSlash) !== right.slice(0, rightSlash)) return false;
+  return isSkillManifestBasename(left.slice(leftSlash + 1))
+    && isSkillManifestBasename(right.slice(rightSlash + 1));
 }
 
 function maskBodyAtLine(body, lineNumber, expectedText, sentinel) {
@@ -2156,7 +2164,7 @@ function applyClaudeToCodexCallTransforms(text, supported, unsupported, archive)
 }
 
 function applyCodexToClaudeCallTransforms(text, supported, unsupported, archive) {
-  let working = text;
+  let working = stripManualReviewMarkersReverse(text);
   for (const rule of supported) {
     if (typeof rule?.codex_marker !== "string" || !rule.codex_marker) continue;
     working = transformCodexProseReverse(working, rule, archive);
@@ -2166,6 +2174,13 @@ function applyCodexToClaudeCallTransforms(text, supported, unsupported, archive)
     working = restoreStrippedCallsReverse(working, rule, archive);
   }
   return working;
+}
+
+function stripManualReviewMarkersReverse(text) {
+  return String(text ?? "").replace(
+    /<!--\s*ai-config-sync:manual-review\b[^>]*-->(?=\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\()/g,
+    ""
+  );
 }
 
 function transformClaudeCallsForward(text, rule, archive) {
@@ -2900,16 +2915,16 @@ function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceInde
   const to = from === "claude" ? "codex" : "claude";
   for (const skillName of skillNames) {
     const sourceDir = sourceIndex[skillName] ?? sourcePath;
-    const transformed = transformTextForHost(skillPreviewContent(sourceDir, skillName), from, to);
-    const source = normalizeYamlFrontmatter(transformed);
-    const target = skillPreviewContent(targetPath, skillName);
+    const sourceRaw = skillPreviewContent(sourceDir, skillName);
+    const targetRaw = skillPreviewContent(targetPath, skillName);
     const terms = entry ? entryMaskTerms(entry, skillName, ignoreRules) : [];
     const targetManifest = skillManifestPathFor(targetPath, skillName);
     const sourceManifest = skillManifestPathFor(sourceDir, skillName);
     const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to, from);
-    const masked = maskBodiesForHosts(target, source, to, from, overrides);
+    const maskedRaw = maskBodiesForHosts(targetRaw, sourceRaw, to, from, overrides);
+    const source = normalizeYamlFrontmatter(transformTextForHost(maskedRaw.source, from, to));
     lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
-    lines.push(...contentChangePreview("Target current", masked.target, `After apply from ${fromLabel(from)}`, masked.source, terms).map((line) => `  ${line}`));
+    lines.push(...contentChangePreview("Target current", maskedRaw.target, `After apply from ${fromLabel(from)}`, source, terms).map((line) => `  ${line}`));
   }
   return lines;
 }
@@ -2920,6 +2935,88 @@ function skillPreviewContent(basePath, skillName) {
   if (manifest) return readFileSync(manifest, "utf8");
   if (existsSync(skillPath) && !lstatSync(skillPath).isDirectory()) return readFileSync(skillPath, "utf8");
   return "";
+}
+
+// Iterate every file in a skill directory pair (manifest + references/* + …) so
+// preview can surface diffs that live outside the manifest. Each file is hashed
+// against its counterpart with the same masking pipeline used by skillDirsEquivalent
+// so override-masked manifest lines stay invisible while raw differences in
+// references/foo.md still render. Falls back to the legacy single-line message
+// only when every file pair is equivalent or one side is missing.
+function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabel, toLabel, terms) {
+  const targetDir = to === "claude" ? claudeSkillDir : codexSkillDir;
+  const sourceDir = from === "claude" ? claudeSkillDir : codexSkillDir;
+  const targetHost = to;
+  const sourceHost = from;
+  const PREVIEW_LINE_CAP = 30;
+
+  const targetFiles = sortedSkillFiles(targetDir);
+  const sourceFiles = sortedSkillFiles(sourceDir);
+  const targetByNormalized = new Map(targetFiles.map((entry) => [entry.normalized, entry]));
+  const sourceByNormalized = new Map(sourceFiles.map((entry) => [entry.normalized, entry]));
+  const allNormalized = uniqueStrings([
+    ...targetFiles.map((entry) => entry.normalized),
+    ...sourceFiles.map((entry) => entry.normalized)
+  ]).sort();
+
+  const lines = [];
+  let truncated = false;
+
+  for (const normalized of allNormalized) {
+    if (lines.length >= PREVIEW_LINE_CAP) { truncated = true; break; }
+
+    const targetEntry = targetByNormalized.get(normalized);
+    const sourceEntry = sourceByNormalized.get(normalized);
+    const displayName = (targetEntry?.raw) ?? (sourceEntry?.raw) ?? normalized;
+
+    if (!targetEntry) {
+      lines.push(`${displayName}: only on ${fromLabel}`);
+      continue;
+    }
+    if (!sourceEntry) {
+      lines.push(`${displayName}: only on ${toLabel}`);
+      continue;
+    }
+
+    const targetAbs = join(targetDir, targetEntry.raw);
+    const sourceAbs = join(sourceDir, sourceEntry.raw);
+    const targetCanonical = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
+    const sourceCanonical = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
+
+    let targetContent = targetCanonical;
+    let sourceContent = sourceCanonical;
+
+    const overrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost, sourceHost);
+    if (overrides.length > 0) {
+      const masked = maskBodiesForHosts(targetContent, sourceContent, targetHost, sourceHost, overrides);
+      targetContent = masked.target;
+      sourceContent = masked.source;
+    }
+    if (isTextMappingFile(sourceAbs) && isTextMappingFile(targetAbs)) {
+      sourceContent = transformTextForHost(sourceContent, sourceHost, targetHost);
+    }
+
+    if (targetContent === sourceContent) continue;
+
+    const fileChanges = contentChangePreview(
+      `${toLabel} current`,
+      targetContent,
+      `After apply from ${fromLabel}`,
+      sourceContent,
+      terms
+    );
+    if (fileChanges.length === 1 && fileChanges[0] === "No line-level preview available.") continue;
+
+    lines.push(`${displayName}:`);
+    for (const line of fileChanges) {
+      lines.push(`  ${line}`);
+      if (lines.length >= PREVIEW_LINE_CAP) { truncated = true; break; }
+    }
+  }
+
+  if (truncated) lines.push("... additional file diffs not shown");
+  if (lines.length === 0) return ["No line-level preview available."];
+  return lines;
 }
 
 function agentChangePreview(sourceDir, targetDir, agentNames, from, to, claudeAgentPaths = {}, codexAgentPaths = {}, entry = null, ignoreRules = []) {
@@ -3095,13 +3192,15 @@ function contentChangePreview(beforeLabel, before, afterLabel, after, terms) {
 
   for (let index = 0; index < maxLines; index += 1) {
     if (beforeLines[index] === afterLines[index]) continue;
+    if (linesEquivalentForPreview(beforeLines[index], afterLines[index])) continue;
     if (
       expandedTerms.length > 0
       && lineContainsAnyTerm(beforeLines[index], expandedTerms)
       && lineContainsAnyTerm(afterLines[index], expandedTerms)
     ) continue;
-    changes.push(`- ${beforeLabel} L${index + 1}: ${previewLine(beforeLines[index])}`);
-    changes.push(`+ ${afterLabel} L${index + 1}: ${previewLine(afterLines[index])}`);
+    const pair = previewLinePair(beforeLines[index], afterLines[index]);
+    changes.push(`- ${beforeLabel} L${index + 1}: ${pair.before}`);
+    changes.push(`+ ${afterLabel} L${index + 1}: ${pair.after}`);
     if (changes.length >= 12) {
       changes.push(`... ${Math.max(0, maxLines - index - 1)} more line(s) not shown`);
       break;
@@ -3109,6 +3208,11 @@ function contentChangePreview(beforeLabel, before, afterLabel, after, terms) {
   }
 
   return changes.length > 0 ? changes : ["No line-level preview available."];
+}
+
+function linesEquivalentForPreview(before, after) {
+  if (typeof before !== "string" || typeof after !== "string") return false;
+  return normalizeComparableAgentPaths(before) === normalizeComparableAgentPaths(after);
 }
 
 function previewLines(value) {
@@ -3121,6 +3225,45 @@ function previewLine(value) {
   if (value === undefined) return "<missing>";
   if (value === "") return "<blank>";
   return value.length > 140 ? `${value.slice(0, 137)}...` : value;
+}
+
+// Diff-aware truncation for paired before/after lines. Both windows share the
+// same focus index (first divergence) so the visible slices stay column-aligned
+// and the actual diff cannot scroll off the right edge of long lines.
+function previewLinePair(before, after, maxWidth = 140) {
+  if (before === undefined || after === undefined) {
+    return { before: previewLine(before), after: previewLine(after) };
+  }
+  if (before === "" || after === "") {
+    return { before: previewLine(before), after: previewLine(after) };
+  }
+  if (before.length <= maxWidth && after.length <= maxWidth) {
+    return { before, after };
+  }
+
+  const minLen = Math.min(before.length, after.length);
+  let focus = -1;
+  for (let i = 0; i < minLen; i += 1) {
+    if (before[i] !== after[i]) { focus = i; break; }
+  }
+  if (focus === -1) focus = minLen;
+
+  return {
+    before: windowAroundFocus(before, focus, maxWidth),
+    after: windowAroundFocus(after, focus, maxWidth)
+  };
+}
+
+function windowAroundFocus(text, focus, maxWidth) {
+  if (text.length <= maxWidth) return text;
+  const inner = maxWidth - 6;
+  const half = Math.floor(inner / 2);
+  let start = Math.max(0, focus - half);
+  let end = Math.min(text.length, start + inner);
+  start = Math.max(0, end - inner);
+  const prefix = start > 0 ? "..." : "";
+  const suffix = end < text.length ? "..." : "";
+  return `${prefix}${text.slice(start, end)}${suffix}`;
 }
 
 function lineContainsAnyTerm(line, terms) {
@@ -4042,11 +4185,32 @@ function bashPattern(value) {
   };
 }
 
+function parseManagedNativeHooks(text) {
+  const begin = `# BEGIN ai-config-sync native-hooks`;
+  const end = `# END ai-config-sync native-hooks`;
+  const pattern = new RegExp(`${escapeRegExp(begin)}([\\s\\S]*?)${escapeRegExp(end)}`, "m");
+  const match = pattern.exec(text);
+  if (!match) return {};
+  return parseCodexNativeHooks(match[1]);
+}
+
 function applyCodexNativeHookMapping(text, sourceValues, itemNames) {
-  const hookLines = [];
+  const existingValues = parseManagedNativeHooks(text);
+  const merged = { ...existingValues };
 
   for (const itemName of itemNames) {
-    const groups = sourceValues[itemName];
+    if (sourceValues[itemName] !== undefined) {
+      merged[itemName] = sourceValues[itemName];
+    } else {
+      delete merged[itemName];
+    }
+  }
+
+  const hookLines = [];
+  const eventNames = Object.keys(merged).sort();
+
+  for (const eventName of eventNames) {
+    const groups = merged[eventName];
     if (!Array.isArray(groups)) continue;
 
     for (const group of groups) {
@@ -4055,13 +4219,13 @@ function applyCodexNativeHookMapping(text, sourceValues, itemNames) {
         : [];
       if (commandHooks.length === 0) continue;
 
-      hookLines.push(`[[hooks.${itemName}]]`);
+      hookLines.push(`[[hooks.${eventName}]]`);
       if (typeof group.matcher === "string") {
         hookLines.push(`matcher = ${JSON.stringify(group.matcher)}`);
       }
 
       for (const hook of commandHooks) {
-        hookLines.push(`[[hooks.${itemName}.hooks]]`);
+        hookLines.push(`[[hooks.${eventName}.hooks]]`);
         hookLines.push('type = "command"');
         hookLines.push(`command = ${JSON.stringify(hook.command)}`);
         if (Number.isInteger(hook.timeout)) hookLines.push(`timeout = ${hook.timeout}`);
@@ -6047,8 +6211,24 @@ function readSkillFileForHash(path, raw) {
   const absolute = join(path, raw);
   const content = readFileSync(absolute);
   const basename = raw.split("/").pop();
-  if (!isSkillManifestBasename(basename)) return content;
-  return Buffer.from(normalizeYamlFrontmatter(content.toString("utf8")), "utf8");
+  const text = isSkillManifestBasename(basename)
+    ? normalizeYamlFrontmatter(content.toString("utf8"))
+    : content.toString("utf8");
+  return isTextMappingFile(absolute)
+    ? Buffer.from(normalizeComparableAgentPaths(text), "utf8")
+    : content;
+}
+
+function normalizeComparableAgentPaths(text) {
+  return String(text ?? "")
+    .replace(
+      /(~?\/?)\.claude\/agents\/(?:[A-Za-z0-9_-]+\/)*([A-Za-z0-9_.{}-]+)\.md/g,
+      "$1.__ai_config_sync_agent__/$2"
+    )
+    .replace(
+      /(~?\/?)\.codex\/agents\/([A-Za-z0-9_.{}-]+)\.toml/g,
+      "$1.__ai_config_sync_agent__/$2"
+    );
 }
 
 // Like directoryHash but normalizes the skill manifest filename so that two skills
@@ -6085,9 +6265,62 @@ function skillDirsEquivalent(claudePath, codexPath, entry, item, rules) {
 
   const overrides = activeSkillOverridesForDirPair(claudePath, codexPath);
   if (overrides.length > 0) {
-    if (overriddenSkillContentHash(claudePath, "claude", overrides) === overriddenSkillContentHash(codexPath, "codex", overrides)) return true;
+    const codexOverridden = overriddenSkillContentHash(codexPath, "codex", overrides);
+    const claudeOverridden = overriddenSkillContentHash(claudePath, "claude", overrides);
+    if (claudeOverridden === codexOverridden) return true;
+    // Override sentinels (` PO:<id> `) survive transformTextForHost untouched, so
+    // a transform layered on top of paraphrase masking can close the remaining
+    // gap when transform AND override are jointly required for equivalence.
+    if (overriddenTransformedSkillContentHash(claudePath, "claude", "codex", overrides) === codexOverridden) return true;
+    if (overriddenTransformedSkillContentHash(codexPath, "codex", "claude", overrides) === claudeOverridden) return true;
   }
+
+  const lineTerms = entry ? entryMaskTerms(entry, item, rules ?? []) : [];
+  if (skillDirsLineEquivalent(claudePath, codexPath, "claude", "codex", lineTerms)) return true;
+  if (skillDirsLineEquivalent(claudePath, codexPath, "codex", "claude", lineTerms)) return true;
   return false;
+}
+
+function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms = []) {
+  const targetDir = to === "claude" ? claudeSkillDir : codexSkillDir;
+  const sourceDir = from === "claude" ? claudeSkillDir : codexSkillDir;
+  const targetHost = to;
+  const sourceHost = from;
+
+  const targetFiles = sortedSkillFiles(targetDir);
+  const sourceFiles = sortedSkillFiles(sourceDir);
+  const targetByNormalized = new Map(targetFiles.map((entry) => [entry.normalized, entry]));
+  const sourceByNormalized = new Map(sourceFiles.map((entry) => [entry.normalized, entry]));
+  const allNormalized = uniqueStrings([
+    ...targetFiles.map((entry) => entry.normalized),
+    ...sourceFiles.map((entry) => entry.normalized)
+  ]).sort();
+
+  for (const normalized of allNormalized) {
+    const targetEntry = targetByNormalized.get(normalized);
+    const sourceEntry = sourceByNormalized.get(normalized);
+    if (!targetEntry || !sourceEntry) return false;
+
+    const targetAbs = join(targetDir, targetEntry.raw);
+    const sourceAbs = join(sourceDir, sourceEntry.raw);
+    let targetContent = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
+    let sourceContent = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
+
+    const fileOverrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost, sourceHost);
+    if (fileOverrides.length > 0) {
+      const masked = maskBodiesForHosts(targetContent, sourceContent, targetHost, sourceHost, fileOverrides);
+      targetContent = masked.target;
+      sourceContent = masked.source;
+    }
+    if (isTextMappingFile(sourceAbs) && isTextMappingFile(targetAbs)) {
+      sourceContent = transformTextForHost(sourceContent, sourceHost, targetHost);
+    }
+
+    const changes = contentChangePreview("Target current", targetContent, "After apply", sourceContent, terms);
+    if (!(changes.length === 1 && changes[0] === "No line-level preview available.")) return false;
+  }
+
+  return true;
 }
 
 function transformedSkillContentHash(path, from, to) {
@@ -6155,7 +6388,7 @@ function overriddenSkillContentHash(path, host, overrides) {
     let content;
     if (isTextMappingFile(absolute)) {
       let text = canonical.toString("utf8");
-      const fileOverrides = overrides.filter((entry) => expandHome(entry[pathKey]) === `${root}/${raw}`);
+      const fileOverrides = overrides.filter((entry) => overrideMatchesSkillFile(entry[pathKey], root, raw));
       for (const entry of fileOverrides) {
         const sentinel = ` PO:${entry.id} `;
         text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
@@ -6169,6 +6402,56 @@ function overriddenSkillContentHash(path, host, overrides) {
   }
 
   return hash.digest("hex").slice(0, 12);
+}
+
+// Like overriddenSkillContentHash but applies transformTextForHost AFTER masking.
+// Closes the gap where a skill needs BOTH paraphrase override (to mask diverging
+// prose) AND host-vocabulary transform (e.g. opus -> gpt-5.5) to be equivalent.
+// Mask sentinels (` PO:<id> `) are simple ASCII tokens not present in any
+// terminology-map / paraphrase-map rule, so transform leaves them intact.
+function overriddenTransformedSkillContentHash(path, sourceHost, targetHost, overrides) {
+  if (!existsSync(path)) return "missing";
+  const hash = createHash("sha256");
+  const root = expandHome(path);
+  const pathKey = sourceHost === "claude" ? "claude_path" : "codex_path";
+  const lineKey = sourceHost === "claude" ? "claude_line" : "codex_line";
+  const textKey = sourceHost === "claude" ? "claude_text" : "codex_text";
+
+  for (const { raw, normalized } of sortedSkillFiles(path)) {
+    const absolute = join(path, raw);
+    const canonical = readSkillFileForHash(path, raw);
+    let content;
+    if (isTextMappingFile(absolute)) {
+      let text = canonical.toString("utf8");
+      const fileOverrides = overrides.filter((entry) => overrideMatchesSkillFile(entry[pathKey], root, raw));
+      for (const entry of fileOverrides) {
+        const sentinel = ` PO:${entry.id} `;
+        text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
+      }
+      content = Buffer.from(transformTextForHost(text, sourceHost, targetHost), "utf8");
+    } else {
+      content = canonical;
+    }
+    hash.update(normalized);
+    hash.update(content);
+  }
+
+  return hash.digest("hex").slice(0, 12);
+}
+
+// Match a paraphrase override entry's recorded path against the on-disk skill
+// file. Skill manifests are case-insensitive (skill.md vs SKILL.md) on macOS,
+// so an override registered with one casing must still match a directory
+// listing that returns the other.
+function overrideMatchesSkillFile(overridePath, dirRoot, fileRaw) {
+  if (typeof overridePath !== "string" || !overridePath) return false;
+  const expanded = expandHome(overridePath);
+  if (expanded === `${dirRoot}/${fileRaw}`) return true;
+  const lastSlash = expanded.lastIndexOf("/");
+  if (lastSlash === -1) return false;
+  if (expanded.slice(0, lastSlash) !== dirRoot) return false;
+  const overrideBase = expanded.slice(lastSlash + 1);
+  return isSkillManifestBasename(overrideBase) && isSkillManifestBasename(fileRaw);
 }
 
 function directoryFiles(root, prefix = "") {
@@ -6580,6 +6863,7 @@ function parseParaphrase(argv) {
   let json = false;
   let scopes = ["global", "project"];
   let nonInteractive = false;
+  let register = false;
   const cliMap = { claude_only: {}, codex_only: {} };
   const selectors = emptySelectors();
 
@@ -6591,6 +6875,8 @@ function parseParaphrase(argv) {
       json = true;
     } else if (token === "--non-interactive") {
       nonInteractive = true;
+    } else if (token === "--register") {
+      register = true;
     } else if (token === "--scope") {
       const value = argv[index + 1];
       scopes = parseScopes(value, true);
@@ -6608,7 +6894,7 @@ function parseParaphrase(argv) {
     }
   }
 
-  return { apply, json, scopes, nonInteractive, cliMap, selectors };
+  return { apply, json, scopes, nonInteractive, register, cliMap, selectors };
 }
 
 function parseParaphraseMapArg(value, target) {
@@ -6832,6 +7118,245 @@ async function runParaphrase(options) {
   };
 }
 
+// Register-only paraphrase: skip the lint stage and instead diff claude/codex
+// files line-by-line. For each diff line, test whether the effective
+// paraphrase map (file + cli --map) equates the two sides; if so, append an
+// override entry without touching either source file. Use case: codex (or
+// claude) was pre-paraphrased outside the CLI so lintHostVocab finds zero
+// strict-vocab tokens, and no override would otherwise be registered.
+async function runParaphraseRegister(options) {
+  const { apply, scopes, selectors, cliMap } = options;
+  const ignoreSource = ignoreListSource();
+  const ignoreRules = (ignoreSource.data?.exclude ?? []).filter(Boolean);
+
+  const fileMap = paraphraseMapSource().data ?? { claude_only: {}, codex_only: {} };
+  const effectiveMap = mergeParaphraseMap(fileMap, cliMap);
+  const newMapEntries = mergeParaphraseMap({ claude_only: {}, codex_only: {} }, cliMap);
+
+  const matched = [];
+  const skipped = [];
+  const overridesToRegister = [];
+
+  for (const scope of scopes) {
+    const items = enumerateScopeItemsForRegister(scope, selectors, ignoreRules);
+    for (const item of items) {
+      const claudeBody = readHostFileBody(item.area, "claude", item.claudePath);
+      const codexBody = readHostFileBody(item.area, "codex", item.codexPath);
+      const claudeLines = claudeBody.split(/\r?\n/);
+      const codexLines = codexBody.split(/\r?\n/);
+      const len = Math.min(claudeLines.length, codexLines.length);
+
+      for (let i = 0; i < len; i += 1) {
+        const claudeText = claudeLines[i];
+        const codexText = codexLines[i];
+        if (claudeText === codexText) continue;
+        if (transformTextForHost(claudeText, "claude", "codex") === codexText) continue;
+        if (transformTextForHost(codexText, "codex", "claude") === claudeText) continue;
+
+        const equivalence = checkParaphraseMapEquivalence(claudeText, codexText, effectiveMap);
+        if (!equivalence.equivalent) {
+          skipped.push({
+            scope,
+            area: item.area,
+            item: item.item,
+            line: i + 1,
+            claudePath: item.claudePath,
+            codexPath: item.codexPath,
+            reason: "mapping-not-equivalent",
+            claudeText,
+            codexText
+          });
+          continue;
+        }
+
+        const lineNumber = i + 1;
+        const overrideId = `${scope}-${item.area}-${sanitizeOverrideIdSegment(item.item)}-register-L${lineNumber}`;
+        const record = {
+          id: overrideId,
+          scope,
+          area: item.area,
+          item: item.item,
+          claude_path: item.claudePath,
+          codex_path: item.codexPath,
+          claude_line: lineNumber,
+          codex_line: lineNumber,
+          claude_text: claudeText,
+          codex_text: codexText,
+          tokens: equivalence.tokens,
+          registered_at: new Date().toISOString()
+        };
+        matched.push(record);
+        overridesToRegister.push(record);
+      }
+    }
+  }
+
+  if (apply) {
+    if (overridesToRegister.length > 0) registerParaphraseOverrides(overridesToRegister);
+    if (Object.keys(newMapEntries.claude_only).length > 0 || Object.keys(newMapEntries.codex_only).length > 0) {
+      persistParaphraseMap(newMapEntries);
+    }
+  }
+
+  return {
+    mode: apply ? "register-apply" : "register-dry-run",
+    scopes,
+    matched,
+    skipped
+  };
+}
+
+function enumerateScopeItemsForRegister(scope, selectors) {
+  const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
+  const items = [];
+
+  const claudeAgents = enumerateClaudeAgents(paths.claude.agents);
+  const codexAgents = enumerateCodexAgents(paths.codex.agents);
+  const claudeAgentByName = new Map(claudeAgents.map((a) => [a.name, a]));
+  const codexAgentByName = new Map(codexAgents.map((a) => [a.name, a]));
+  const agentNames = new Set([...claudeAgentByName.keys(), ...codexAgentByName.keys()]);
+  for (const name of agentNames) {
+    if (!includesArea(selectors, "agents", name)) continue;
+    const ca = claudeAgentByName.get(name);
+    const co = codexAgentByName.get(name);
+    if (!ca || !co) continue;
+    items.push({ scope, area: "agents", item: name, claudePath: ca.path, codexPath: co.path });
+  }
+
+  const claudeSkillsDirs = paths.claude.skillsPaths ?? [paths.claude.skills];
+  const codexSkillsDirs = paths.codex.skillsPaths ?? [paths.codex.skills];
+  const claudeSkillManifest = new Map();
+  for (const dir of claudeSkillsDirs) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const name of skillNames(dir)) {
+      if (claudeSkillManifest.has(name)) continue;
+      const manifest = findSkillManifest(join(dir, name));
+      if (manifest) claudeSkillManifest.set(name, manifest);
+    }
+  }
+  const codexSkillManifest = new Map();
+  for (const dir of codexSkillsDirs) {
+    if (!dir || !existsSync(dir)) continue;
+    for (const name of skillNames(dir)) {
+      if (codexSkillManifest.has(name)) continue;
+      const manifest = findSkillManifest(join(dir, name));
+      if (manifest) codexSkillManifest.set(name, manifest);
+    }
+  }
+  const skillSet = new Set([...claudeSkillManifest.keys(), ...codexSkillManifest.keys()]);
+  for (const name of skillSet) {
+    if (!includesArea(selectors, "skills", name)) continue;
+    const cm = claudeSkillManifest.get(name);
+    const om = codexSkillManifest.get(name);
+    if (!cm || !om) continue;
+    items.push({ scope, area: "skills", item: name, claudePath: cm, codexPath: om });
+  }
+
+  if (
+    includesArea(selectors, "instructions", "instructions")
+    && paths.claude.instructions && existsSync(paths.claude.instructions)
+    && paths.codex.instructions && existsSync(paths.codex.instructions)
+  ) {
+    items.push({
+      scope,
+      area: "instructions",
+      item: "instructions",
+      claudePath: paths.claude.instructions,
+      codexPath: paths.codex.instructions
+    });
+  }
+
+  return items;
+}
+
+// Test whether the effective paraphrase map equates two diverging lines. A
+// real conflict often combines two layers: a terminology rule (`.claude/` →
+// `.codex/`) AND a paraphrase token (`Read` → `Inspect`). The pre-check in
+// the caller already silences pure-terminology lines, so here we layer the
+// terminology transform first and then apply the paraphrase tokens — only
+// the tokens that survived past terminology end up in the override entry.
+function checkParaphraseMapEquivalence(claudeText, codexText, effectiveMap) {
+  const claudeOnly = effectiveMap.claude_only ?? {};
+  const codexOnly = effectiveMap.codex_only ?? {};
+
+  const tokensA = [];
+  const claudeBase = transformTextForHost(claudeText, "claude", "codex");
+  const claudeAll = applyParaphraseTokens(claudeBase, claudeOnly, tokensA);
+  if (claudeAll === codexText && tokensA.length > 0) return { equivalent: true, tokens: tokensA };
+
+  const tokensB = [];
+  const codexBase = transformTextForHost(codexText, "codex", "claude");
+  const codexAll = applyParaphraseTokens(codexBase, codexOnly, tokensB);
+  if (codexAll === claudeText && tokensB.length > 0) return { equivalent: true, tokens: tokensB };
+
+  if (
+    (tokensA.length > 0 || tokensB.length > 0)
+    && claudeAll === codexBase
+    && claudeBase === codexAll
+  ) {
+    return { equivalent: true, tokens: [...tokensA, ...tokensB] };
+  }
+
+  return { equivalent: false };
+}
+
+function applyParaphraseTokens(text, tokenMap, recorded) {
+  let out = text;
+  for (const [token, paraphrase] of Object.entries(tokenMap)) {
+    if (typeof token !== "string" || !token) continue;
+    if (typeof paraphrase !== "string" || !paraphrase) continue;
+    const re = new RegExp(`\\b${escapeRegExp(token)}\\b`, "g");
+    if (!re.test(out)) continue;
+    out = out.replace(new RegExp(`\\b${escapeRegExp(token)}\\b`, "g"), paraphrase);
+    recorded.push({ token, paraphrase });
+  }
+  return out;
+}
+
+function renderParaphraseRegister(result) {
+  const lines = [
+    "AI Config Sync Manager paraphrase --register",
+    `Mode: ${result.mode}`,
+    `Scopes: ${result.scopes.join(", ")}`,
+    `Matched: ${result.matched.length} line pair(s)`,
+    `Skipped: ${result.skipped.length} line pair(s)`
+  ];
+
+  if (result.matched.length > 0) {
+    lines.push("");
+    lines.push("Will register:");
+    for (const entry of result.matched) {
+      const tokens = entry.tokens.map((t) => `${t.token}→${t.paraphrase}`).join(", ");
+      lines.push(`  - ${entry.scope}/${entry.area}: ${entry.item} (claude L${entry.claude_line} ↔ codex L${entry.codex_line})`);
+      lines.push(`    tokens: ${tokens || "<none>"}`);
+      lines.push(`    claude: ${previewLine(entry.claude_text)}`);
+      lines.push(`    codex:  ${previewLine(entry.codex_text)}`);
+    }
+  }
+
+  if (result.skipped.length > 0) {
+    lines.push("");
+    lines.push("Skipped (mapping does not equate):");
+    const cap = 20;
+    for (const entry of result.skipped.slice(0, cap)) {
+      lines.push(`  - ${entry.scope}/${entry.area}: ${entry.item} L${entry.line} — ${entry.reason}`);
+      lines.push(`    claude: ${previewLine(entry.claudeText)}`);
+      lines.push(`    codex:  ${previewLine(entry.codexText)}`);
+    }
+    if (result.skipped.length > cap) lines.push(`  ... +${result.skipped.length - cap} more`);
+  }
+
+  if (result.mode === "register-dry-run") {
+    lines.push("");
+    lines.push("Run with --apply to register overrides without rewriting files.");
+  } else {
+    lines.push("");
+    lines.push(`Overrides registered to: ${paraphraseOverridesHomePath()}`);
+  }
+
+  return lines.join("\n");
+}
+
 function queueParaphraseFinding(fileWork, f, paraphrase) {
   if (!fileWork.has(f.path)) {
     fileWork.set(f.path, { host: f.host, area: f.area, item: f.item, scope: f.scope, findings: [] });
@@ -6973,6 +7498,7 @@ Rewrites manual-review vocab mismatches in agent/skill/instruction files using r
 
 Options:
   --apply                        Rewrite files, append entries to paraphrase-overrides.json, and persist any new mappings to paraphrase-map.json (defaults to dry-run preview)
+  --register                     Skip rewriting; diff claude/codex line-by-line and register an override entry for each line pair the effective map equates. Use when one side was pre-paraphrased outside the CLI.
   --json                         Print the result as JSON
   --non-interactive              Skip the TTY prompt for tokens missing from paraphrase-map.json
   --map token=paraphrase[,...]   Inline token-to-paraphrase mappings (prefix with claude_only: or codex_only: when the token is ambiguous)
@@ -6985,12 +7511,14 @@ Behavior:
   - Only manual-review findings (those without a sync auto-fix) are rewritten — sync auto-fixes are still handled by \`sync --apply\`.
   - Each rewritten line is paired with the counterpart host file's same-numbered line; if the counterpart line text does not match the pre-rewrite text exactly, the line is skipped (logged under skipped) so a partial override is never registered.
   - Stale overrides (counterpart text drifted) are auto-invalidated at status time, restoring the conflict.
+  - With \`--register\`, no source files are touched. The CLI inspects same-numbered claude/codex line pairs that disagree, applies the effective map (file + --map) one direction at a time, and registers an override only when the mapping makes both sides byte-equal. Lines covered by terminology rules are already silenced and skipped.
 
 Examples:
   ai-config-sync paraphrase
   ai-config-sync paraphrase --apply
   ai-config-sync paraphrase --map "Read=Inspection,Write=Author" --apply
-  ai-config-sync paraphrase --scope global --include agents:code-structure-analyst --apply`);
+  ai-config-sync paraphrase --scope global --include agents:code-structure-analyst --apply
+  ai-config-sync paraphrase --register --include skills:commit-insight-pipeline --map "Read=Inspect,Write=Emit" --apply`);
 }
 
 function generateReferenceMarkdown() {
@@ -7060,6 +7588,7 @@ function referenceCommandsSection() {
     "Recover bidirectional manual-review vocab mismatches by rewriting host-native tokens into shared paraphrases. Records each rewrite as a paraphrase override so future status/sync runs treat both sides as in sync. Stale overrides whose anchor lines no longer match are auto-invalidated.",
     "",
     "- `--apply` — Persist rewrites, paraphrase map entries, and override archive (default is dry-run)",
+    "- `--register` — Skip the rewrite stage; diff claude/codex line-by-line and register an override entry for each line pair the effective map equates. Use when one side was pre-paraphrased outside the CLI so `lintHostVocab` finds nothing to rewrite.",
     "- `--json` — Emit the full paraphrase report as JSON",
     "- `--non-interactive` — Skip the TTY prompt for unmapped tokens (still emits them under `pendingTokens`)",
     "- `--map \"token=paraphrase[,...]\"` — Provide one or more inline token→paraphrase mappings (CLI overrides paraphrase-map.json)",
