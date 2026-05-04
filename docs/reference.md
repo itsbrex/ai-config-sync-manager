@@ -48,6 +48,7 @@ Print this markdown reference document.
 Recover bidirectional manual-review vocab mismatches by rewriting host-native tokens into shared paraphrases. Records each rewrite as a paraphrase override so future status/sync runs treat both sides as in sync. Stale overrides whose anchor lines no longer match are auto-invalidated.
 
 - `--apply` — Persist rewrites, paraphrase map entries, and override archive (default is dry-run)
+- `--register` — Skip the rewrite stage; diff claude/codex line-by-line and register an override entry for each line pair the effective map equates. Use when one side was pre-paraphrased outside the CLI so `lintHostVocab` finds nothing to rewrite.
 - `--json` — Emit the full paraphrase report as JSON
 - `--non-interactive` — Skip the TTY prompt for unmapped tokens (still emits them under `pendingTokens`)
 - `--map "token=paraphrase[,...]"` — Provide one or more inline token→paraphrase mappings (CLI overrides paraphrase-map.json)
