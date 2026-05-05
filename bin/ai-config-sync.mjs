@@ -4769,7 +4769,9 @@ function mcpServerForClaude(server) {
     ...(server.headers ?? {}),
     ...(server.bearerTokenEnvVar ? { Authorization: `Bearer \${${server.bearerTokenEnvVar}}` } : {})
   };
+  const type = server.command ? "stdio" : server.url ? "http" : null;
   return {
+    ...(type ? { type } : {}),
     ...(server.command ? { command: server.command } : {}),
     ...(server.url ? { url: server.url } : {}),
     ...(server.args?.length ? { args: server.args } : {}),
