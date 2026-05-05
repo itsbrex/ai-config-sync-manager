@@ -7,7 +7,7 @@ import {
   cleanupFixture,
   createIntegrationFixture,
   layCodexHome,
-  layExpectedClaude
+  layExpectedClaude,
 } from "../helpers/fixture.mjs";
 import { assertGolden } from "../helpers/golden.mjs";
 import { extractBackupRoot, runPlanJson, runSync } from "../helpers/run-cli.mjs";
@@ -44,8 +44,8 @@ function applyInstructions(fixture) {
       "codex",
       "--to",
       "claude",
-      "--apply"
-    ]
+      "--apply",
+    ],
   });
 }
 
@@ -78,13 +78,14 @@ test("instructions dry-run produces plan with codex->claude direction and writes
     const planJson = runPlanJson({
       home: fixture.home,
       projectRoot: fixture.project,
-      include: ["instructions"]
+      include: ["instructions"],
     });
 
     assert.equal(planJson.from, "codex");
     assert.equal(planJson.to, "claude");
     assert.ok(
-      Array.isArray(planJson.operations) && planJson.operations.some((op) => op.area === "instructions"),
+      Array.isArray(planJson.operations) &&
+        planJson.operations.some((op) => op.area === "instructions"),
       "expected at least one instructions operation"
     );
 
@@ -108,7 +109,7 @@ test("apply copies AGENTS.md to ~/.claude/CLAUDE.md verbatim", () => {
 
     layExpectedClaude(fixture.expectedHome, specs);
     assertGolden(fixture.home, fixture.expectedHome, {
-      ignore: [".ai-config-sync-manager/", "backups/", ".DS_Store", ".codex/", ".agents/"]
+      ignore: [".ai-config-sync-manager/", "backups/", ".DS_Store", ".codex/", ".agents/"],
     });
     assertSourceUnchanged(fixture.home, beforeSnapshot);
   });
@@ -125,7 +126,7 @@ test("multi-section preserves H2 hierarchy and fenced code blocks", () => {
 
     layExpectedClaude(fixture.expectedHome, specs);
     assertGolden(fixture.home, fixture.expectedHome, {
-      ignore: [".ai-config-sync-manager/", "backups/", ".DS_Store", ".codex/", ".agents/"]
+      ignore: [".ai-config-sync-manager/", "backups/", ".DS_Store", ".codex/", ".agents/"],
     });
     assertSourceUnchanged(fixture.home, beforeSnapshot);
   });

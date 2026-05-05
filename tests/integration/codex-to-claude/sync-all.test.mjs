@@ -7,7 +7,7 @@ import {
   cleanupFixture,
   createIntegrationFixture,
   layCodexHome,
-  mergeCodexConfigToml
+  mergeCodexConfigToml,
 } from "../helpers/fixture.mjs";
 import { runSync } from "../helpers/run-cli.mjs";
 import {
@@ -15,7 +15,7 @@ import {
   readClaudeSettings,
   readSyncState,
   scanClaudeAgents,
-  scanClaudeSkills
+  scanClaudeSkills,
 } from "../helpers/readers.mjs";
 import { assertSourceUnchanged, snapshotTree } from "../helpers/snapshot.mjs";
 
@@ -41,12 +41,12 @@ function layAllHappy(home) {
   layCodexHome(home, [
     { area: "instructions", variant: "happy" },
     { area: "skills", variant: "happy" },
-    { area: "agents", variant: "happy" }
+    { area: "agents", variant: "happy" },
   ]);
   mergeCodexConfigToml(home, [
     { area: "mcp", variant: "happy" },
     { area: "permissions", variant: "manual-allow" },
-    { area: "hooks", variant: "manual-pre-tool-use" }
+    { area: "hooks", variant: "manual-pre-tool-use" },
   ]);
 }
 
@@ -54,16 +54,8 @@ function applyAll(fixture, env = {}) {
   return runSync({
     home: fixture.home,
     projectRoot: fixture.project,
-    args: [
-      "--scope",
-      "global",
-      "--from",
-      "codex",
-      "--to",
-      "claude",
-      "--apply"
-    ],
-    env
+    args: ["--scope", "global", "--from", "codex", "--to", "claude", "--apply"],
+    env,
   });
 }
 
@@ -81,13 +73,22 @@ test("single apply syncs all 6 areas at once", () => {
     );
 
     const skills = scanClaudeSkills(fixture.home);
-    assert.ok(skills.has("hello"), `skills: expected 'hello' skill, got: ${[...skills.keys()].join(", ")}`);
+    assert.ok(
+      skills.has("hello"),
+      `skills: expected 'hello' skill, got: ${[...skills.keys()].join(", ")}`
+    );
 
     const agents = scanClaudeAgents(fixture.home);
-    assert.ok(agents.has("translate"), `agents: expected 'translate' agent, got: ${[...agents.keys()].join(", ")}`);
+    assert.ok(
+      agents.has("translate"),
+      `agents: expected 'translate' agent, got: ${[...agents.keys()].join(", ")}`
+    );
 
     const servers = readClaudeMcpFromHome(fixture.home);
-    assert.ok(servers.notion, `mcp: expected notion server in ~/.claude.json, got: ${JSON.stringify(servers)}`);
+    assert.ok(
+      servers.notion,
+      `mcp: expected notion server in ~/.claude.json, got: ${JSON.stringify(servers)}`
+    );
 
     const settings = readClaudeSettings(fixture.home);
     const allow = settings.permissions?.allow ?? [];
@@ -117,10 +118,7 @@ test("state file records tracked areas with schemaVersion 1", () => {
     const areas = state.areas ?? {};
     // instructions is body-only and not tracked in state.areas; the other 5 are.
     for (const area of ["skills", "agents", "mcp", "permissions", "hooks"]) {
-      assert.ok(
-        areas[area],
-        `state.areas should include '${area}': ${JSON.stringify(state)}`
-      );
+      assert.ok(areas[area], `state.areas should include '${area}': ${JSON.stringify(state)}`);
     }
   });
 });

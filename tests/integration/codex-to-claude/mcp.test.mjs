@@ -8,7 +8,7 @@ import {
   createIntegrationFixture,
   layCodexHome,
   layExpectedClaude,
-  layPreExistingClaude
+  layPreExistingClaude,
 } from "../helpers/fixture.mjs";
 import { assertGolden } from "../helpers/golden.mjs";
 import { extractBackupRoot, runSync } from "../helpers/run-cli.mjs";
@@ -39,18 +39,8 @@ function applyMcp(fixture, env = {}) {
   return runSync({
     home: fixture.home,
     projectRoot: fixture.project,
-    args: [
-      "--scope",
-      "global",
-      "--include",
-      "mcp",
-      "--from",
-      "codex",
-      "--to",
-      "claude",
-      "--apply"
-    ],
-    env
+    args: ["--scope", "global", "--include", "mcp", "--from", "codex", "--to", "claude", "--apply"],
+    env,
   });
 }
 
@@ -174,10 +164,6 @@ test("second apply is idempotent", () => {
     assert.equal(second.status, 0, `second apply failed: ${second.output}`);
 
     const afterSecond = readFileSync(join(fixture.home, ".claude.json"), "utf8");
-    assert.equal(
-      afterSecond,
-      afterFirst,
-      "second apply must not change ~/.claude.json"
-    );
+    assert.equal(afterSecond, afterFirst, "second apply must not change ~/.claude.json");
   });
 });

@@ -7,7 +7,7 @@ import {
   cleanupFixture,
   createIntegrationFixture,
   layCodexHome,
-  layExpectedClaude
+  layExpectedClaude,
 } from "../helpers/fixture.mjs";
 import { assertGolden } from "../helpers/golden.mjs";
 import { runPlanJson, runSync } from "../helpers/run-cli.mjs";
@@ -46,9 +46,9 @@ function applyHooks(fixture, env = {}) {
       "codex",
       "--to",
       "claude",
-      "--apply"
+      "--apply",
     ],
-    env
+    env,
   });
 }
 
@@ -75,14 +75,11 @@ test("plan json marks hooks area as manual risk", () => {
     const planJson = runPlanJson({
       home: fixture.home,
       projectRoot: fixture.project,
-      include: ["hooks"]
+      include: ["hooks"],
     });
 
     const planText = JSON.stringify(planJson);
-    assert.ok(
-      planText.includes("\"hooks\""),
-      `expected plan to reference hooks area: ${planText}`
-    );
+    assert.ok(planText.includes('"hooks"'), `expected plan to reference hooks area: ${planText}`);
     assert.ok(
       planText.includes("manual"),
       `expected plan to mark hooks area as manual risk: ${planText}`

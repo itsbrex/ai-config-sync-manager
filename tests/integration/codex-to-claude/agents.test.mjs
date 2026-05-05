@@ -8,7 +8,7 @@ import {
   createIntegrationFixture,
   layCodexHome,
   layExpectedClaude,
-  layPreExistingClaude
+  layPreExistingClaude,
 } from "../helpers/fixture.mjs";
 import { assertGolden } from "../helpers/golden.mjs";
 import { extractBackupRoot, runSync } from "../helpers/run-cli.mjs";
@@ -48,8 +48,8 @@ function applyAgents(fixture) {
       "codex",
       "--to",
       "claude",
-      "--apply"
-    ]
+      "--apply",
+    ],
   });
 }
 
@@ -111,10 +111,7 @@ test("manual-overwrite uses backup before replacing", () => {
 
     const backupFiles = walkFiles(backupRootDir);
     const backedUp = backupFiles.find((p) => p.endsWith(`${"/.claude/agents/"}translate.md`));
-    assert.ok(
-      backedUp,
-      `expected backup of translate.md, got: ${backupFiles.join(", ")}`
-    );
+    assert.ok(backedUp, `expected backup of translate.md, got: ${backupFiles.join(", ")}`);
     assert.equal(
       readFileSync(backedUp, "utf8"),
       oldContent,

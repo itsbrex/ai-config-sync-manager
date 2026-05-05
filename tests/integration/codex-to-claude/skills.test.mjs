@@ -8,7 +8,7 @@ import {
   createIntegrationFixture,
   layCodexHome,
   layExpectedClaude,
-  layPreExistingClaude
+  layPreExistingClaude,
 } from "../helpers/fixture.mjs";
 import { assertGolden } from "../helpers/golden.mjs";
 import { extractBackupRoot, runPlanJson, runSync } from "../helpers/run-cli.mjs";
@@ -48,8 +48,8 @@ function applySkills(fixture) {
       "codex",
       "--to",
       "claude",
-      "--apply"
-    ]
+      "--apply",
+    ],
   });
 }
 
@@ -127,7 +127,7 @@ test("manual-overwrite replaces existing claude skill body and backs up", () => 
     const planJson = runPlanJson({
       home: fixture.home,
       projectRoot: fixture.project,
-      include: ["skills"]
+      include: ["skills"],
     });
     const skillOps = planJson.operations.filter((op) => op.area === "skills");
     assert.ok(skillOps.length > 0, "expected at least one skills operation in plan");
@@ -152,13 +152,8 @@ test("manual-overwrite replaces existing claude skill body and backs up", () => 
     assert.equal(existsSync(backupRootDir), true, `backup root missing: ${backupRootDir}`);
 
     const backupFiles = walkFiles(backupRootDir);
-    const backedUpSkill = backupFiles.find((p) =>
-      /\/\.claude\/skills\/hello\/skill\.md$/i.test(p)
-    );
-    assert.ok(
-      backedUpSkill,
-      `expected backup of hello SKILL.md, got: ${backupFiles.join(", ")}`
-    );
+    const backedUpSkill = backupFiles.find((p) => /\/\.claude\/skills\/hello\/skill\.md$/i.test(p));
+    assert.ok(backedUpSkill, `expected backup of hello SKILL.md, got: ${backupFiles.join(", ")}`);
     assert.equal(
       readFileSync(backedUpSkill, "utf8"),
       oldClaudeSkill,

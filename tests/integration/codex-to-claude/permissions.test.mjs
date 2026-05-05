@@ -7,7 +7,7 @@ import {
   cleanupFixture,
   createIntegrationFixture,
   layCodexHome,
-  layExpectedClaude
+  layExpectedClaude,
 } from "../helpers/fixture.mjs";
 import { assertGolden } from "../helpers/golden.mjs";
 import { runPlanJson, runSync } from "../helpers/run-cli.mjs";
@@ -46,9 +46,9 @@ function applyPermissions(fixture, env = {}) {
       "codex",
       "--to",
       "claude",
-      "--apply"
+      "--apply",
     ],
-    env
+    env,
   });
 }
 
@@ -75,12 +75,12 @@ test("plan json marks permissions area as manual risk", () => {
     const planJson = runPlanJson({
       home: fixture.home,
       projectRoot: fixture.project,
-      include: ["permissions"]
+      include: ["permissions"],
     });
 
     const planText = JSON.stringify(planJson);
     assert.ok(
-      planText.includes("\"permissions\""),
+      planText.includes('"permissions"'),
       `expected plan to reference permissions area: ${planText}`
     );
     assert.ok(
