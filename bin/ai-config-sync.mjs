@@ -9,7 +9,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  writeFileSync
+  writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
@@ -54,11 +54,7 @@ async function main() {
     } else {
       const { format, json, scopes, selectors } = parseStatus(argv);
       const report = createStatusReport(scopes, selectors);
-      console.log(
-        json
-          ? JSON.stringify(report, null, 2)
-          : renderStatus(report, format)
-      );
+      console.log(json ? JSON.stringify(report, null, 2) : renderStatus(report, format));
     }
   } else if (command === "sync") {
     if (isHelp(argv)) {
@@ -70,7 +66,9 @@ async function main() {
       if (mode === "apply") {
         for (const plan of plans) applySyncPlan(plan);
       }
-      console.log(options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans));
+      console.log(
+        options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans)
+      );
     }
   } else if (command === "reference") {
     if (isHelp(argv)) {
@@ -110,11 +108,13 @@ function createSyncPlans(options, mode) {
 }
 
 function formatPlanOutput(plans) {
-  return plans.length === 1 ? plans[0] : {
-    mode: plans[0]?.mode ?? "dry-run",
-    scopes: plans.map((plan) => plan.scope),
-    plans
-  };
+  return plans.length === 1
+    ? plans[0]
+    : {
+        mode: plans[0]?.mode ?? "dry-run",
+        scopes: plans.map((plan) => plan.scope),
+        plans,
+      };
 }
 
 function parseStatus(argv) {
@@ -157,10 +157,12 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
   const direction = defaultSyncDirection();
   const ignoreSource = ignoreListSource();
   const ignoreRules = (ignoreSource.data?.exclude ?? []).filter(Boolean);
-  const filtered = filterIgnoredEntries(filterEntries(
-    scopes.flatMap((scope) => diffScope(scope, ignoreRules)),
-    selectors
-  ));
+  const filtered = filterIgnoredEntries(
+    filterEntries(
+      scopes.flatMap((scope) => diffScope(scope, ignoreRules)),
+      selectors
+    )
+  );
   const entries = filtered.entries;
   const vocabFindings = filterVocabFindings(
     scopes.flatMap((scope) => lintScopeForVocab(scope)),
@@ -189,17 +191,29 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
       scopes,
       paraphraseOverrides.active.length,
       paraphraseOverrides.stale.length
-    )
+    ),
   };
 }
 
-function buildStatusSummary(diffCount, vocabCount, scopes, overrideActiveCount = 0, overrideStaleCount = 0) {
+function buildStatusSummary(
+  diffCount,
+  vocabCount,
+  scopes,
+  overrideActiveCount = 0,
+  overrideStaleCount = 0
+) {
   const scopeLabel = scopes.join("+");
   const parts = [];
-  parts.push(diffCount === 0 ? `No diff detected for ${scopeLabel} scope.` : `${diffCount} diff(s) detected for ${scopeLabel} scope.`);
+  parts.push(
+    diffCount === 0
+      ? `No diff detected for ${scopeLabel} scope.`
+      : `${diffCount} diff(s) detected for ${scopeLabel} scope.`
+  );
   if (vocabCount > 0) parts.push(`${vocabCount} vocab mismatch(es) detected.`);
   if (overrideActiveCount > 0 || overrideStaleCount > 0) {
-    parts.push(`${overrideActiveCount} paraphrase override(s) active, ${overrideStaleCount} stale.`);
+    parts.push(
+      `${overrideActiveCount} paraphrase override(s) active, ${overrideStaleCount} stale.`
+    );
   }
   return parts.join(" ");
 }
@@ -207,7 +221,9 @@ function buildStatusSummary(diffCount, vocabCount, scopes, overrideActiveCount =
 function renderStatus(report, format = "default") {
   if (format === "compact") return renderCompactStatus(report);
   if (format === "tree") return renderTreeStatus(report);
-  const hasDetail = report.entries.length > 0 || (Array.isArray(report.vocabFindings) && report.vocabFindings.length > 0);
+  const hasDetail =
+    report.entries.length > 0 ||
+    (Array.isArray(report.vocabFindings) && report.vocabFindings.length > 0);
   const detailPath = hasDetail ? writeStatusDetailFile(report) : null;
 
   const lines = [
@@ -217,7 +233,7 @@ function renderStatus(report, format = "default") {
     `Include: ${report.include.length ? report.include.join(", ") : "all"}`,
     `Exclude: ${report.exclude.length ? report.exclude.join(", ") : "none"}`,
     formatStatusIgnoreLine(report.statusIgnorePath, report.statusIgnoreRules, report.statusIgnored),
-    report.summary
+    report.summary,
   ];
 
   if (report.entries.length > 0) {
@@ -252,9 +268,14 @@ function renderVocabFindings(findings) {
   const auto = findings.filter((f) => f.recommended);
   const manual = findings.filter((f) => !f.recommended);
   const sortFn = (a, b) =>
-    a.host.localeCompare(b.host) || a.area.localeCompare(b.area) || a.path.localeCompare(b.path) || a.line - b.line;
+    a.host.localeCompare(b.host) ||
+    a.area.localeCompare(b.area) ||
+    a.path.localeCompare(b.path) ||
+    a.line - b.line;
 
-  const lines = [`Vocab mismatches (${findings.length} total: ${auto.length} auto-fix, ${manual.length} manual):`];
+  const lines = [
+    `Vocab mismatches (${findings.length} total: ${auto.length} auto-fix, ${manual.length} manual):`,
+  ];
 
   if (auto.length > 0) {
     lines.push("");
@@ -273,7 +294,9 @@ function renderVocabFindings(findings) {
     for (const f of [...manual].sort(sortFn)) {
       const hostLabel = f.host === "claude" ? "Claude" : "Codex";
       const sideLabel = f.side.replace("_only", "-only");
-      lines.push(`  ${hostLabel} ${f.area}/${f.item} L${f.line}: ${f.token} [${sideLabel}; not callable on ${f.host}] @ ${f.path}`);
+      lines.push(
+        `  ${hostLabel} ${f.area}/${f.item} L${f.line}: ${f.token} [${sideLabel}; not callable on ${f.host}] @ ${f.path}`
+      );
     }
   }
 
@@ -282,14 +305,18 @@ function renderVocabFindings(findings) {
 
 function renderStatusList(entries, ignoreRules = []) {
   const rows = statusTableRows(entries, ignoreRules);
-  return rows.map((row, index) => [
-    `${index + 1}. ${row.scope}/${row.area} [${row.risk}]`,
-    `   change: ${row.change}`,
-    `   item: ${row.item}`,
-    `   details: ${row.details}`,
-    `   action: ${row.action}`,
-    `   apply: ${row.command}`
-  ].join("\n")).join("\n\n");
+  return rows
+    .map((row, index) =>
+      [
+        `${index + 1}. ${row.scope}/${row.area} [${row.risk}]`,
+        `   change: ${row.change}`,
+        `   item: ${row.item}`,
+        `   details: ${row.details}`,
+        `   action: ${row.action}`,
+        `   apply: ${row.command}`,
+      ].join("\n")
+    )
+    .join("\n\n");
 }
 
 function renderStatusResult(entries, ignoreRules = []) {
@@ -300,7 +327,7 @@ function renderStatusResult(entries, ignoreRules = []) {
   return [
     "Result:",
     `  - ${safeCount} safe item(s)`,
-    `  - ${manualCount} manual-risk item(s)`
+    `  - ${manualCount} manual-risk item(s)`,
   ].join("\n");
 }
 
@@ -309,13 +336,12 @@ function renderDiffStatus(entries, ignoreRules = []) {
   const groups = [
     ["claude", rows.filter((row) => row.target === "claude")],
     ["codex", rows.filter((row) => row.target === "codex")],
-    ["review", rows.filter((row) => row.target === "review")]
+    ["review", rows.filter((row) => row.target === "review")],
   ].filter(([, groupRows]) => groupRows.length > 0);
 
-  return groups.map(([target, groupRows]) => [
-    `  ${target}:`,
-    ...renderDiffStatusRows(groupRows)
-  ].join("\n")).join("\n");
+  return groups
+    .map(([target, groupRows]) => [`  ${target}:`, ...renderDiffStatusRows(groupRows)].join("\n"))
+    .join("\n");
 }
 
 function renderDiffStatusRows(rows) {
@@ -342,7 +368,7 @@ function renderDiffStatusSummaryRow(group) {
   return [
     `    - ${group.scope}/${group.area}: ${formatSymbolCounts(counts)} (${group.rows.length} diff(s), ${risk})`,
     "      details: hidden because this area has 10+ item diffs; see detail file for all items and before/after previews",
-    `      apply: ai-config-sync sync --scope ${group.scope} --include ${group.area} --apply`
+    `      apply: ai-config-sync sync --scope ${group.scope} --include ${group.area} --apply`,
   ].join("\n");
 }
 
@@ -395,7 +421,7 @@ function renderDiffStatusRow(row) {
     `    - ${row.scope}/${row.area}: ${row.symbol}${row.item} (${row.change}, ${row.risk})`,
     `      details: ${row.details}`,
     `      action: ${row.action}`,
-    `      apply: ${row.command}`
+    `      apply: ${row.command}`,
   ];
 
   if (row.preview?.length) {
@@ -416,13 +442,13 @@ function writeStatusDetailFile(report) {
     `Include: ${report.include.length ? report.include.join(", ") : "all"}`,
     `Exclude: ${report.exclude.length ? report.exclude.join(", ") : "none"}`,
     report.summary,
-    ""
+    "",
   ];
 
   for (const [target, targetRows] of [
     ["claude", rows.filter((row) => row.target === "claude")],
     ["codex", rows.filter((row) => row.target === "codex")],
-    ["review", rows.filter((row) => row.target === "review")]
+    ["review", rows.filter((row) => row.target === "review")],
   ]) {
     if (targetRows.length === 0) continue;
     lines.push(`${target}:`);
@@ -443,7 +469,9 @@ function writeStatusDetailFile(report) {
     lines.push("stale paraphrase overrides:");
     for (const entry of staleOverrides) {
       lines.push(`  - ${entry.id} [${entry._staleReason}]`);
-      lines.push(`      scope: ${entry.scope ?? "?"}, area: ${entry.area ?? "?"}, item: ${entry.item ?? "?"}`);
+      lines.push(
+        `      scope: ${entry.scope ?? "?"}, area: ${entry.area ?? "?"}, item: ${entry.item ?? "?"}`
+      );
       lines.push(`      claude: ${entry.claude_path} L${entry.claude_line}`);
       lines.push(`        - before: ${entry.claude_text}`);
       lines.push(`      codex:  ${entry.codex_path} L${entry.codex_line}`);
@@ -471,11 +499,15 @@ function statusTableRows(entries, ignoreRules = []) {
     }
 
     for (const item of entry.missingInCodex ?? []) {
-      rows.push(statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex"), ignoreRules));
+      rows.push(
+        statusTableRow(entry, "missing in Codex", item, statusAction(entry, "codex"), ignoreRules)
+      );
     }
 
     for (const item of entry.missingInClaude ?? []) {
-      rows.push(statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude"), ignoreRules));
+      rows.push(
+        statusTableRow(entry, "missing in Claude", item, statusAction(entry, "claude"), ignoreRules)
+      );
     }
 
     for (const item of entry.conflicts ?? []) {
@@ -492,9 +524,10 @@ function statusTableRows(entries, ignoreRules = []) {
 
 function statusTableRow(entry, change, item, action, ignoreRules = []) {
   const selector = statusSelector(entry.area, item);
-  const command = action === "manual review"
-    ? "manual review"
-    : `ai-config-sync sync --scope ${entry.scope} --include ${shellQuote(selector)} --apply`;
+  const command =
+    action === "manual review"
+      ? "manual review"
+      : `ai-config-sync sync --scope ${entry.scope} --include ${shellQuote(selector)} --apply`;
 
   return {
     scope: entry.scope,
@@ -507,12 +540,15 @@ function statusTableRow(entry, change, item, action, ignoreRules = []) {
     details: statusDetails(entry, change),
     preview: statusPreview(entry, change, item, ignoreRules),
     target: statusTarget(change, action),
-    symbol: statusSymbol(change, action)
+    symbol: statusSymbol(change, action),
   };
 }
 
 function statusDisplayItem(entry, item) {
-  const quality = entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")] ?? entry.mappingQuality;
+  const quality =
+    entry.itemQualities?.[item] ??
+    entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")] ??
+    entry.mappingQuality;
   return quality ? `${item} [${quality}]` : item;
 }
 
@@ -535,10 +571,14 @@ function statusDetails(entry, change) {
   const { from, to } = defaultSyncDirection();
   const fromLabel = from === "claude" ? "Claude" : "Codex";
   const toLabel = to === "claude" ? "Claude" : "Codex";
-  if (change === "unsupported") return `Skill symlink is unsupported and excluded from sync. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
-  if (change === "missing in Codex") return `Claude has it; Codex missing. Claude: ${statusPathSummary(entry, "claude")} -> Codex: ${statusPathSummary(entry, "codex")}`;
-  if (change === "missing in Claude") return `Codex has it; Claude missing. Codex: ${statusPathSummary(entry, "codex")} -> Claude: ${statusPathSummary(entry, "claude")}`;
-  if (change === "conflict") return `Both hosts have this item with different content. Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
+  if (change === "unsupported")
+    return `Skill symlink is unsupported and excluded from sync. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
+  if (change === "missing in Codex")
+    return `Claude has it; Codex missing. Claude: ${statusPathSummary(entry, "claude")} -> Codex: ${statusPathSummary(entry, "codex")}`;
+  if (change === "missing in Claude")
+    return `Codex has it; Claude missing. Codex: ${statusPathSummary(entry, "codex")} -> Claude: ${statusPathSummary(entry, "claude")}`;
+  if (change === "conflict")
+    return `Both hosts have this item with different content. Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
   return `Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")} (${entry.claude}); Codex: ${statusPathSummary(entry, "codex")} (${entry.codex})`;
 }
 
@@ -549,8 +589,10 @@ function statusPreview(entry, change, item, ignoreRules = []) {
   const terms = entryMaskTerms(entry, item, ignoreRules);
 
   if (change === "content differs" && entry.area === "instructions") {
-    const targetContent = to === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
-    const sourceContent = from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    const targetContent =
+      to === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
+    const sourceContent =
+      from === "claude" ? entry.claudeInstructionContent : entry.codexInstructionContent;
     const transformedSource = transformTextForHost(sourceContent ?? "", from, to);
     const overrides = activeOverridesForFilePair(entry.claudePath, entry.codexPath);
     const masked = maskBodiesForHosts(targetContent ?? "", transformedSource, to, from, overrides);
@@ -566,20 +608,37 @@ function statusPreview(entry, change, item, ignoreRules = []) {
   if (change === "conflict" && entry.area === "skills") {
     const claudeSkillDir = join(entry.claudePath, item);
     const codexSkillDir = join(entry.codexPath, item);
-    return skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabel, toLabel, terms);
+    return skillDirChangePreview(
+      claudeSkillDir,
+      codexSkillDir,
+      from,
+      to,
+      fromLabel,
+      toLabel,
+      terms
+    );
   }
 
   if (change === "conflict" && entry.area === "agents") {
-    const targetPath = to === "claude" ? entry.claudeAgentPaths?.[item] : entry.codexAgentPaths?.[item];
-    const sourcePath = from === "claude" ? entry.claudeAgentPaths?.[item] : entry.codexAgentPaths?.[item];
+    const targetPath =
+      to === "claude" ? entry.claudeAgentPaths?.[item] : entry.codexAgentPaths?.[item];
+    const sourcePath =
+      from === "claude" ? entry.claudeAgentPaths?.[item] : entry.codexAgentPaths?.[item];
     const targetContent = agentPreviewContentFromPath(targetPath, to);
     const rawSource = agentPreviewContentFromPath(sourcePath, from);
-    const sourceContent = from === "claude"
-      ? transformTextForHost(rawSource, "claude", "codex")
-      : transformTextForHost(stripAgentMigrationPreamble(rawSource), "codex", "claude");
+    const sourceContent =
+      from === "claude"
+        ? transformTextForHost(rawSource, "claude", "codex")
+        : transformTextForHost(stripAgentMigrationPreamble(rawSource), "codex", "claude");
     const overrides = activeManifestOverridesForPair(targetPath, sourcePath, to, from);
     const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
-    return contentChangePreview(`${toLabel} current`, masked.target, `After apply from ${fromLabel}`, masked.source, terms);
+    return contentChangePreview(
+      `${toLabel} current`,
+      masked.target,
+      `After apply from ${fromLabel}`,
+      masked.source,
+      terms
+    );
   }
 
   if (change === "conflict" && entry.area === "mcp") {
@@ -589,7 +648,13 @@ function statusPreview(entry, change, item, ignoreRules = []) {
     const sourceServer = from === "claude" ? claudeServers[item] : codexServers[item];
     const targetContent = renderCodexMcpServers({ [item]: targetServer ?? {} });
     const sourceContent = renderCodexMcpServers({ [item]: sourceServer ?? {} });
-    return contentChangePreview(`${toLabel} current`, targetContent, `After apply from ${fromLabel}`, sourceContent, terms);
+    return contentChangePreview(
+      `${toLabel} current`,
+      targetContent,
+      `After apply from ${fromLabel}`,
+      sourceContent,
+      terms
+    );
   }
 
   return [];
@@ -599,20 +664,23 @@ function entryMaskTerms(entry, item, ignoreRules) {
   if (!Array.isArray(ignoreRules) || ignoreRules.length === 0) return [];
   return uniqueStrings([
     ...applicableTermRules(ignoreRules, entry, item, "claude"),
-    ...applicableTermRules(ignoreRules, entry, item, "codex")
+    ...applicableTermRules(ignoreRules, entry, item, "codex"),
   ]);
 }
 
 function statusPathSummary(entry, host) {
   if (host === "claude") {
-    return instructionPathSummary(entry.claudeInstructionPaths, entry.claudeInstructionCheckedPaths)
-      ?? firstClaudeMcpDisplayPath(entry.claudeMcpPaths)
-      ?? entry.claudePath;
+    return (
+      instructionPathSummary(entry.claudeInstructionPaths, entry.claudeInstructionCheckedPaths) ??
+      firstClaudeMcpDisplayPath(entry.claudeMcpPaths) ??
+      entry.claudePath
+    );
   }
 
-  const base = instructionPathSummary(entry.codexInstructionPaths, entry.codexInstructionCheckedPaths)
-    ?? firstStatusPath(entry.codexMcpPaths)
-    ?? entry.codexPath;
+  const base =
+    instructionPathSummary(entry.codexInstructionPaths, entry.codexInstructionCheckedPaths) ??
+    firstStatusPath(entry.codexMcpPaths) ??
+    entry.codexPath;
 
   if (entry.area === "permissions" && entry.codexPath && permissionItemsTouchRules(entry)) {
     return `${base} + ${codexRulesPath(entry.codexPath)}`;
@@ -635,10 +703,10 @@ function permissionItemsTouchRules(entry) {
 }
 
 function instructionPathSummary(sourcePaths, checkedPaths) {
-  if (!Array.isArray(checkedPaths) || checkedPaths.length === 0) return firstStatusPath(sourcePaths);
-  const sources = Array.isArray(sourcePaths) && sourcePaths.length > 0
-    ? sourcePaths.join(", ")
-    : "none";
+  if (!Array.isArray(checkedPaths) || checkedPaths.length === 0)
+    return firstStatusPath(sourcePaths);
+  const sources =
+    Array.isArray(sourcePaths) && sourcePaths.length > 0 ? sourcePaths.join(", ") : "none";
   return `sources: ${sources}; checked: ${checkedPaths.join(", ")}`;
 }
 
@@ -667,7 +735,7 @@ function shellQuote(value) {
 function renderCompactStatus(report) {
   const lines = [
     `status: ${report.summary}`,
-    `direction=${report.direction.from}->${report.direction.to} scopes=${report.scopes.join(",")} include=${report.include.length ? report.include.join(",") : "all"} exclude=${report.exclude.length ? report.exclude.join(",") : "none"}${formatCompactIgnoreSegment(report.statusIgnoreRules, report.statusIgnored)}`
+    `direction=${report.direction.from}->${report.direction.to} scopes=${report.scopes.join(",")} include=${report.include.length ? report.include.join(",") : "all"} exclude=${report.exclude.length ? report.exclude.join(",") : "none"}${formatCompactIgnoreSegment(report.statusIgnoreRules, report.statusIgnored)}`,
   ];
 
   for (const entry of report.entries) {
@@ -680,13 +748,20 @@ function renderCompactStatus(report) {
 function renderTreeStatus(report) {
   const lines = [
     "AI Config Sync Manager status",
-    `Default sync direction: ${report.direction.from} -> ${report.direction.to}`
+    `Default sync direction: ${report.direction.from} -> ${report.direction.to}`,
   ];
 
-  const hasIgnoreRules = Array.isArray(report.statusIgnoreRules) && report.statusIgnoreRules.length > 0;
+  const hasIgnoreRules =
+    Array.isArray(report.statusIgnoreRules) && report.statusIgnoreRules.length > 0;
   const hasHidden = typeof report.statusIgnored === "number" && report.statusIgnored > 0;
   if (report.statusIgnorePath && (hasIgnoreRules || hasHidden)) {
-    lines.push(formatStatusIgnoreLine(report.statusIgnorePath, report.statusIgnoreRules, report.statusIgnored));
+    lines.push(
+      formatStatusIgnoreLine(
+        report.statusIgnorePath,
+        report.statusIgnoreRules,
+        report.statusIgnored
+      )
+    );
   }
 
   lines.push(report.summary);
@@ -712,17 +787,29 @@ function renderTreeStatus(report) {
 function statusItems(entry) {
   if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
     return [
-      ...(entry.missingInCodex ?? []).map((name) => `missing-in-codex: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Codex")}`),
-      ...(entry.missingInClaude ?? []).map((name) => `missing-in-claude: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Claude")}`),
-      ...(entry.conflicts ?? []).map((name) => `conflict: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "conflict")}`)
+      ...(entry.missingInCodex ?? []).map(
+        (name) =>
+          `missing-in-codex: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Codex")}`
+      ),
+      ...(entry.missingInClaude ?? []).map(
+        (name) =>
+          `missing-in-claude: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Claude")}`
+      ),
+      ...(entry.conflicts ?? []).map(
+        (name) =>
+          `conflict: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "conflict")}`
+      ),
     ];
   }
 
-  return [`${entry.area}: claude=${entry.claude}, codex=${entry.codex} [${entry.mappingQuality ?? "unsupported"}] | details: ${statusDetails(entry, "content differs")}`];
+  return [
+    `${entry.area}: claude=${entry.claude}, codex=${entry.codex} [${entry.mappingQuality ?? "unsupported"}] | details: ${statusDetails(entry, "content differs")}`,
+  ];
 }
 
 function formatQualityItem(entry, item) {
-  const quality = entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
+  const quality =
+    entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
   return quality ? `${item} [${quality}]` : item;
 }
 
@@ -767,12 +854,14 @@ function parseSelector(raw) {
 
   return {
     area,
-    item
+    item,
   };
 }
 
 function renderSelectors(selectors) {
-  return selectors.map((selector) => selector.item ? `${selector.area}:${selector.item}` : selector.area);
+  return selectors.map((selector) =>
+    selector.item ? `${selector.area}:${selector.item}` : selector.area
+  );
 }
 
 function filterEntries(entries, selectors) {
@@ -809,23 +898,32 @@ function filterIgnoredEntry(entry, rules) {
   }
 
   const filtered = { ...entry };
-  filtered.unsupported = (entry.unsupported ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
-  filtered.missingInCodex = (entry.missingInCodex ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
-  filtered.missingInClaude = (entry.missingInClaude ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
-  filtered.conflicts = (entry.conflicts ?? []).filter((item) => !ignoreRulesMatchEntry(rules, entry, item));
+  filtered.unsupported = (entry.unsupported ?? []).filter(
+    (item) => !ignoreRulesMatchEntry(rules, entry, item)
+  );
+  filtered.missingInCodex = (entry.missingInCodex ?? []).filter(
+    (item) => !ignoreRulesMatchEntry(rules, entry, item)
+  );
+  filtered.missingInClaude = (entry.missingInClaude ?? []).filter(
+    (item) => !ignoreRulesMatchEntry(rules, entry, item)
+  );
+  filtered.conflicts = (entry.conflicts ?? []).filter(
+    (item) => !ignoreRulesMatchEntry(rules, entry, item)
+  );
   filtered.itemQualities = filterItemQualities(entry.itemQualities ?? {}, [
     ...filtered.unsupported,
     ...filtered.missingInCodex,
     ...filtered.missingInClaude,
-    ...filtered.conflicts
+    ...filtered.conflicts,
   ]);
 
   if (
-    filtered.unsupported.length === 0
-    && filtered.missingInCodex.length === 0
-    && filtered.missingInClaude.length === 0
-    && filtered.conflicts.length === 0
-  ) return null;
+    filtered.unsupported.length === 0 &&
+    filtered.missingInCodex.length === 0 &&
+    filtered.missingInClaude.length === 0 &&
+    filtered.conflicts.length === 0
+  )
+    return null;
   return filtered;
 }
 
@@ -901,7 +999,7 @@ function normalizeIgnoreRule(rule) {
     item: typeof rule.item === "string" ? rule.item : null,
     host: typeof rule.host === "string" ? rule.host : null,
     path: typeof rule.path === "string" ? rule.path : null,
-    term: typeof rule.term === "string" ? rule.term : null
+    term: typeof rule.term === "string" ? rule.term : null,
   };
 }
 
@@ -916,13 +1014,25 @@ function entryRulePaths(entry, item, host) {
   const paths = [];
   const claudeMcpFiles = (entry.claudeMcpPaths ?? []).map(claudeMcpSourceFile);
   if (!host || host === "claude") {
-    paths.push(entry.claudePath, ...(entry.claudeInstructionPaths ?? []), ...(entry.claudeInstructionCheckedPaths ?? []), ...claudeMcpFiles);
-    if (entry.area === "skills" && item) paths.push(join(entry.claudePath, item), join(entry.claudePath, item, "SKILL.md"));
+    paths.push(
+      entry.claudePath,
+      ...(entry.claudeInstructionPaths ?? []),
+      ...(entry.claudeInstructionCheckedPaths ?? []),
+      ...claudeMcpFiles
+    );
+    if (entry.area === "skills" && item)
+      paths.push(join(entry.claudePath, item), join(entry.claudePath, item, "SKILL.md"));
     if (entry.area === "agents" && item) paths.push(join(entry.claudePath, `${item}.md`));
   }
   if (!host || host === "codex") {
-    paths.push(entry.codexPath, ...(entry.codexInstructionPaths ?? []), ...(entry.codexInstructionCheckedPaths ?? []), ...(entry.codexMcpPaths ?? []));
-    if (entry.area === "skills" && item) paths.push(join(entry.codexPath, item), join(entry.codexPath, item, "SKILL.md"));
+    paths.push(
+      entry.codexPath,
+      ...(entry.codexInstructionPaths ?? []),
+      ...(entry.codexInstructionCheckedPaths ?? []),
+      ...(entry.codexMcpPaths ?? [])
+    );
+    if (entry.area === "skills" && item)
+      paths.push(join(entry.codexPath, item), join(entry.codexPath, item, "SKILL.md"));
     if (entry.area === "agents" && item) {
       const flat = item.includes("/") ? item.split("/").pop() : item;
       paths.push(join(entry.codexPath, `${flat}.toml`));
@@ -934,7 +1044,8 @@ function entryRulePaths(entry, item, host) {
 function pathMatchesIgnoreRule(path, pattern) {
   const normalizedPath = path.replaceAll("\\", "/");
   const normalizedPattern = expandHome(pattern).replaceAll("\\", "/");
-  if (normalizedPath === normalizedPattern || normalizedPath.endsWith(normalizedPattern)) return true;
+  if (normalizedPath === normalizedPattern || normalizedPath.endsWith(normalizedPattern))
+    return true;
   if (!/[*?]/.test(normalizedPattern)) return false;
   return globToRegExp(normalizedPattern).test(normalizedPath);
 }
@@ -971,10 +1082,7 @@ function ignoreListSource() {
 }
 
 function ignoreListCandidates() {
-  return [
-    projectIgnoreListPath(),
-    `${home}/.ai-config-sync-manager/rules/status-ignore.json`
-  ];
+  return [projectIgnoreListPath(), `${home}/.ai-config-sync-manager/rules/status-ignore.json`];
 }
 
 function projectIgnoreListPath() {
@@ -997,10 +1105,15 @@ function selectorMatchesEntry(selector, entry) {
 }
 
 function filterEntryItems(entry, selectors) {
-  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts && !entry.unsupported) return entry;
+  if (!entry.missingInCodex && !entry.missingInClaude && !entry.conflicts && !entry.unsupported)
+    return entry;
 
-  const includes = selectors.include.filter((selector) => selector.area === entry.area && selector.item);
-  const excludes = selectors.exclude.filter((selector) => selector.area === entry.area && selector.item);
+  const includes = selectors.include.filter(
+    (selector) => selector.area === entry.area && selector.item
+  );
+  const excludes = selectors.exclude.filter(
+    (selector) => selector.area === entry.area && selector.item
+  );
   const includeItems = includes.map((selector) => selector.item);
   const excludeItems = excludes.map((selector) => selector.item);
   const filtered = { ...entry };
@@ -1013,27 +1126,34 @@ function filterEntryItems(entry, selectors) {
     ...filtered.unsupported,
     ...filtered.missingInCodex,
     ...filtered.missingInClaude,
-    ...filtered.conflicts
+    ...filtered.conflicts,
   ]);
 
   if (
-    filtered.unsupported.length === 0
-    && filtered.missingInCodex.length === 0
-    && filtered.missingInClaude.length === 0
-    && filtered.conflicts.length === 0
-  ) return null;
+    filtered.unsupported.length === 0 &&
+    filtered.missingInCodex.length === 0 &&
+    filtered.missingInClaude.length === 0 &&
+    filtered.conflicts.length === 0
+  )
+    return null;
   return filtered;
 }
 
 function filterItemQualities(itemQualities, items) {
   return Object.fromEntries(
-    Object.entries(itemQualities).filter(([item]) => items.some((selected) => itemMatchesSelector(item, selected)))
+    Object.entries(itemQualities).filter(([item]) =>
+      items.some((selected) => itemMatchesSelector(item, selected))
+    )
   );
 }
 
 function filterItems(items, includeItems, excludeItems) {
   return items.filter((item) => {
-    if (includeItems.length > 0 && !includeItems.some((includeItem) => itemMatchesSelector(item, includeItem))) return false;
+    if (
+      includeItems.length > 0 &&
+      !includeItems.some((includeItem) => itemMatchesSelector(item, includeItem))
+    )
+      return false;
     return !excludeItems.some((excludeItem) => itemMatchesSelector(item, excludeItem));
   });
 }
@@ -1048,7 +1168,12 @@ function itemMatchesSelector(item, selector) {
 
 function entryItems(entry) {
   if (entry.missingInCodex || entry.missingInClaude || entry.conflicts || entry.unsupported) {
-    return [...(entry.unsupported ?? []), ...(entry.missingInCodex ?? []), ...(entry.missingInClaude ?? []), ...(entry.conflicts ?? [])];
+    return [
+      ...(entry.unsupported ?? []),
+      ...(entry.missingInCodex ?? []),
+      ...(entry.missingInClaude ?? []),
+      ...(entry.conflicts ?? []),
+    ];
   }
 
   return [entry.area];
@@ -1064,12 +1189,16 @@ function directionalItems(entry, to) {
 function createSyncPlan(options, mode) {
   const ignoreSource = ignoreListSource();
   const ignoreRules = (ignoreSource.data?.exclude ?? []).filter(Boolean);
-  const filtered = filterIgnoredEntries(filterEntries(diffScope(options.scope, ignoreRules), options.selectors));
+  const filtered = filterIgnoredEntries(
+    filterEntries(diffScope(options.scope, ignoreRules), options.selectors)
+  );
   const entries = filtered.entries;
   const baseline = readSyncState(options.scope);
   const callArchive = [];
   const operationOptions = { ...options, callArchive, ignoreRules: filtered.rules ?? [] };
-  const operations = entries.flatMap((entry) => createOperations(entry, operationOptions)).filter(Boolean);
+  const operations = entries
+    .flatMap((entry) => createOperations(entry, operationOptions))
+    .filter(Boolean);
   const backupRoot = `${home}/.ai-config-sync-manager/backups/${new Date().toISOString().replaceAll(":", "-")}`;
 
   const vocabFindings = filterVocabFindings(
@@ -1098,7 +1227,7 @@ function createSyncPlan(options, mode) {
     callArchivePath: join(backupRoot, "unsupported-calls.json"),
     operations,
     vocabFindings,
-    results: []
+    results: [],
   };
 }
 
@@ -1106,8 +1235,10 @@ function createOperations(entry, options) {
   if (entry.statusOnly) return [];
 
   const { from, to } = options;
-  const missingInTarget = to === "codex" ? entry.missingInCodex ?? [] : entry.missingInClaude ?? [];
-  const missingInSource = to === "codex" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
+  const missingInTarget =
+    to === "codex" ? (entry.missingInCodex ?? []) : (entry.missingInClaude ?? []);
+  const missingInSource =
+    to === "codex" ? (entry.missingInClaude ?? []) : (entry.missingInCodex ?? []);
   const conflicts = entry.conflicts ?? [];
   const operations = [];
 
@@ -1130,7 +1261,7 @@ function createOperationForItems(entry, from, to, itemNames, options) {
   const scoped = {
     ...entry,
     missingInCodex: to === "codex" ? itemNames : [],
-    missingInClaude: to === "claude" ? itemNames : []
+    missingInClaude: to === "claude" ? itemNames : [],
   };
   return createOperation(scoped, from, to, options);
 }
@@ -1147,15 +1278,18 @@ function createDeleteOperation(entry, from, to, itemNames, options) {
       to,
       itemNames,
       backupRequired: true,
-      approvalRequired: true
+      approvalRequired: true,
     };
   }
 
   const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
   const sourcePath = from === "claude" ? entry.claudePath : entry.codexPath;
-  const skillTargetIndex = entry.area === "skills"
-    ? (to === "claude" ? entry.claudeSkillIndex ?? {} : entry.codexSkillIndex ?? {})
-    : undefined;
+  const skillTargetIndex =
+    entry.area === "skills"
+      ? to === "claude"
+        ? (entry.claudeSkillIndex ?? {})
+        : (entry.codexSkillIndex ?? {})
+      : undefined;
   return {
     scope: entry.scope,
     area: entry.area,
@@ -1174,7 +1308,7 @@ function createDeleteOperation(entry, from, to, itemNames, options) {
     agentNames: entry.area === "agents" ? itemNames : undefined,
     itemQualities: operationItemQualities(entry, itemNames),
     backupRequired: true,
-    approvalRequired: false
+    approvalRequired: false,
   };
 }
 
@@ -1183,9 +1317,10 @@ function createOperation(entry, from, to, options = {}) {
   const targetPath = to === "claude" ? entry.claudePath : entry.codexPath;
 
   if (entry.area === "permissions" || entry.area === "hooks") {
-    const itemNames = entry.area === "permissions"
-      ? permissionOperationItems(directionalItems(entry, to))
-      : directionalItems(entry, to);
+    const itemNames =
+      entry.area === "permissions"
+        ? permissionOperationItems(directionalItems(entry, to))
+        : directionalItems(entry, to);
     if (itemNames.length === 0) return null;
 
     if (!existsSync(sourcePath)) {
@@ -1197,7 +1332,7 @@ function createOperation(entry, from, to, options = {}) {
         sourcePath,
         targetPath,
         backupRequired: false,
-        approvalRequired: true
+        approvalRequired: true,
       };
     }
 
@@ -1215,13 +1350,19 @@ function createOperation(entry, from, to, options = {}) {
       patchPreview: settingsItemPatchPreview(entry.area, from, to, sourcePath, itemNames),
       reviewNotes: entry.area === "permissions" ? permissionReviewNotes(itemNames) : [],
       backupRequired: true,
-      approvalRequired: false
+      approvalRequired: false,
     };
   }
 
   if (entry.area === "mcp") {
-    const sourceMcpPaths = from === "claude" ? entry.claudeMcpPaths ?? [sourcePath] : entry.codexMcpPaths ?? [sourcePath];
-    const targetMcpPaths = to === "claude" ? entry.claudeMcpPaths ?? [targetPath] : entry.codexMcpPaths ?? [targetPath];
+    const sourceMcpPaths =
+      from === "claude"
+        ? (entry.claudeMcpPaths ?? [sourcePath])
+        : (entry.codexMcpPaths ?? [sourcePath]);
+    const targetMcpPaths =
+      to === "claude"
+        ? (entry.claudeMcpPaths ?? [targetPath])
+        : (entry.codexMcpPaths ?? [targetPath]);
 
     if (!mcpSourceExists(sourceMcpPaths)) {
       return {
@@ -1232,7 +1373,7 @@ function createOperation(entry, from, to, options = {}) {
         sourcePath,
         targetPath,
         backupRequired: false,
-        approvalRequired: true
+        approvalRequired: true,
       };
     }
 
@@ -1249,9 +1390,15 @@ function createOperation(entry, from, to, options = {}) {
       targetMcpPaths,
       serverNames: directionalItems(entry, to),
       itemQualities: operationItemQualities(entry, directionalItems(entry, to)),
-      patchPreview: mcpPatchPreview(sourceMcpPaths, targetMcpPaths, from, to, directionalItems(entry, to)),
+      patchPreview: mcpPatchPreview(
+        sourceMcpPaths,
+        targetMcpPaths,
+        from,
+        to,
+        directionalItems(entry, to)
+      ),
       backupRequired: true,
-      approvalRequired: false
+      approvalRequired: false,
     };
   }
 
@@ -1272,11 +1419,14 @@ function createOperation(entry, from, to, options = {}) {
         sourcePath,
         targetPath,
         backupRequired: false,
-        approvalRequired: true
+        approvalRequired: true,
       };
     }
 
-    const targetContent = to === "claude" ? entry.claudeInstructionContent ?? "" : entry.codexInstructionContent ?? "";
+    const targetContent =
+      to === "claude"
+        ? (entry.claudeInstructionContent ?? "")
+        : (entry.codexInstructionContent ?? "");
     const sourceContent = instructionContent ?? fileText(sourcePath);
     const overrides = activeOverridesForFilePair(entry.claudePath, entry.codexPath);
     const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
@@ -1298,15 +1448,16 @@ function createOperation(entry, from, to, options = {}) {
         entryMaskTerms(entry, entry.area, options.ignoreRules ?? [])
       ),
       backupRequired: true,
-      approvalRequired: false
+      approvalRequired: false,
     };
   }
 
   if (entry.area === "skills") {
-    const missing = to === "claude" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
+    const missing = to === "claude" ? (entry.missingInClaude ?? []) : (entry.missingInCodex ?? []);
     const conflicts = entry.conflicts ?? [];
     const skillNames = [...missing, ...conflicts];
-    const sourceIndex = from === "claude" ? entry.claudeSkillIndex ?? {} : entry.codexSkillIndex ?? {};
+    const sourceIndex =
+      from === "claude" ? (entry.claudeSkillIndex ?? {}) : (entry.codexSkillIndex ?? {});
     return {
       scope: entry.scope,
       area: entry.area,
@@ -1322,14 +1473,22 @@ function createOperation(entry, from, to, options = {}) {
       itemQualities: operationItemQualities(entry, skillNames),
       termMappingPath: terminologyMapPath(),
       targetTemplatePath: targetTemplatePath(),
-      changePreview: skillChangePreview(sourcePath, targetPath, conflicts, from, sourceIndex, entry, options.ignoreRules ?? []),
+      changePreview: skillChangePreview(
+        sourcePath,
+        targetPath,
+        conflicts,
+        from,
+        sourceIndex,
+        entry,
+        options.ignoreRules ?? []
+      ),
       backupRequired: true,
-      approvalRequired: false
+      approvalRequired: false,
     };
   }
 
   if (entry.area === "agents") {
-    const missing = to === "claude" ? entry.missingInClaude ?? [] : entry.missingInCodex ?? [];
+    const missing = to === "claude" ? (entry.missingInClaude ?? []) : (entry.missingInCodex ?? []);
     const conflicts = entry.conflicts ?? [];
     const agentNames = [...missing, ...conflicts];
     if (agentNames.length === 0) return null;
@@ -1349,9 +1508,19 @@ function createOperation(entry, from, to, options = {}) {
       agentsMapPath: agentsMapPath(),
       termMappingPath: terminologyMapPath(),
       targetTemplatePath: targetTemplatePath(),
-      changePreview: agentChangePreview(sourcePath, targetPath, conflicts, from, to, entry.claudeAgentPaths ?? {}, entry.codexAgentPaths ?? {}, entry, options.ignoreRules ?? []),
+      changePreview: agentChangePreview(
+        sourcePath,
+        targetPath,
+        conflicts,
+        from,
+        to,
+        entry.claudeAgentPaths ?? {},
+        entry.codexAgentPaths ?? {},
+        entry,
+        options.ignoreRules ?? []
+      ),
       backupRequired: true,
-      approvalRequired: false
+      approvalRequired: false,
     };
   }
 
@@ -1363,13 +1532,18 @@ function createOperation(entry, from, to, options = {}) {
     sourcePath,
     targetPath,
     backupRequired: true,
-    approvalRequired: false
+    approvalRequired: false,
   };
 }
 
 function operationItemQualities(entry, items) {
   return Object.fromEntries(
-    items.map((item) => [item, entry.itemQualities?.[item] ?? entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")] ?? "unsupported"])
+    items.map((item) => [
+      item,
+      entry.itemQualities?.[item] ??
+        entry.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")] ??
+        "unsupported",
+    ])
   );
 }
 
@@ -1381,22 +1555,30 @@ function permissionReviewNotes(itemNames) {
     const pattern = bashPattern(value);
 
     if (pattern?.risky) {
-      notes.push(`${value}: broad, interpreter, shell-wrapper, network, or destructive command will be written as a prefix_rule; review before apply`);
+      notes.push(
+        `${value}: broad, interpreter, shell-wrapper, network, or destructive command will be written as a prefix_rule; review before apply`
+      );
       continue;
     }
 
     if (bucket === "allow" && value === "WebFetch") {
-      notes.push(`${value}: maps to config.toml web_search = "live"; reverse sync will normalize to WebSearch (lossy)`);
+      notes.push(
+        `${value}: maps to config.toml web_search = "live"; reverse sync will normalize to WebSearch (lossy)`
+      );
       continue;
     }
 
     if (isAgentPermission(value) && !(bucket === "allow" && value === "Agent")) {
-      notes.push(`${value}: unsupported on Codex (no spawn_agent gate); archived under unsupported-calls.json`);
+      notes.push(
+        `${value}: unsupported on Codex (no spawn_agent gate); archived under unsupported-calls.json`
+      );
       continue;
     }
 
     if (itemMappingQuality("permissions", itemName) === "approximate") {
-      notes.push(`${value}: maps to a broad Codex approval policy; review before relying on equivalent behavior`);
+      notes.push(
+        `${value}: maps to a broad Codex approval policy; review before relying on equivalent behavior`
+      );
     } else if (itemMappingQuality("permissions", itemName) === "unsupported") {
       notes.push(`${value}: unsupported permission mapping; preserved as metadata only`);
     }
@@ -1445,15 +1627,23 @@ function permissionPatchPreview(to, itemNames) {
         if (bucket === "deny") {
           changes.push(`config.toml [mcp_servers.${mcp.server}] enabled_tools = []`);
         } else {
-          changes.push(`config.toml [mcp_servers.${mcp.server}] (no-op; codex defaults already allow every tool)`);
+          changes.push(
+            `config.toml [mcp_servers.${mcp.server}] (no-op; codex defaults already allow every tool)`
+          );
         }
       } else {
         const approvalMode = bucket === "deny" ? "deny" : bucket === "ask" ? "prompt" : "approve";
-        changes.push(`config.toml [mcp_servers.${mcp.server}.tools.${mcp.tool}] approval_mode = ${JSON.stringify(approvalMode)}`);
+        changes.push(
+          `config.toml [mcp_servers.${mcp.server}.tools.${mcp.tool}] approval_mode = ${JSON.stringify(approvalMode)}`
+        );
         if (bucket === "allow") {
-          changes.push(`config.toml [mcp_servers.${mcp.server}] enabled_tools += ${JSON.stringify(mcp.tool)}`);
+          changes.push(
+            `config.toml [mcp_servers.${mcp.server}] enabled_tools += ${JSON.stringify(mcp.tool)}`
+          );
         } else if (bucket === "deny") {
-          changes.push(`config.toml [mcp_servers.${mcp.server}] disabled_tools += ${JSON.stringify(mcp.tool)}`);
+          changes.push(
+            `config.toml [mcp_servers.${mcp.server}] disabled_tools += ${JSON.stringify(mcp.tool)}`
+          );
         }
       }
     }
@@ -1470,9 +1660,8 @@ function permissionPatchPreview(to, itemNames) {
 }
 
 function hookPatchPreview(from, to, sourcePath, itemNames) {
-  const sourceValues = to === "codex" && from === "claude"
-    ? claudeManagedValues("hooks", sourcePath, itemNames)
-    : {};
+  const sourceValues =
+    to === "codex" && from === "claude" ? claudeManagedValues("hooks", sourcePath, itemNames) : {};
 
   return itemNames.map((itemName) => {
     const changes = [];
@@ -1502,7 +1691,7 @@ function renderSyncPlan(plan) {
     `Include: ${plan.include.length ? plan.include.join(", ") : "all"}`,
     `Exclude: ${plan.exclude.length ? plan.exclude.join(", ") : "none"}`,
     formatPlanIgnoreLine(plan.ignorePath, plan.ignoreRules, plan.ignored),
-    `Backup root: ${plan.backupRoot}`
+    `Backup root: ${plan.backupRoot}`,
   ];
 
   if (plan.operations.length === 0) {
@@ -1523,7 +1712,9 @@ function renderSyncPlan(plan) {
       lines.push(`  Items: ${formatOperationItems(operation, operation.itemNames).join(", ")}`);
     }
     if (operation.serverNames?.length) {
-      lines.push(`  MCP servers: ${formatOperationItems(operation, operation.serverNames).join(", ")}`);
+      lines.push(
+        `  MCP servers: ${formatOperationItems(operation, operation.serverNames).join(", ")}`
+      );
     }
     if (operation.termMappingPath) {
       lines.push(`  Term mapping: ${operation.termMappingPath}`);
@@ -1583,10 +1774,11 @@ function renderSyncPlans(plans) {
   return plans.map(renderSyncPlan).join("\n\n");
 }
 
-
 function formatOperationItems(operation, items) {
   return items.map((item) => {
-    const quality = operation.itemQualities?.[item] ?? operation.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
+    const quality =
+      operation.itemQualities?.[item] ??
+      operation.itemQualities?.[item.replace(/^(allow|ask|deny):/, "")];
     return quality ? `${item} [${quality}]` : item;
   });
 }
@@ -1600,44 +1792,32 @@ function targetTemplatePath() {
 }
 
 function terminologyMapSource() {
-  return loadLayeredRule(
-    terminologyMapCandidates(),
-    { layers: [] },
-    mergeTerminologyMap
-  );
+  return loadLayeredRule(terminologyMapCandidates(), { layers: [] }, mergeTerminologyMap);
 }
 
 function terminologyMapCandidates() {
   return [
     join(resolve(process.cwd()), "rules/terminology-map.json"),
     `${home}/.ai-config-sync-manager/rules/terminology-map.json`,
-    join(runtimeRoot, "rules/terminology-map.json")
+    join(runtimeRoot, "rules/terminology-map.json"),
   ];
 }
 
 function targetTemplateSource() {
-  return loadLayeredRule(
-    targetTemplateCandidates(),
-    { templates: [] },
-    mergeTargetTemplates
-  );
+  return loadLayeredRule(targetTemplateCandidates(), { templates: [] }, mergeTargetTemplates);
 }
 
 function targetTemplateCandidates() {
   return [
     join(resolve(process.cwd()), "rules/host-target-templates.json"),
     `${home}/.ai-config-sync-manager/rules/host-target-templates.json`,
-    join(runtimeRoot, "rules/host-target-templates.json")
+    join(runtimeRoot, "rules/host-target-templates.json"),
   ];
 }
 
 function transformTextForHost(value, from, to, options = {}) {
   return applyTermMappings(
-    applyTargetTemplates(
-      applyCallTransforms(value, from, to, options.callArchive),
-      from,
-      to
-    ),
+    applyTargetTemplates(applyCallTransforms(value, from, to, options.callArchive), from, to),
     from,
     to
   );
@@ -1663,7 +1843,7 @@ function callTemplatesCandidates() {
   return [
     join(resolve(process.cwd()), "rules/call-templates.json"),
     `${home}/.ai-config-sync-manager/rules/call-templates.json`,
-    join(runtimeRoot, "rules/call-templates.json")
+    join(runtimeRoot, "rules/call-templates.json"),
   ];
 }
 
@@ -1679,7 +1859,7 @@ function hostStrictVocabCandidates() {
   return [
     join(resolve(process.cwd()), "rules/host-strict-vocab.json"),
     `${home}/.ai-config-sync-manager/rules/host-strict-vocab.json`,
-    join(runtimeRoot, "rules/host-strict-vocab.json")
+    join(runtimeRoot, "rules/host-strict-vocab.json"),
   ];
 }
 
@@ -1687,7 +1867,7 @@ function mergeHostStrictVocab(base, override) {
   const out = {
     claude_only: [...(base.claude_only ?? [])],
     codex_only: [...(base.codex_only ?? [])],
-    claude_only_patterns: [...(base.claude_only_patterns ?? [])]
+    claude_only_patterns: [...(base.claude_only_patterns ?? [])],
   };
   for (const key of ["claude_only", "codex_only", "claude_only_patterns"]) {
     const add = Array.isArray(override?.[key]) ? override[key] : [];
@@ -1714,14 +1894,14 @@ function paraphraseMapCandidates() {
   return [
     join(resolve(process.cwd()), "rules/paraphrase-map.json"),
     `${home}/.ai-config-sync-manager/rules/paraphrase-map.json`,
-    join(runtimeRoot, "rules/paraphrase-map.json")
+    join(runtimeRoot, "rules/paraphrase-map.json"),
   ];
 }
 
 function mergeParaphraseMap(base, override) {
   const out = {
     claude_only: { ...(base.claude_only ?? {}) },
-    codex_only: { ...(base.codex_only ?? {}) }
+    codex_only: { ...(base.codex_only ?? {}) },
   };
   for (const key of ["claude_only", "codex_only"]) {
     const add = override?.[key];
@@ -1751,7 +1931,7 @@ function paraphraseOverridesCandidates() {
   return [
     join(resolve(process.cwd()), "rules/paraphrase-overrides.json"),
     `${home}/.ai-config-sync-manager/rules/paraphrase-overrides.json`,
-    join(runtimeRoot, "rules/paraphrase-overrides.json")
+    join(runtimeRoot, "rules/paraphrase-overrides.json"),
   ];
 }
 
@@ -1760,10 +1940,12 @@ function mergeParaphraseOverrides(base, override) {
   const overlayList = Array.isArray(override?.overrides) ? override.overrides : [];
   const byId = new Map();
   for (const entry of baseList) {
-    if (entry && typeof entry === "object" && typeof entry.id === "string") byId.set(entry.id, entry);
+    if (entry && typeof entry === "object" && typeof entry.id === "string")
+      byId.set(entry.id, entry);
   }
   for (const entry of overlayList) {
-    if (entry && typeof entry === "object" && typeof entry.id === "string") byId.set(entry.id, entry);
+    if (entry && typeof entry === "object" && typeof entry.id === "string")
+      byId.set(entry.id, entry);
   }
   return { overrides: [...byId.values()] };
 }
@@ -1782,15 +1964,22 @@ function activeParaphraseOverrides() {
 }
 
 function isParaphraseOverrideShape(entry) {
-  return entry
-    && typeof entry === "object"
-    && typeof entry.id === "string" && entry.id
-    && typeof entry.claude_path === "string" && entry.claude_path
-    && typeof entry.codex_path === "string" && entry.codex_path
-    && Number.isInteger(entry.claude_line) && entry.claude_line >= 1
-    && Number.isInteger(entry.codex_line) && entry.codex_line >= 1
-    && typeof entry.claude_text === "string"
-    && typeof entry.codex_text === "string";
+  return (
+    entry &&
+    typeof entry === "object" &&
+    typeof entry.id === "string" &&
+    entry.id &&
+    typeof entry.claude_path === "string" &&
+    entry.claude_path &&
+    typeof entry.codex_path === "string" &&
+    entry.codex_path &&
+    Number.isInteger(entry.claude_line) &&
+    entry.claude_line >= 1 &&
+    Number.isInteger(entry.codex_line) &&
+    entry.codex_line >= 1 &&
+    typeof entry.claude_text === "string" &&
+    typeof entry.codex_text === "string"
+  );
 }
 
 function paraphraseOverrideStatus(entry) {
@@ -1864,9 +2053,10 @@ function activeOverridesForFilePair(claudePath, codexPath) {
   const expectedClaude = expandHome(claudePath);
   const expectedCodex = expandHome(codexPath);
   const { active } = activeParaphraseOverrides();
-  return active.filter((entry) =>
-    pathsEqualOrSkillManifestAlias(entry.claude_path, expectedClaude)
-    && pathsEqualOrSkillManifestAlias(entry.codex_path, expectedCodex)
+  return active.filter(
+    (entry) =>
+      pathsEqualOrSkillManifestAlias(entry.claude_path, expectedClaude) &&
+      pathsEqualOrSkillManifestAlias(entry.codex_path, expectedCodex)
   );
 }
 
@@ -1878,8 +2068,10 @@ function pathsEqualOrSkillManifestAlias(leftPath, rightPath) {
   const rightSlash = right.lastIndexOf("/");
   if (leftSlash === -1 || rightSlash === -1) return false;
   if (left.slice(0, leftSlash) !== right.slice(0, rightSlash)) return false;
-  return isSkillManifestBasename(left.slice(leftSlash + 1))
-    && isSkillManifestBasename(right.slice(rightSlash + 1));
+  return (
+    isSkillManifestBasename(left.slice(leftSlash + 1)) &&
+    isSkillManifestBasename(right.slice(rightSlash + 1))
+  );
 }
 
 function maskBodyAtLine(body, lineNumber, expectedText, sentinel) {
@@ -1944,12 +2136,16 @@ function lintHostVocab(text, targetHost) {
   const findings = [];
   const value = String(text ?? "");
   if (!value) return findings;
-  const wrongSide = targetHost === "claude" ? "codex_only" : targetHost === "codex" ? "claude_only" : null;
+  const wrongSide =
+    targetHost === "claude" ? "codex_only" : targetHost === "codex" ? "claude_only" : null;
   if (!wrongSide) return findings;
   const data = hostStrictVocabSource().data ?? {};
   const tokens = Array.isArray(data[wrongSide]) ? data[wrongSide] : [];
   // claude_only_patterns are namespace prefixes (e.g. mcp__) only meaningful to flag on codex.
-  const patterns = targetHost === "codex" && Array.isArray(data.claude_only_patterns) ? data.claude_only_patterns : [];
+  const patterns =
+    targetHost === "codex" && Array.isArray(data.claude_only_patterns)
+      ? data.claude_only_patterns
+      : [];
 
   const lines = value.split(/\r?\n/);
   for (let i = 0; i < lines.length; i += 1) {
@@ -1985,7 +2181,7 @@ function recordVocabFindings(archive, findings, from, to) {
       action: "vocab-mismatch",
       original: `line ${f.line}: ${f.token}`,
       fields: { side: f.side, lineNumber: f.line, column: f.col },
-      reason: `${f.token} is ${f.side.replace("_only", "-only")} — not callable on ${to}`
+      reason: `${f.token} is ${f.side.replace("_only", "-only")} — not callable on ${to}`,
     });
   }
 }
@@ -1994,17 +2190,29 @@ function sanitizeAgentToolsField(toolsValue, targetHost) {
   const raw = String(toolsValue ?? "");
   if (!raw) return { sanitized: "", removed: [] };
   const data = hostStrictVocabSource().data ?? {};
-  const wrongSide = targetHost === "claude" ? "codex_only" : targetHost === "codex" ? "claude_only" : null;
-  const wrongTokens = wrongSide && Array.isArray(data[wrongSide]) ? new Set(data[wrongSide]) : new Set();
-  const wrongPatterns = targetHost === "codex" && Array.isArray(data.claude_only_patterns)
-    ? data.claude_only_patterns.map((p) => new RegExp(`^${p}`))
-    : [];
-  const tokens = raw.split(/\s*,\s*/).map((t) => t.trim()).filter(Boolean);
+  const wrongSide =
+    targetHost === "claude" ? "codex_only" : targetHost === "codex" ? "claude_only" : null;
+  const wrongTokens =
+    wrongSide && Array.isArray(data[wrongSide]) ? new Set(data[wrongSide]) : new Set();
+  const wrongPatterns =
+    targetHost === "codex" && Array.isArray(data.claude_only_patterns)
+      ? data.claude_only_patterns.map((p) => new RegExp(`^${p}`))
+      : [];
+  const tokens = raw
+    .split(/\s*,\s*/)
+    .map((t) => t.trim())
+    .filter(Boolean);
   const removed = [];
   const kept = [];
   for (const t of tokens) {
-    if (wrongTokens.has(t)) { removed.push(t); continue; }
-    if (wrongPatterns.some((re) => re.test(t))) { removed.push(t); continue; }
+    if (wrongTokens.has(t)) {
+      removed.push(t);
+      continue;
+    }
+    if (wrongPatterns.some((re) => re.test(t))) {
+      removed.push(t);
+      continue;
+    }
     kept.push(t);
   }
   return { sanitized: kept.join(","), removed };
@@ -2107,29 +2315,32 @@ function includesArea(selectors, area, item) {
 function vocabFindingIgnored(finding, ignoreRules) {
   if (!Array.isArray(ignoreRules) || ignoreRules.length === 0) return false;
   for (const rule of ignoreRules) {
-    if (typeof rule?.term === "string" && rule.term && finding.path.includes(rule.term)) return true;
+    if (typeof rule?.term === "string" && rule.term && finding.path.includes(rule.term))
+      return true;
     if (rule?.area && rule.area === finding.area) {
       if (typeof rule.item === "string" && rule.item && rule.item === finding.item) return true;
-      if (typeof rule.path === "string" && rule.path && finding.path.includes(rule.path.replace(/\*+/g, ""))) return true;
+      if (
+        typeof rule.path === "string" &&
+        rule.path &&
+        finding.path.includes(rule.path.replace(/\*+/g, ""))
+      )
+        return true;
     }
   }
   return false;
 }
 
 function routeMappingsSource(direction) {
-  const fileName = direction === "codex-to-claude" ? "codex-to-claude.json" : "claude-to-codex.json";
-  return loadLayeredRule(
-    routeMappingsCandidates(fileName),
-    { areas: {} },
-    mergeRouteMappings
-  );
+  const fileName =
+    direction === "codex-to-claude" ? "codex-to-claude.json" : "claude-to-codex.json";
+  return loadLayeredRule(routeMappingsCandidates(fileName), { areas: {} }, mergeRouteMappings);
 }
 
 function routeMappingsCandidates(fileName) {
   return [
     join(resolve(process.cwd()), `rules/${fileName}`),
     `${home}/.ai-config-sync-manager/rules/${fileName}`,
-    join(runtimeRoot, `rules/${fileName}`)
+    join(runtimeRoot, `rules/${fileName}`),
   ];
 }
 
@@ -2213,7 +2424,7 @@ function transformClaudeCallsForward(text, rule, archive) {
         action: "manual-review",
         original: text.slice(match),
         fields: null,
-        reason: "unterminated call expression"
+        reason: "unterminated call expression",
       });
       break;
     }
@@ -2234,7 +2445,7 @@ function transformClaudeCallsForward(text, rule, archive) {
         action: "manual-review",
         original: fullCall,
         fields: null,
-        reason: parsed.reason
+        reason: parsed.reason,
       });
       cursor = closeParen + 1;
       continue;
@@ -2252,7 +2463,7 @@ function transformClaudeCallsForward(text, rule, archive) {
       action: "transformed",
       original: fullCall,
       fields: parsed.fields,
-      reason: null
+      reason: null,
     });
     cursor = closeParen + 1;
   }
@@ -2290,7 +2501,7 @@ function stripClaudeCallsForward(text, rule, archive) {
         action: "manual-review",
         original: text.slice(match),
         fields: null,
-        reason: "unterminated call expression"
+        reason: "unterminated call expression",
       });
       break;
     }
@@ -2311,7 +2522,7 @@ function stripClaudeCallsForward(text, rule, archive) {
         action: "manual-review",
         original: fullCall,
         fields: null,
-        reason: parsed.reason
+        reason: parsed.reason,
       });
       cursor = closeParen + 1;
       continue;
@@ -2321,7 +2532,7 @@ function stripClaudeCallsForward(text, rule, archive) {
     const markerPayload = JSON.stringify({
       call: callName,
       fields: parsed.fields,
-      reason
+      reason,
     });
     result += `<!-- ${rule.codex_marker} ${markerPayload} -->`;
     pushArchiveEntry(archive, {
@@ -2331,7 +2542,7 @@ function stripClaudeCallsForward(text, rule, archive) {
       action: "stripped",
       original: fullCall,
       fields: parsed.fields,
-      reason: reason || null
+      reason: reason || null,
     });
     cursor = closeParen + 1;
   }
@@ -2361,7 +2572,7 @@ function transformCodexProseReverse(text, rule, archive) {
         action: "manual-review",
         original: match[0],
         fields: null,
-        reason: payload.reason
+        reason: payload.reason,
       });
       cursor = end;
       continue;
@@ -2378,7 +2589,7 @@ function transformCodexProseReverse(text, rule, archive) {
         action: "manual-review",
         original: match[0],
         fields: fields ?? null,
-        reason: "marker payload missing call or fields"
+        reason: "marker payload missing call or fields",
       });
       cursor = end;
       continue;
@@ -2395,7 +2606,7 @@ function transformCodexProseReverse(text, rule, archive) {
         action: "manual-review",
         original: match[0],
         fields,
-        reason: "could not delimit rendered prose"
+        reason: "could not delimit rendered prose",
       });
       cursor = end;
       continue;
@@ -2411,7 +2622,7 @@ function transformCodexProseReverse(text, rule, archive) {
       action: "restored",
       original: text.slice(start, proseEnd),
       fields,
-      reason: null
+      reason: null,
     });
     cursor = proseEnd;
   }
@@ -2442,7 +2653,7 @@ function restoreStrippedCallsReverse(text, rule, archive) {
         action: "manual-review",
         original: match[0],
         fields: null,
-        reason: payload.reason
+        reason: payload.reason,
       });
       cursor = end;
       continue;
@@ -2459,7 +2670,7 @@ function restoreStrippedCallsReverse(text, rule, archive) {
         action: "manual-review",
         original: match[0],
         fields: fields ?? null,
-        reason: "marker payload missing call or fields"
+        reason: "marker payload missing call or fields",
       });
       cursor = end;
       continue;
@@ -2480,7 +2691,7 @@ function restoreStrippedCallsReverse(text, rule, archive) {
       action: "restored",
       original: match[0],
       fields,
-      reason: null
+      reason: null,
     });
     cursor = end;
   }
@@ -2666,7 +2877,13 @@ function readObjectKey(reader) {
   const start = reader.index;
   while (reader.index < reader.text.length) {
     const c = reader.text[reader.index];
-    if ((c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c === "_" || c === "$") {
+    if (
+      (c >= "A" && c <= "Z") ||
+      (c >= "a" && c <= "z") ||
+      (c >= "0" && c <= "9") ||
+      c === "_" ||
+      c === "$"
+    ) {
       reader.index += 1;
     } else {
       break;
@@ -2722,7 +2939,14 @@ function readNumberLiteral(reader) {
   if (reader.text[reader.index] === "-") reader.index += 1;
   while (reader.index < reader.text.length) {
     const ch = reader.text[reader.index];
-    if ((ch >= "0" && ch <= "9") || ch === "." || ch === "e" || ch === "E" || ch === "+" || ch === "-") {
+    if (
+      (ch >= "0" && ch <= "9") ||
+      ch === "." ||
+      ch === "e" ||
+      ch === "E" ||
+      ch === "+" ||
+      ch === "-"
+    ) {
       reader.index += 1;
     } else {
       break;
@@ -2786,7 +3010,9 @@ function formatObjectValue(value) {
 }
 
 function emitManualReviewComment(callName, reason) {
-  const safeReason = String(reason ?? "").replace(/-->/g, "--&gt;").replace(/"/g, "'");
+  const safeReason = String(reason ?? "")
+    .replace(/-->/g, "--&gt;")
+    .replace(/"/g, "'");
   return `<!-- ai-config-sync:manual-review reason="cannot parse ${callName} arguments: ${safeReason}" -->`;
 }
 
@@ -2796,7 +3022,10 @@ function parseMarkerPayload(jsonText) {
     if (value && typeof value === "object") return { ok: true, value };
     return { ok: false, reason: "marker payload is not an object" };
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : "marker JSON parse error" };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "marker JSON parse error",
+    };
   }
 }
 
@@ -2847,7 +3076,8 @@ function applyTargetTemplates(value, from, to) {
 
   replacements.sort((left, right) => right.source.length - left.source.length);
   return replacements.reduce(
-    (nextText, { source, target }) => nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
+    (nextText, { source, target }) =>
+      nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
     text
   );
 }
@@ -2876,8 +3106,12 @@ function applyTermMappings(value, from, to) {
       continue;
     }
 
-    const sourceTerms = Array.isArray(rule?.[from]) ? rule[from].filter((item) => typeof item === "string" && item) : [];
-    const targetTerms = Array.isArray(rule?.[to]) ? rule[to].filter((item) => typeof item === "string" && item) : [];
+    const sourceTerms = Array.isArray(rule?.[from])
+      ? rule[from].filter((item) => typeof item === "string" && item)
+      : [];
+    const targetTerms = Array.isArray(rule?.[to])
+      ? rule[to].filter((item) => typeof item === "string" && item)
+      : [];
     if (sourceTerms.length === 0 || targetTerms.length === 0) continue;
 
     const target = targetTerms[0];
@@ -2886,15 +3120,18 @@ function applyTermMappings(value, from, to) {
 
   literalReplacements.sort((left, right) => right.source.length - left.source.length);
   return literalReplacements.reduce(
-    (nextText, { source, target }) => nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
+    (nextText, { source, target }) =>
+      nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
     working
   );
 }
 
 function terminologyRules(data) {
   const layered = Array.isArray(data?.layers)
-    ? data.layers.flatMap((layer) => Array.isArray(layer?.rules) ? layer.rules : [])
-    : Array.isArray(data?.rules) ? data.rules : [];
+    ? data.layers.flatMap((layer) => (Array.isArray(layer?.rules) ? layer.rules : []))
+    : Array.isArray(data?.rules)
+      ? data.rules
+      : [];
   return [...modelTerminologyRules(), ...layered];
 }
 
@@ -2910,7 +3147,15 @@ function fileText(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
 }
 
-function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceIndex = {}, entry = null, ignoreRules = []) {
+function skillChangePreview(
+  sourcePath,
+  targetPath,
+  skillNames,
+  from,
+  sourceIndex = {},
+  entry = null,
+  ignoreRules = []
+) {
   const lines = [];
   const to = from === "claude" ? "codex" : "claude";
   for (const skillName of skillNames) {
@@ -2929,14 +3174,35 @@ function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceInde
     // visible diff), retry with transform-then-mask + post-transform paraphrase so
     // structured-block overrides also collapse to "No line-level preview available."
     const maskedFirst = maskBodiesForHosts(targetRaw, sourceRaw, to, from, overrides);
-    const sourceFromMaskFirst = normalizeYamlFrontmatter(transformTextForHost(maskedFirst.source, from, to));
-    let previewLines = contentChangePreview("Target current", maskedFirst.target, `After apply from ${fromLabel(from)}`, sourceFromMaskFirst, terms);
-    const maskFirstClean = previewLines.length === 1 && previewLines[0] === "No line-level preview available.";
+    const sourceFromMaskFirst = normalizeYamlFrontmatter(
+      transformTextForHost(maskedFirst.source, from, to)
+    );
+    let previewLines = contentChangePreview(
+      "Target current",
+      maskedFirst.target,
+      `After apply from ${fromLabel(from)}`,
+      sourceFromMaskFirst,
+      terms
+    );
+    const maskFirstClean =
+      previewLines.length === 1 && previewLines[0] === "No line-level preview available.";
     if (overrides.length > 0 && !maskFirstClean) {
       let transformed = normalizeYamlFrontmatter(transformTextForHost(sourceRaw, from, to));
-      transformed = applyOverrideParaphrasesAtTargetLines(transformed, sourceManifest ?? "", targetManifest ?? "", from, to);
+      transformed = applyOverrideParaphrasesAtTargetLines(
+        transformed,
+        sourceManifest ?? "",
+        targetManifest ?? "",
+        from,
+        to
+      );
       const maskedSecond = maskBodiesForHosts(targetRaw, transformed, to, to, overrides);
-      const fallbackLines = contentChangePreview("Target current", maskedSecond.target, `After apply from ${fromLabel(from)}`, maskedSecond.source, terms);
+      const fallbackLines = contentChangePreview(
+        "Target current",
+        maskedSecond.target,
+        `After apply from ${fromLabel(from)}`,
+        maskedSecond.source,
+        terms
+      );
       if (fallbackLines.length === 1 && fallbackLines[0] === "No line-level preview available.") {
         previewLines = fallbackLines;
       }
@@ -2951,7 +3217,8 @@ function skillPreviewContent(basePath, skillName) {
   const skillPath = join(basePath, skillName);
   const manifest = findSkillManifest(skillPath);
   if (manifest) return readFileSync(manifest, "utf8");
-  if (existsSync(skillPath) && !lstatSync(skillPath).isDirectory()) return readFileSync(skillPath, "utf8");
+  if (existsSync(skillPath) && !lstatSync(skillPath).isDirectory())
+    return readFileSync(skillPath, "utf8");
   return "";
 }
 
@@ -2974,18 +3241,21 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
   const sourceByNormalized = new Map(sourceFiles.map((entry) => [entry.normalized, entry]));
   const allNormalized = uniqueStrings([
     ...targetFiles.map((entry) => entry.normalized),
-    ...sourceFiles.map((entry) => entry.normalized)
+    ...sourceFiles.map((entry) => entry.normalized),
   ]).sort();
 
   const lines = [];
   let truncated = false;
 
   for (const normalized of allNormalized) {
-    if (lines.length >= PREVIEW_LINE_CAP) { truncated = true; break; }
+    if (lines.length >= PREVIEW_LINE_CAP) {
+      truncated = true;
+      break;
+    }
 
     const targetEntry = targetByNormalized.get(normalized);
     const sourceEntry = sourceByNormalized.get(normalized);
-    const displayName = (targetEntry?.raw) ?? (sourceEntry?.raw) ?? normalized;
+    const displayName = targetEntry?.raw ?? sourceEntry?.raw ?? normalized;
 
     if (!targetEntry) {
       lines.push(`${displayName}: only on ${fromLabel}`);
@@ -3006,7 +3276,13 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
 
     const overrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost, sourceHost);
     if (overrides.length > 0) {
-      const masked = maskBodiesForHosts(targetContent, sourceContent, targetHost, sourceHost, overrides);
+      const masked = maskBodiesForHosts(
+        targetContent,
+        sourceContent,
+        targetHost,
+        sourceHost,
+        overrides
+      );
       targetContent = masked.target;
       sourceContent = masked.source;
     }
@@ -3028,7 +3304,10 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
     lines.push(`${displayName}:`);
     for (const line of fileChanges) {
       lines.push(`  ${line}`);
-      if (lines.length >= PREVIEW_LINE_CAP) { truncated = true; break; }
+      if (lines.length >= PREVIEW_LINE_CAP) {
+        truncated = true;
+        break;
+      }
     }
   }
 
@@ -3037,23 +3316,49 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
   return lines;
 }
 
-function agentChangePreview(sourceDir, targetDir, agentNames, from, to, claudeAgentPaths = {}, codexAgentPaths = {}, entry = null, ignoreRules = []) {
+function agentChangePreview(
+  sourceDir,
+  targetDir,
+  agentNames,
+  from,
+  to,
+  claudeAgentPaths = {},
+  codexAgentPaths = {},
+  entry = null,
+  ignoreRules = []
+) {
   const lines = [];
   const sourcePaths = from === "claude" ? claudeAgentPaths : codexAgentPaths;
   const targetPaths = to === "claude" ? claudeAgentPaths : codexAgentPaths;
   for (const agentName of agentNames) {
     lines.push(`${agentName}: target will be replaced from ${fromLabel(from)}`);
-    const targetContent = agentPreviewContentFromPath(targetPaths[agentName], to)
-      || agentPreviewContent(targetDir, agentName, to);
-    const sourceRaw = agentPreviewContentFromPath(sourcePaths[agentName], from)
-      || agentPreviewContent(sourceDir, agentName, from);
-    const transformedSource = from === "claude"
-      ? transformTextForHost(sourceRaw, "claude", "codex")
-      : transformTextForHost(stripAgentMigrationPreamble(sourceRaw), "codex", "claude");
+    const targetContent =
+      agentPreviewContentFromPath(targetPaths[agentName], to) ||
+      agentPreviewContent(targetDir, agentName, to);
+    const sourceRaw =
+      agentPreviewContentFromPath(sourcePaths[agentName], from) ||
+      agentPreviewContent(sourceDir, agentName, from);
+    const transformedSource =
+      from === "claude"
+        ? transformTextForHost(sourceRaw, "claude", "codex")
+        : transformTextForHost(stripAgentMigrationPreamble(sourceRaw), "codex", "claude");
     const terms = entry ? entryMaskTerms(entry, agentName, ignoreRules) : [];
-    const overrides = activeManifestOverridesForPair(targetPaths[agentName], sourcePaths[agentName], to, from);
+    const overrides = activeManifestOverridesForPair(
+      targetPaths[agentName],
+      sourcePaths[agentName],
+      to,
+      from
+    );
     const masked = maskBodiesForHosts(targetContent, transformedSource, to, from, overrides);
-    lines.push(...contentChangePreview("Target current", masked.target, `After apply from ${fromLabel(from)}`, masked.source, terms).map((line) => `  ${line}`));
+    lines.push(
+      ...contentChangePreview(
+        "Target current",
+        masked.target,
+        `After apply from ${fromLabel(from)}`,
+        masked.source,
+        terms
+      ).map((line) => `  ${line}`)
+    );
   }
   return lines;
 }
@@ -3191,7 +3496,13 @@ function copyFileWithMappings(source, target, from, to, options = {}) {
 // override on the next status pass. Operates only on the target-host line numbers
 // recorded in the override entry and applies each entry's token substitutions
 // scoped to that single line so unrelated occurrences are not rewritten.
-function applyOverrideParaphrasesAtTargetLines(text, sourcePath, targetPath, sourceHost, targetHost) {
+function applyOverrideParaphrasesAtTargetLines(
+  text,
+  sourcePath,
+  targetPath,
+  sourceHost,
+  targetHost
+) {
   const overrides = activeManifestOverridesForPair(targetPath, sourcePath, targetHost, sourceHost);
   if (!Array.isArray(overrides) || overrides.length === 0) return text;
   const lineKey = targetHost === "claude" ? "claude_line" : "codex_line";
@@ -3243,17 +3554,19 @@ function contentChangePreview(beforeLabel, before, afterLabel, after, terms) {
   const beforeLines = previewLines(before);
   const afterLines = previewLines(after);
   const maxLines = Math.max(beforeLines.length, afterLines.length);
-  const expandedTerms = Array.isArray(terms) && terms.length > 0 ? expandTermsBothDirections(terms) : [];
+  const expandedTerms =
+    Array.isArray(terms) && terms.length > 0 ? expandTermsBothDirections(terms) : [];
   const changes = [];
 
   for (let index = 0; index < maxLines; index += 1) {
     if (beforeLines[index] === afterLines[index]) continue;
     if (linesEquivalentForPreview(beforeLines[index], afterLines[index])) continue;
     if (
-      expandedTerms.length > 0
-      && lineContainsAnyTerm(beforeLines[index], expandedTerms)
-      && lineContainsAnyTerm(afterLines[index], expandedTerms)
-    ) continue;
+      expandedTerms.length > 0 &&
+      lineContainsAnyTerm(beforeLines[index], expandedTerms) &&
+      lineContainsAnyTerm(afterLines[index], expandedTerms)
+    )
+      continue;
     const pair = previewLinePair(beforeLines[index], afterLines[index]);
     changes.push(`- ${beforeLabel} L${index + 1}: ${pair.before}`);
     changes.push(`+ ${afterLabel} L${index + 1}: ${pair.after}`);
@@ -3300,13 +3613,16 @@ function previewLinePair(before, after, maxWidth = 140) {
   const minLen = Math.min(before.length, after.length);
   let focus = -1;
   for (let i = 0; i < minLen; i += 1) {
-    if (before[i] !== after[i]) { focus = i; break; }
+    if (before[i] !== after[i]) {
+      focus = i;
+      break;
+    }
   }
   if (focus === -1) focus = minLen;
 
   return {
     before: windowAroundFocus(before, focus, maxWidth),
-    after: windowAroundFocus(after, focus, maxWidth)
+    after: windowAroundFocus(after, focus, maxWidth),
   };
 }
 
@@ -3334,7 +3650,7 @@ function applySyncPlan(plan) {
     if (operation.approvalRequired) {
       plan.results.push({
         status: "skipped",
-        message: `${operation.scope}/${operation.area} requires explicit approval`
+        message: `${operation.scope}/${operation.area} requires explicit approval`,
       });
       continue;
     }
@@ -3357,13 +3673,13 @@ function applySyncPlan(plan) {
       } else {
         plan.results.push({
           status: "skipped",
-          message: `${operation.scope}/${operation.area} action ${operation.action} is not implemented`
+          message: `${operation.scope}/${operation.area} action ${operation.action} is not implemented`,
         });
       }
     } catch (error) {
       plan.results.push({
         status: "error",
-        message: `${operation.scope}/${operation.area}: ${error instanceof Error ? error.message : "unknown error"}`
+        message: `${operation.scope}/${operation.area}: ${error instanceof Error ? error.message : "unknown error"}`,
       });
     }
   }
@@ -3406,7 +3722,7 @@ function applyVocabFixes(plan) {
     writeFileSync(path, updated);
     plan.results.push({
       status: "applied",
-      message: `vocab-fix: rewrote ${info.items.length} token(s) in ${path}`
+      message: `vocab-fix: rewrote ${info.items.length} token(s) in ${path}`,
     });
   }
 }
@@ -3426,14 +3742,23 @@ function applyCopyFile(plan, operation) {
   mkdirSync(dirname(operation.targetPath), { recursive: true });
   backupPath(plan, operation.targetPath);
   copyFileSync(operation.sourcePath, operation.targetPath);
-  plan.results.push({ status: "applied", message: `copied ${operation.sourcePath} -> ${operation.targetPath}` });
+  plan.results.push({
+    status: "applied",
+    message: `copied ${operation.sourcePath} -> ${operation.targetPath}`,
+  });
 }
 
 function applyWriteInstructions(plan, operation) {
   mkdirSync(dirname(operation.targetPath), { recursive: true });
   backupPath(plan, operation.targetPath);
-  writeFileSync(operation.targetPath, operation.content.endsWith("\n") ? operation.content : `${operation.content}\n`);
-  plan.results.push({ status: "applied", message: `wrote instructions ${operation.sourcePath} -> ${operation.targetPath}` });
+  writeFileSync(
+    operation.targetPath,
+    operation.content.endsWith("\n") ? operation.content : `${operation.content}\n`
+  );
+  plan.results.push({
+    status: "applied",
+    message: `wrote instructions ${operation.sourcePath} -> ${operation.targetPath}`,
+  });
 }
 
 function applyCopyMissingSkills(plan, operation) {
@@ -3460,18 +3785,35 @@ function applyCopyMissingSkills(plan, operation) {
       rmSync(target, { recursive: true, force: true });
     }
 
-    copySkillWithMappings(source, target, operation.from, operation.to, { callArchive: plan.callArchive });
-    plan.results.push({ status: "applied", message: `${overwrite.has(skillName) ? "replaced" : "copied"} skill ${skillName}` });
+    copySkillWithMappings(source, target, operation.from, operation.to, {
+      callArchive: plan.callArchive,
+    });
+    plan.results.push({
+      status: "applied",
+      message: `${overwrite.has(skillName) ? "replaced" : "copied"} skill ${skillName}`,
+    });
   }
 }
 
 function applyMergeAgents(plan, operation) {
   mkdirSync(operation.targetPath, { recursive: true });
   const overwrite = new Set(operation.overwriteAgentNames ?? []);
-  const sourceClaudeIndex = operation.from === "claude" ? new Map(enumerateClaudeAgents(operation.sourcePath).map((agent) => [agent.name, agent])) : null;
-  const sourceCodexIndex = operation.from === "codex" ? new Map(enumerateCodexAgents(operation.sourcePath).map((agent) => [agent.name, agent])) : null;
-  const existingClaudeIndex = operation.to === "claude" ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent])) : null;
-  const existingCodexIndex = operation.to === "codex" ? new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent])) : null;
+  const sourceClaudeIndex =
+    operation.from === "claude"
+      ? new Map(enumerateClaudeAgents(operation.sourcePath).map((agent) => [agent.name, agent]))
+      : null;
+  const sourceCodexIndex =
+    operation.from === "codex"
+      ? new Map(enumerateCodexAgents(operation.sourcePath).map((agent) => [agent.name, agent]))
+      : null;
+  const existingClaudeIndex =
+    operation.to === "claude"
+      ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      : null;
+  const existingCodexIndex =
+    operation.to === "codex"
+      ? new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      : null;
 
   for (const agentName of operation.agentNames ?? []) {
     if (operation.to === "codex") {
@@ -3481,7 +3823,9 @@ function applyMergeAgents(plan, operation) {
         continue;
       }
       const targetPath = agentTargetPath(agentName, operation.targetPath, "codex", sourceAgent);
-      const existingAgent = existingCodexIndex?.get(agentName) ?? existingCodexIndex?.get(sourceAgent.name.split("/").pop());
+      const existingAgent =
+        existingCodexIndex?.get(agentName) ??
+        existingCodexIndex?.get(sourceAgent.name.split("/").pop());
       if (existingAgent && !overwrite.has(agentName)) {
         plan.results.push({ status: "skipped", message: `agent already exists: ${targetPath}` });
         continue;
@@ -3492,16 +3836,20 @@ function applyMergeAgents(plan, operation) {
       const codexFields = mapAgentToCodex(claudeParsed, {
         preserveCodex: existingFields,
         fallbackName: agentName.split("/").pop(),
-        callArchive: plan.callArchive
+        callArchive: plan.callArchive,
       });
       mkdirSync(dirname(targetPath), { recursive: true });
       if (existingAgent) backupPath(plan, existingAgent.path);
       writeFileSync(targetPath, serializeCodexAgentFile(codexFields));
-      plan.results.push({ status: "applied", message: `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}` });
+      plan.results.push({
+        status: "applied",
+        message: `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}`,
+      });
       continue;
     }
 
-    const sourceAgent = sourceCodexIndex?.get(agentName) ?? sourceCodexIndex?.get(agentName.split("/").pop());
+    const sourceAgent =
+      sourceCodexIndex?.get(agentName) ?? sourceCodexIndex?.get(agentName.split("/").pop());
     if (!sourceAgent) {
       plan.results.push({ status: "skipped", message: `agent source missing: ${agentName}` });
       continue;
@@ -3514,12 +3862,20 @@ function applyMergeAgents(plan, operation) {
     }
 
     const codexParsed = parseCodexAgentFile(sourceAgent.path);
-    const existingClaude = existingAgent ? parseClaudeAgentFile(existingAgent.path) : { frontmatter: {}, body: "" };
-    const claude = mapAgentToClaude(codexParsed, { preserveClaude: existingClaude.frontmatter, callArchive: plan.callArchive });
+    const existingClaude = existingAgent
+      ? parseClaudeAgentFile(existingAgent.path)
+      : { frontmatter: {}, body: "" };
+    const claude = mapAgentToClaude(codexParsed, {
+      preserveClaude: existingClaude.frontmatter,
+      callArchive: plan.callArchive,
+    });
     mkdirSync(dirname(targetPath), { recursive: true });
     if (existingAgent) backupPath(plan, existingAgent.path);
     writeFileSync(targetPath, serializeClaudeAgentFile(claude.frontmatter, claude.body));
-    plan.results.push({ status: "applied", message: `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}` });
+    plan.results.push({
+      status: "applied",
+      message: `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}`,
+    });
   }
 }
 
@@ -3535,14 +3891,26 @@ function applyMergeSettingsItems(plan, operation) {
   }
 
   if (operation.to === "claude") {
-    mergeIntoClaudeSettings(operation.targetPath, operation.sourcePath, operation.from, operation.area, operation.itemNames ?? []);
+    mergeIntoClaudeSettings(
+      operation.targetPath,
+      operation.sourcePath,
+      operation.from,
+      operation.area,
+      operation.itemNames ?? []
+    );
   } else {
-    mergeIntoCodexSettings(operation.targetPath, operation.sourcePath, operation.from, operation.area, operation.itemNames ?? []);
+    mergeIntoCodexSettings(
+      operation.targetPath,
+      operation.sourcePath,
+      operation.from,
+      operation.area,
+      operation.itemNames ?? []
+    );
   }
 
   plan.results.push({
     status: "applied",
-    message: `merged ${operation.area} item(s): ${(operation.itemNames ?? []).join(", ")}`
+    message: `merged ${operation.area} item(s): ${(operation.itemNames ?? []).join(", ")}`,
   });
 }
 
@@ -3559,7 +3927,7 @@ function archiveUnsupportedAgentPermissions(plan, itemNames) {
       action: "unsupported-permission",
       original: itemName,
       fields: { bucket, value },
-      reason: "codex has no spawn_agent gate; permission cannot be expressed natively"
+      reason: "codex has no spawn_agent gate; permission cannot be expressed natively",
     });
   }
 }
@@ -3569,14 +3937,24 @@ function applyMergeMcpServers(plan, operation) {
   backupPath(plan, operation.targetPath);
 
   if (operation.to === "codex") {
-    mergeMcpIntoCodex(operation.targetPath, operation.sourceMcpPaths ?? operation.sourcePath, operation.from, operation.serverNames ?? []);
+    mergeMcpIntoCodex(
+      operation.targetPath,
+      operation.sourceMcpPaths ?? operation.sourcePath,
+      operation.from,
+      operation.serverNames ?? []
+    );
   } else {
-    mergeMcpIntoClaude(operation.targetPath, operation.sourceMcpPaths ?? operation.sourcePath, operation.from, operation.serverNames ?? []);
+    mergeMcpIntoClaude(
+      operation.targetPath,
+      operation.sourceMcpPaths ?? operation.sourcePath,
+      operation.from,
+      operation.serverNames ?? []
+    );
   }
 
   plan.results.push({
     status: "applied",
-    message: `merged MCP servers ${operation.from} -> ${operation.to}: ${(operation.serverNames ?? []).join(", ")}`
+    message: `merged MCP servers ${operation.from} -> ${operation.to}: ${(operation.serverNames ?? []).join(", ")}`,
   });
 }
 
@@ -3605,7 +3983,11 @@ function applyDeleteItems(plan, operation) {
         deleteClaudePermissions(operation.targetPath, operation.itemNames ?? []);
       } else {
         const remainingClaudeItemNames = remainingClaudePermissionItems(operation.sourcePath);
-        deleteCodexNativePermissionItems(operation.targetPath, operation.itemNames ?? [], remainingClaudeItemNames);
+        deleteCodexNativePermissionItems(
+          operation.targetPath,
+          operation.itemNames ?? [],
+          remainingClaudeItemNames
+        );
         deleteCodexManagedItems(operation.targetPath, operation.area, operation.itemNames ?? []);
       }
     } else if (operation.area === "hooks") {
@@ -3617,12 +3999,13 @@ function applyDeleteItems(plan, operation) {
     }
   }
 
-  const pathSummary = operation.area === "permissions" && operation.to === "codex"
-    ? summarizeCodexPermissionDeletePaths(operation.itemNames ?? [])
-    : "";
+  const pathSummary =
+    operation.area === "permissions" && operation.to === "codex"
+      ? summarizeCodexPermissionDeletePaths(operation.itemNames ?? [])
+      : "";
   plan.results.push({
     status: "applied",
-    message: `deleted ${operation.area} item(s) from ${operation.to}${pathSummary}: ${(operation.itemNames ?? []).join(", ")}`
+    message: `deleted ${operation.area} item(s) from ${operation.to}${pathSummary}: ${(operation.itemNames ?? []).join(", ")}`,
   });
 }
 
@@ -3633,14 +4016,16 @@ function summarizeCodexPermissionDeletePaths(itemNames) {
     const { bucket, value } = parsePermissionItem(itemName);
     if (codexPrefixRuleForPermission(bucket, value)) touchesRules = true;
     if (
-      parseMcpPermission(value)
-      || ["Write", "Edit", "MultiEdit"].includes(value)
-      || (bucket === "allow" && (value === "WebSearch" || value === "WebFetch"))
+      parseMcpPermission(value) ||
+      ["Write", "Edit", "MultiEdit"].includes(value) ||
+      (bucket === "allow" && (value === "WebSearch" || value === "WebFetch"))
     ) {
       touchesConfig = true;
     }
   }
-  const paths = [touchesConfig && "config.toml", touchesRules && "rules/default.rules"].filter(Boolean);
+  const paths = [touchesConfig && "config.toml", touchesRules && "rules/default.rules"].filter(
+    Boolean
+  );
   return paths.length ? ` (${paths.join(" + ")})` : "";
 }
 
@@ -3656,9 +4041,10 @@ function deleteSkillItems(plan, operation) {
 }
 
 function deleteAgentItems(plan, operation) {
-  const targetIndex = operation.to === "claude"
-    ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent]))
-    : new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent]));
+  const targetIndex =
+    operation.to === "claude"
+      ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      : new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent]));
 
   for (const agentName of operation.agentNames ?? operation.itemNames ?? []) {
     const existing = targetIndex.get(agentName) ?? targetIndex.get(agentName.split("/").pop());
@@ -3683,9 +4069,10 @@ function mergeIntoClaudeSettings(targetPath, sourcePath, sourceHost, area, itemN
 
   if (area === "hooks") {
     target.hooks ??= {};
-    const sourceHooks = sourceHost === "codex"
-      ? codexHookValues(sourcePath)
-      : readJsonFile(sourcePath, {}).hooks ?? {};
+    const sourceHooks =
+      sourceHost === "codex"
+        ? codexHookValues(sourcePath)
+        : (readJsonFile(sourcePath, {}).hooks ?? {});
 
     for (const itemName of itemNames) {
       if (!target.hooks[itemName]) {
@@ -3705,7 +4092,9 @@ function mergeIntoCodexSettings(targetPath, sourcePath, sourceHost, area, itemNa
   const sourceValues = claudeManagedValues(area, sourcePath, itemNames);
   const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
   const managedValues = codexManagedFallbackValues(area, sourceValues, itemNames);
-  let nextText = replaceManagedBlock(text, area, managedValues, itemNames, { dropMissingSelected: true });
+  let nextText = replaceManagedBlock(text, area, managedValues, itemNames, {
+    dropMissingSelected: true,
+  });
 
   if (area === "permissions") {
     nextText = applyCodexNativePermissionMapping(nextText, itemNames);
@@ -3767,9 +4156,11 @@ function codexManagedHookFallbackValues(sourceValues, itemNames) {
 
 function isCodexNativeHookGroup(group) {
   const hooks = group?.hooks;
-  return Array.isArray(hooks)
-    && hooks.length > 0
-    && hooks.every((hook) => hook?.type === "command" && typeof hook.command === "string");
+  return (
+    Array.isArray(hooks) &&
+    hooks.length > 0 &&
+    hooks.every((hook) => hook?.type === "command" && typeof hook.command === "string")
+  );
 }
 
 function claudeManagedValues(area, sourcePath, itemNames) {
@@ -3821,9 +4212,8 @@ function parseCodexNativeHooks(text) {
     if (hookMatch) {
       currentEvent = hookMatch[1];
       values[currentEvent] ??= [];
-      currentGroup = currentGroup && values[currentEvent].includes(currentGroup)
-        ? currentGroup
-        : { hooks: [] };
+      currentGroup =
+        currentGroup && values[currentEvent].includes(currentGroup) ? currentGroup : { hooks: [] };
       if (!values[currentEvent].includes(currentGroup)) values[currentEvent].push(currentGroup);
       currentHook = {};
       currentGroup.hooks.push(currentHook);
@@ -3880,7 +4270,7 @@ function replaceManagedBlock(text, area, sourceValues, itemNames, options = {}) 
     ...Object.entries(merged)
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, value]) => managedLine(area, key, value)),
-    end
+    end,
   ];
   const block = lines.join("\n");
 
@@ -3968,7 +4358,11 @@ function applyCodexNativePermissionMapping(text, itemNames) {
     nextText = setTomlRootString(nextText, "sandbox_mode", "workspace-write");
   }
 
-  if (parsed.some(({ bucket, value }) => bucket === "allow" && (value === "WebSearch" || value === "WebFetch"))) {
+  if (
+    parsed.some(
+      ({ bucket, value }) => bucket === "allow" && (value === "WebSearch" || value === "WebFetch")
+    )
+  ) {
     nextText = setTomlRootString(nextText, "web_search", "live");
   }
 
@@ -3982,13 +4376,15 @@ function applyCodexNativePermissionMapping(text, itemNames) {
 }
 
 function isCommandLikePermission(value) {
-  return value === "Bash"
-    || value.startsWith("Bash(")
-    || value === "WebFetch"
-    || value === "WebSearch"
-    || value === "Agent"
-    || value === "SendMessage"
-    || value.startsWith("mcp__");
+  return (
+    value === "Bash" ||
+    value.startsWith("Bash(") ||
+    value === "WebFetch" ||
+    value === "WebSearch" ||
+    value === "Agent" ||
+    value === "SendMessage" ||
+    value.startsWith("mcp__")
+  );
 }
 
 function setTomlRootString(text, key, value) {
@@ -4056,7 +4452,10 @@ function applyCodexMcpToolApprovals(text, itemNames) {
 
 function setTomlMcpServerArray(text, server, key, values) {
   const tableLine = `[mcp_servers.${server}]`;
-  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const tablePattern = new RegExp(
+    `^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`,
+    "m"
+  );
   const match = text.match(tablePattern);
   const line = `${key} = ${formatTomlStringArray(values)}`;
 
@@ -4082,7 +4481,10 @@ function ensureTomlMcpServerTable(text, server) {
 
 function appendTomlMcpServerArray(text, server, key, tool) {
   const tableLine = `[mcp_servers.${server}]`;
-  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const tablePattern = new RegExp(
+    `^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`,
+    "m"
+  );
   const match = text.match(tablePattern);
 
   if (!match) {
@@ -4111,7 +4513,10 @@ function formatTomlStringArray(values) {
 function setTomlMcpToolApproval(text, server, tool, approvalMode) {
   const table = `[mcp_servers.${server}.tools.${tool}]`;
   const line = `approval_mode = ${JSON.stringify(approvalMode)}`;
-  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\.tools\\.${escapeRegExp(tool)}\\]\\n([\\s\\S]*?)(?=^\\[|$)`, "m");
+  const tablePattern = new RegExp(
+    `^\\[mcp_servers\\.${escapeRegExp(server)}\\.tools\\.${escapeRegExp(tool)}\\]\\n([\\s\\S]*?)(?=^\\[|$)`,
+    "m"
+  );
   const match = text.match(tablePattern);
 
   if (!match) {
@@ -4157,7 +4562,10 @@ function writeCodexPermissionRules(path, itemNames) {
   if (lines.length === 0) return;
 
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, replaceTextBlock(existing, "permissions-rules", uniqueStrings(lines).join("\n")));
+  writeFileSync(
+    path,
+    replaceTextBlock(existing, "permissions-rules", uniqueStrings(lines).join("\n"))
+  );
 }
 
 function replaceTextBlock(text, name, body) {
@@ -4181,7 +4589,9 @@ function stripTopLevelMcpServerTables(text, serverNames, blockName = "mcp-server
 
   const begin = `# BEGIN ai-config-sync ${blockName}`;
   const end = `# END ai-config-sync ${blockName}`;
-  const blockMatch = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m").exec(text);
+  const blockMatch = new RegExp(`${escapeRegExp(begin)}[\\s\\S]*?${escapeRegExp(end)}`, "m").exec(
+    text
+  );
 
   // Split into segments around the managed block so stripping never crosses the
   // BEGIN/END markers (otherwise a top-level table's body match could swallow them).
@@ -4189,12 +4599,14 @@ function stripTopLevelMcpServerTables(text, serverNames, blockName = "mcp-server
     ? [
         { text: text.slice(0, blockMatch.index), strip: true },
         { text: blockMatch[0], strip: false },
-        { text: text.slice(blockMatch.index + blockMatch[0].length), strip: true }
+        { text: text.slice(blockMatch.index + blockMatch[0].length), strip: true },
       ]
     : [{ text, strip: true }];
 
   const stripped = segments
-    .map((segment) => (segment.strip ? stripMcpTablesFromSegment(segment.text, serverNames) : segment.text))
+    .map((segment) =>
+      segment.strip ? stripMcpTablesFromSegment(segment.text, serverNames) : segment.text
+    )
     .join("");
 
   // Collapse triple+ blank lines that may appear after removing tables, but preserve
@@ -4230,14 +4642,30 @@ function bashPattern(value) {
   const match = value.match(/^Bash\((.*)\)$/);
   if (!match) return null;
 
-  const raw = match[1].trim().replace(/:\*$/, " *").replace(/\s+\*$/, "");
+  const raw = match[1]
+    .trim()
+    .replace(/:\*$/, " *")
+    .replace(/\s+\*$/, "");
   const parts = raw.split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { risky: true, parts: ["bash"] };
 
-  const riskyCommands = new Set(["bash", "zsh", "sh", "python", "python3", "node", "rm", "sudo", "chmod", "chown", "curl", "wget"]);
+  const riskyCommands = new Set([
+    "bash",
+    "zsh",
+    "sh",
+    "python",
+    "python3",
+    "node",
+    "rm",
+    "sudo",
+    "chmod",
+    "chown",
+    "curl",
+    "wget",
+  ]);
   return {
     risky: riskyCommands.has(parts[0]),
-    parts
+    parts,
   };
 }
 
@@ -4303,9 +4731,10 @@ function codexRulesPath(configPath) {
 }
 
 function mergeMcpIntoCodex(targetPath, sourcePath, sourceHost, serverNames) {
-  const sourceServers = pickServers(sourceHost === "claude"
-    ? readClaudeMcpServers(sourcePath)
-    : readCodexMcpServers(sourcePath), serverNames);
+  const sourceServers = pickServers(
+    sourceHost === "claude" ? readClaudeMcpServers(sourcePath) : readCodexMcpServers(sourcePath),
+    serverNames
+  );
   const targetServers = readCodexMcpServers(targetPath);
   const merged = { ...targetServers, ...sourceServers };
   const original = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
@@ -4317,15 +4746,21 @@ function mergeMcpIntoCodex(targetPath, sourcePath, sourceHost, serverNames) {
 }
 
 function mergeMcpIntoClaude(targetPath, sourcePath, sourceHost, serverNames) {
-  const sourceServers = mcpServersForClaude(pickServers(sourceHost === "codex"
-    ? readCodexMcpServers(sourcePath)
-    : readClaudeMcpServers(sourcePath), serverNames));
+  const sourceServers = mcpServersForClaude(
+    pickServers(
+      sourceHost === "codex" ? readCodexMcpServers(sourcePath) : readClaudeMcpServers(sourcePath),
+      serverNames
+    )
+  );
   const { file, projectKey } = parseClaudeMcpSource(targetPath);
   const target = readJsonFile(file, {});
   if (projectKey) {
     target.projects ??= {};
     target.projects[projectKey] ??= {};
-    target.projects[projectKey].mcpServers = { ...(target.projects[projectKey].mcpServers ?? {}), ...sourceServers };
+    target.projects[projectKey].mcpServers = {
+      ...(target.projects[projectKey].mcpServers ?? {}),
+      ...sourceServers,
+    };
   } else {
     target.mcpServers = { ...(target.mcpServers ?? {}), ...sourceServers };
   }
@@ -4338,9 +4773,7 @@ function deleteClaudeMcpServers(targetPath, serverNames) {
     const { file, projectKey } = parseClaudeMcpSource(spec);
     if (!existsSync(file)) continue;
     const target = readJsonFile(file, {});
-    const bag = projectKey
-      ? (target.projects?.[projectKey]?.mcpServers)
-      : target.mcpServers;
+    const bag = projectKey ? target.projects?.[projectKey]?.mcpServers : target.mcpServers;
     if (!bag) continue;
     let mutated = false;
     for (const name of serverNames) {
@@ -4358,8 +4791,14 @@ function deleteCodexMcpServers(targetPath, serverNames) {
   let nextText = text;
 
   for (const name of serverNames) {
-    const serverPattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`, "gm");
-    const toolsPattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(name)}\\.tools\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`, "gm");
+    const serverPattern = new RegExp(
+      `^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`,
+      "gm"
+    );
+    const toolsPattern = new RegExp(
+      `^\\[mcp_servers\\.${escapeRegExp(name)}\\.tools\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
+      "gm"
+    );
     nextText = nextText.replace(serverPattern, "").replace(toolsPattern, "");
   }
 
@@ -4393,7 +4832,9 @@ function deleteClaudeHooks(targetPath, itemNames) {
 function deleteCodexManagedItems(targetPath, area, itemNames) {
   const text = existsSync(targetPath) ? readFileSync(targetPath, "utf8") : "";
   const emptyValues = {};
-  const nextText = replaceManagedBlock(text, area, emptyValues, itemNames, { dropMissingSelected: true });
+  const nextText = replaceManagedBlock(text, area, emptyValues, itemNames, {
+    dropMissingSelected: true,
+  });
   writeFileSync(targetPath, nextText);
 }
 
@@ -4435,19 +4876,33 @@ function deleteCodexNativePermissionItems(configPath, deletedItemNames, remainin
           configText = removeTomlMcpServerKey(configText, mcp.server, "enabled_tools");
         }
       } else {
-        configText = removeFromTomlMcpServerArray(configText, mcp.server, "enabled_tools", mcp.tool);
-        configText = removeFromTomlMcpServerArray(configText, mcp.server, "disabled_tools", mcp.tool);
+        configText = removeFromTomlMcpServerArray(
+          configText,
+          mcp.server,
+          "enabled_tools",
+          mcp.tool
+        );
+        configText = removeFromTomlMcpServerArray(
+          configText,
+          mcp.server,
+          "disabled_tools",
+          mcp.tool
+        );
         configText = removeTomlMcpToolBlock(configText, mcp.server, mcp.tool);
       }
     }
   }
 
-  const remainingHasFsWrite = remainingClaudeItemNames.some((value) => ["Write", "Edit", "MultiEdit"].includes(value));
+  const remainingHasFsWrite = remainingClaudeItemNames.some((value) =>
+    ["Write", "Edit", "MultiEdit"].includes(value)
+  );
   if (!remainingHasFsWrite) {
     configText = removeTomlRootKey(configText, "sandbox_mode");
   }
 
-  const remainingHasWeb = remainingClaudeItemNames.some((value) => value === "WebSearch" || value === "WebFetch");
+  const remainingHasWeb = remainingClaudeItemNames.some(
+    (value) => value === "WebSearch" || value === "WebFetch"
+  );
   if (!remainingHasWeb) {
     configText = removeTomlRootKey(configText, "web_search");
   }
@@ -4477,7 +4932,9 @@ function removePrefixRuleLine(text, parts, decision) {
 
   for (const line of lines) {
     if (!removed) {
-      const match = line.match(/^\s*prefix_rule\(\s*pattern\s*=\s*(\[[^\]]*\])\s*,\s*decision\s*=\s*"([^"]+)"/);
+      const match = line.match(
+        /^\s*prefix_rule\(\s*pattern\s*=\s*(\[[^\]]*\])\s*,\s*decision\s*=\s*"([^"]+)"/
+      );
       if (match) {
         const lineParts = parseJsonLike(match[1], null);
         const lineCanonical = Array.isArray(lineParts) ? JSON.stringify(lineParts) : null;
@@ -4499,7 +4956,10 @@ function removeTomlRootKey(text, key) {
 }
 
 function removeTomlMcpServerKey(text, server, key) {
-  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const tablePattern = new RegExp(
+    `^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`,
+    "m"
+  );
   const match = text.match(tablePattern);
   if (!match) return text;
 
@@ -4512,7 +4972,10 @@ function removeTomlMcpServerKey(text, server, key) {
 }
 
 function removeFromTomlMcpServerArray(text, server, key, tool) {
-  const tablePattern = new RegExp(`^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`, "m");
+  const tablePattern = new RegExp(
+    `^\\[mcp_servers\\.${escapeRegExp(server)}\\]\\n([\\s\\S]*?)(?=^\\[|(?![\\s\\S]))`,
+    "m"
+  );
   const match = text.match(tablePattern);
   if (!match) return text;
 
@@ -4521,11 +4984,15 @@ function removeFromTomlMcpServerArray(text, server, key, tool) {
   if (!existing.includes(tool)) return text;
 
   const remaining = existing.filter((item) => item !== tool);
-  const keyPattern = new RegExp(`^[ \\t]*${escapeRegExp(key)}[ \\t]*=\\s*\\[[^\\]]*\\][ \\t]*\\r?\\n?`, "m");
+  const keyPattern = new RegExp(
+    `^[ \\t]*${escapeRegExp(key)}[ \\t]*=\\s*\\[[^\\]]*\\][ \\t]*\\r?\\n?`,
+    "m"
+  );
 
-  const nextBody = remaining.length === 0
-    ? body.replace(keyPattern, "")
-    : body.replace(keyPattern, `${key} = ${formatTomlStringArray(remaining)}\n`);
+  const nextBody =
+    remaining.length === 0
+      ? body.replace(keyPattern, "")
+      : body.replace(keyPattern, `${key} = ${formatTomlStringArray(remaining)}\n`);
 
   return text.replace(tablePattern, `[mcp_servers.${server}]\n${nextBody}`);
 }
@@ -4544,12 +5011,14 @@ function pickServers(servers, names) {
 }
 
 function mcpPatchPreview(sourcePath, targetPath, sourceHost, targetHost, serverNames) {
-  const sourceServers = sourceHost === "claude"
-    ? readClaudeMcpServerDetails(sourcePath)
-    : readCodexMcpServerDetails(sourcePath);
-  const targetServers = targetHost === "claude"
-    ? readClaudeMcpServerDetails(targetPath)
-    : readCodexMcpServerDetails(targetPath);
+  const sourceServers =
+    sourceHost === "claude"
+      ? readClaudeMcpServerDetails(sourcePath)
+      : readCodexMcpServerDetails(sourcePath);
+  const targetServers =
+    targetHost === "claude"
+      ? readClaudeMcpServerDetails(targetPath)
+      : readCodexMcpServerDetails(targetPath);
   const selected = serverNames.length ? serverNames : Object.keys(sourceServers).sort();
   const patches = [];
 
@@ -4564,7 +5033,7 @@ function mcpPatchPreview(sourcePath, targetPath, sourceHost, targetHost, serverN
     patches.push({
       server: name,
       action: target ? "update" : "add",
-      changes
+      changes,
     });
   }
 
@@ -4574,7 +5043,8 @@ function mcpPatchPreview(sourcePath, targetPath, sourceHost, targetHost, serverN
 function mcpServerChanges(source, target) {
   const changes = [];
   const isUpdate = Boolean(target);
-  const fmt = (next, prev) => isUpdate ? `${JSON.stringify(prev ?? null)} -> ${JSON.stringify(next)}` : JSON.stringify(next);
+  const fmt = (next, prev) =>
+    isUpdate ? `${JSON.stringify(prev ?? null)} -> ${JSON.stringify(next)}` : JSON.stringify(next);
 
   for (const key of ["command", "url"]) {
     if (source[key] && source[key] !== target?.[key]) {
@@ -4583,20 +5053,26 @@ function mcpServerChanges(source, target) {
   }
 
   if (source.bearerTokenEnvVar && source.bearerTokenEnvVar !== target?.bearerTokenEnvVar) {
-    changes.push(`bearer_token_env_var: ${fmt(source.bearerTokenEnvVar, target?.bearerTokenEnvVar)}`);
+    changes.push(
+      `bearer_token_env_var: ${fmt(source.bearerTokenEnvVar, target?.bearerTokenEnvVar)}`
+    );
   }
 
   if (source.args?.length && JSON.stringify(source.args) !== JSON.stringify(target?.args ?? [])) {
     changes.push(`args: ${fmt(source.args, target?.args ?? [])}`);
   }
 
-  for (const [key, value] of Object.entries(source.env ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, value] of Object.entries(source.env ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right)
+  )) {
     if (target?.env?.[key] !== value) {
       changes.push(`env.${key}: ${fmt(value, target?.env?.[key])}`);
     }
   }
 
-  for (const [key, value] of Object.entries(source.headers ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, value] of Object.entries(source.headers ?? {}).sort(([left], [right]) =>
+    left.localeCompare(right)
+  )) {
     if (target?.headers?.[key] !== value) {
       changes.push(`headers.${key}: ${fmt(value, target?.headers?.[key])}`);
     }
@@ -4611,7 +5087,10 @@ function mcpServerChanges(source, target) {
 
 function readClaudeMcpServerDetails(path) {
   if (Array.isArray(path)) {
-    return path.reduce((servers, item) => ({ ...servers, ...readClaudeMcpServerDetails(item) }), {});
+    return path.reduce(
+      (servers, item) => ({ ...servers, ...readClaudeMcpServerDetails(item) }),
+      {}
+    );
   }
   const { file, projectKey } = parseClaudeMcpSource(path);
   const data = readJsonFile(file, {});
@@ -4701,14 +5180,19 @@ function readCodexMcpServers(path) {
 
 function normalizeMcpServers(servers) {
   return Object.fromEntries(
-    Object.entries(normalizeMcpServerDetails(servers)).map(([name, value]) => [name, {
-      ...(value.command ? { command: value.command } : {}),
-      ...(value.url ? { url: value.url } : {}),
-      ...(value.args?.length ? { args: value.args } : {}),
-      ...(value.env && Object.keys(value.env).length > 0 ? { env: value.env } : {}),
-      ...(value.bearerTokenEnvVar ? { bearerTokenEnvVar: value.bearerTokenEnvVar } : {}),
-      ...(value.headers && Object.keys(value.headers).length > 0 ? { headers: value.headers } : {})
-    }])
+    Object.entries(normalizeMcpServerDetails(servers)).map(([name, value]) => [
+      name,
+      {
+        ...(value.command ? { command: value.command } : {}),
+        ...(value.url ? { url: value.url } : {}),
+        ...(value.args?.length ? { args: value.args } : {}),
+        ...(value.env && Object.keys(value.env).length > 0 ? { env: value.env } : {}),
+        ...(value.bearerTokenEnvVar ? { bearerTokenEnvVar: value.bearerTokenEnvVar } : {}),
+        ...(value.headers && Object.keys(value.headers).length > 0
+          ? { headers: value.headers }
+          : {}),
+      },
+    ])
   );
 }
 
@@ -4720,15 +5204,22 @@ function normalizeMcpServerDetails(servers) {
         const headers = normalizeMcpHeaders(value.headers);
         const bearerTokenEnvVar = mcpBearerTokenEnvVar(value, headers);
         const residualHeaders = mcpHeadersWithoutBearerTokenEnv(headers, bearerTokenEnvVar);
-        return [name, {
-          ...(typeof value.command === "string" ? { command: value.command } : {}),
-          ...(typeof value.url === "string" ? { url: value.url } : {}),
-          ...(Array.isArray(value.args) ? { args: value.args.filter((item) => typeof item === "string") } : {}),
-          ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {}),
-          ...(value.env && typeof value.env === "object" ? { secretEnvKeys: secretEnvKeys(value.env) } : {}),
-          ...(bearerTokenEnvVar ? { bearerTokenEnvVar } : {}),
-          ...(Object.keys(residualHeaders).length > 0 ? { headers: residualHeaders } : {})
-        }];
+        return [
+          name,
+          {
+            ...(typeof value.command === "string" ? { command: value.command } : {}),
+            ...(typeof value.url === "string" ? { url: value.url } : {}),
+            ...(Array.isArray(value.args)
+              ? { args: value.args.filter((item) => typeof item === "string") }
+              : {}),
+            ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {}),
+            ...(value.env && typeof value.env === "object"
+              ? { secretEnvKeys: secretEnvKeys(value.env) }
+              : {}),
+            ...(bearerTokenEnvVar ? { bearerTokenEnvVar } : {}),
+            ...(Object.keys(residualHeaders).length > 0 ? { headers: residualHeaders } : {}),
+          },
+        ];
       })
   );
 }
@@ -4736,14 +5227,17 @@ function normalizeMcpServerDetails(servers) {
 function normalizeMcpHeaders(headers) {
   if (!headers || typeof headers !== "object" || Array.isArray(headers)) return {};
   return Object.fromEntries(
-    Object.entries(headers)
-      .filter(([key, value]) => typeof key === "string" && typeof value === "string" && key)
+    Object.entries(headers).filter(
+      ([key, value]) => typeof key === "string" && typeof value === "string" && key
+    )
   );
 }
 
 function mcpBearerTokenEnvVar(value, headers) {
-  if (typeof value.bearerTokenEnvVar === "string" && value.bearerTokenEnvVar) return value.bearerTokenEnvVar;
-  if (typeof value.bearer_token_env_var === "string" && value.bearer_token_env_var) return value.bearer_token_env_var;
+  if (typeof value.bearerTokenEnvVar === "string" && value.bearerTokenEnvVar)
+    return value.bearerTokenEnvVar;
+  if (typeof value.bearer_token_env_var === "string" && value.bearer_token_env_var)
+    return value.bearer_token_env_var;
   const authorization = headers.Authorization ?? headers.authorization;
   if (typeof authorization !== "string") return "";
   const match = authorization.match(/^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
@@ -4753,8 +5247,9 @@ function mcpBearerTokenEnvVar(value, headers) {
 function mcpHeadersWithoutBearerTokenEnv(headers, bearerTokenEnvVar) {
   if (!bearerTokenEnvVar) return headers;
   return Object.fromEntries(
-    Object.entries(headers)
-      .filter(([key, value]) => !/^authorization$/i.test(key) || value !== `Bearer \${${bearerTokenEnvVar}}`)
+    Object.entries(headers).filter(
+      ([key, value]) => !/^authorization$/i.test(key) || value !== `Bearer \${${bearerTokenEnvVar}}`
+    )
   );
 }
 
@@ -4767,7 +5262,9 @@ function mcpServersForClaude(servers) {
 function mcpServerForClaude(server) {
   const headers = {
     ...(server.headers ?? {}),
-    ...(server.bearerTokenEnvVar ? { Authorization: `Bearer \${${server.bearerTokenEnvVar}}` } : {})
+    ...(server.bearerTokenEnvVar
+      ? { Authorization: `Bearer \${${server.bearerTokenEnvVar}}` }
+      : {}),
   };
   const type = server.command ? "stdio" : server.url ? "http" : null;
   return {
@@ -4776,15 +5273,16 @@ function mcpServerForClaude(server) {
     ...(server.url ? { url: server.url } : {}),
     ...(server.args?.length ? { args: server.args } : {}),
     ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
-    ...(Object.keys(headers).length > 0 ? { headers } : {})
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
   };
 }
 
 function safeEnv(env) {
   const stripSecrets = stripSecretsEnabled();
   return Object.fromEntries(
-    Object.entries(env)
-      .filter(([key, value]) => typeof value === "string" && (!stripSecrets || !isSecretEnvKey(key)))
+    Object.entries(env).filter(
+      ([key, value]) => typeof value === "string" && (!stripSecrets || !isSecretEnvKey(key))
+    )
   );
 }
 
@@ -4794,7 +5292,9 @@ function isSecretEnvKey(key) {
 
 function secretEnvKeys(env) {
   if (!stripSecretsEnabled()) return [];
-  return Object.keys(env).filter((key) => isSecretEnvKey(key)).sort();
+  return Object.keys(env)
+    .filter((key) => isSecretEnvKey(key))
+    .sort();
 }
 
 // Opt-out for users who want the conservative behavior of stripping secret-like
@@ -4809,15 +5309,22 @@ function stripSecretsEnabled() {
 function renderCodexMcpServers(servers) {
   const lines = [];
 
-  for (const [name, server] of Object.entries(servers).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [name, server] of Object.entries(servers).sort(([left], [right]) =>
+    left.localeCompare(right)
+  )) {
     lines.push(`[mcp_servers.${name}]`);
     if (server.command) lines.push(`command = ${JSON.stringify(server.command)}`);
     if (server.url) lines.push('transport = "streamable_http"');
     if (server.url) lines.push(`url = ${JSON.stringify(server.url)}`);
-    if (server.bearerTokenEnvVar) lines.push(`bearer_token_env_var = ${JSON.stringify(server.bearerTokenEnvVar)}`);
+    if (server.bearerTokenEnvVar)
+      lines.push(`bearer_token_env_var = ${JSON.stringify(server.bearerTokenEnvVar)}`);
     if (server.args?.length) lines.push(`args = ${JSON.stringify(server.args)}`);
     if (server.env && Object.keys(server.env).length > 0) {
-      lines.push(`env = { ${Object.entries(server.env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ")} }`);
+      lines.push(
+        `env = { ${Object.entries(server.env)
+          .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+          .join(", ")} }`
+      );
     }
   }
 
@@ -4862,7 +5369,7 @@ function readRuntimePackage() {
     const data = JSON.parse(readFileSync(path, "utf8"));
     return {
       name: typeof data.name === "string" ? data.name : fallback.name,
-      version: typeof data.version === "string" ? data.version : fallback.version
+      version: typeof data.version === "string" ? data.version : fallback.version,
     };
   } catch {
     return fallback;
@@ -4883,7 +5390,7 @@ function loadLayeredRule(candidates, defaults, mergeFn) {
   return {
     path: firstMatch ?? candidates[candidates.length - 1],
     layers,
-    data: merged
+    data: merged,
   };
 }
 
@@ -4931,7 +5438,10 @@ function mergeTerminologyMap(base, overlay) {
       Object.assign(baseLayer, rest);
       baseLayer.rules = orderedRules;
     } else {
-      const clone = { ...overlayLayer, rules: Array.isArray(overlayLayer.rules) ? [...overlayLayer.rules] : [] };
+      const clone = {
+        ...overlayLayer,
+        rules: Array.isArray(overlayLayer.rules) ? [...overlayLayer.rules] : [],
+      };
       ordered.push(clone);
       if (clone.id != null) layerIndex.set(clone.id, clone);
     }
@@ -5017,7 +5527,12 @@ function mergeRouteMappings(base, overlay) {
     mergedAreas[areaKey] = { ...areaValue };
   }
   for (const [areaKey, overlayArea] of Object.entries(overlayAreas)) {
-    if (mergedAreas[areaKey] && typeof mergedAreas[areaKey] === "object" && typeof overlayArea === "object" && overlayArea !== null) {
+    if (
+      mergedAreas[areaKey] &&
+      typeof mergedAreas[areaKey] === "object" &&
+      typeof overlayArea === "object" &&
+      overlayArea !== null
+    ) {
       mergedAreas[areaKey] = { ...mergedAreas[areaKey], ...overlayArea };
     } else {
       mergedAreas[areaKey] = overlayArea;
@@ -5057,7 +5572,8 @@ function mergeAgentsMap(base, overlay) {
   merged.fields = orderedFields;
 
   const baseModels = base.models && typeof base.models === "object" ? base.models : {};
-  const overlayModels = overlay.models && typeof overlay.models === "object" ? overlay.models : null;
+  const overlayModels =
+    overlay.models && typeof overlay.models === "object" ? overlay.models : null;
   if (overlayModels) {
     const mergedModels = { ...baseModels };
     for (const [key, value] of Object.entries(overlayModels)) {
@@ -5088,13 +5604,41 @@ function diffScope(scope, ignoreRules = []) {
   const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
   const entries = [];
 
-  compareInstructions(entries, scope, paths.claude.instructions, paths.codex.instructions, paths.claude.instructionPaths, paths.codex.instructionPaths);
-  compareSkillDirs(entries, scope, paths.claude.skills, paths.codex.skills, paths.claude.skillsPaths ?? [paths.claude.skills], paths.codex.skillsPaths ?? [paths.codex.skills], ignoreRules);
+  compareInstructions(
+    entries,
+    scope,
+    paths.claude.instructions,
+    paths.codex.instructions,
+    paths.claude.instructionPaths,
+    paths.codex.instructionPaths
+  );
+  compareSkillDirs(
+    entries,
+    scope,
+    paths.claude.skills,
+    paths.codex.skills,
+    paths.claude.skillsPaths ?? [paths.claude.skills],
+    paths.codex.skillsPaths ?? [paths.codex.skills],
+    ignoreRules
+  );
   compareAgents(entries, scope, paths.claude.agents, paths.codex.agents, ignoreRules);
-  compareMcpServers(entries, scope, paths.claude.mcp, paths.codex.mcp, paths.claude.mcpPaths, paths.codex.mcpPaths);
+  compareMcpServers(
+    entries,
+    scope,
+    paths.claude.mcp,
+    paths.codex.mcp,
+    paths.claude.mcpPaths,
+    paths.codex.mcpPaths
+  );
 
   if (paths.claude.settings && paths.codex.settings) {
-    compareSettingsItems(entries, scope, "permissions", paths.claude.settings, paths.codex.settings);
+    compareSettingsItems(
+      entries,
+      scope,
+      "permissions",
+      paths.claude.settings,
+      paths.codex.settings
+    );
     compareSettingsItems(entries, scope, "hooks", paths.claude.settings, paths.codex.settings);
   }
 
@@ -5102,9 +5646,10 @@ function diffScope(scope, ignoreRules = []) {
 }
 
 function syncStatePath(scope) {
-  const name = scope === "global"
-    ? "global"
-    : `project-${createHash("sha256").update(resolve(process.cwd())).digest("hex").slice(0, 16)}`;
+  const name =
+    scope === "global"
+      ? "global"
+      : `project-${createHash("sha256").update(resolve(process.cwd())).digest("hex").slice(0, 16)}`;
   return `${home}/.ai-config-sync-manager/state/${name}.json`;
 }
 
@@ -5121,7 +5666,9 @@ function readSyncState(scope) {
   if (parsed === null || typeof parsed !== "object") return null;
 
   if (parsed.schemaVersion === undefined) {
-    console.error(`ai-config-sync: state ${path} missing schemaVersion; backfilled to ${STATE_SCHEMA_VERSION}`);
+    console.error(
+      `ai-config-sync: state ${path} missing schemaVersion; backfilled to ${STATE_SCHEMA_VERSION}`
+    );
     parsed.schemaVersion = STATE_SCHEMA_VERSION;
     return parsed;
   }
@@ -5152,26 +5699,34 @@ function createSyncState(scope) {
     areas: {
       mcp: {
         claude: Object.keys(readClaudeMcpServers(paths.claude.mcpPaths ?? paths.claude.mcp)).sort(),
-        codex: Object.keys(readCodexMcpServers(paths.codex.mcpPaths ?? paths.codex.mcp)).sort()
+        codex: Object.keys(readCodexMcpServers(paths.codex.mcpPaths ?? paths.codex.mcp)).sort(),
       },
       permissions: {
         claude: settingsItems("claude", "permissions", paths.claude.settings),
-        codex: settingsItems("codex", "permissions", paths.codex.settings)
+        codex: settingsItems("codex", "permissions", paths.codex.settings),
       },
       hooks: {
         claude: settingsItems("claude", "hooks", paths.claude.settings),
-        codex: settingsItems("codex", "hooks", paths.codex.settings)
+        codex: settingsItems("codex", "hooks", paths.codex.settings),
       },
       agents: {
-        claude: enumerateClaudeAgents(paths.claude.agents).map((agent) => agent.name).sort(),
-        codex: enumerateCodexAgents(paths.codex.agents).map((agent) => agent.name).sort()
+        claude: enumerateClaudeAgents(paths.claude.agents)
+          .map((agent) => agent.name)
+          .sort(),
+        codex: enumerateCodexAgents(paths.codex.agents)
+          .map((agent) => agent.name)
+          .sort(),
       },
       skills: {
-        claude: [...enumerateSkillIndex(paths.claude.skillsPaths ?? [paths.claude.skills]).keys()].sort(),
-        codex: [...enumerateSkillIndex(paths.codex.skillsPaths ?? [paths.codex.skills]).keys()].sort()
-      }
+        claude: [
+          ...enumerateSkillIndex(paths.claude.skillsPaths ?? [paths.claude.skills]).keys(),
+        ].sort(),
+        codex: [
+          ...enumerateSkillIndex(paths.codex.skillsPaths ?? [paths.codex.skills]).keys(),
+        ].sort(),
+      },
       // TODO: track instructions presence/hash per host once item-level diffs land for that area.
-    }
+    },
   };
 }
 
@@ -5185,7 +5740,7 @@ function globalPaths() {
       agents: `${home}/.claude/agents`,
       mcp: `${home}/.claude.json`,
       mcpPaths: [`${home}/.claude.json`],
-      settings: `${home}/.claude/settings.json`
+      settings: `${home}/.claude/settings.json`,
     },
     codex: {
       instructions: `${home}/.codex/AGENTS.md`,
@@ -5194,9 +5749,13 @@ function globalPaths() {
       skillsPaths: [`${home}/.agents/skills`, `${home}/.codex/skills`],
       agents: `${home}/.codex/agents`,
       mcp: `${home}/.codex/config.toml`,
-      mcpPaths: [`${home}/.codex/config.toml`, `${home}/.codex/mcp.json`, `${home}/.codex/settings.json`],
-      settings: `${home}/.codex/config.toml`
-    }
+      mcpPaths: [
+        `${home}/.codex/config.toml`,
+        `${home}/.codex/mcp.json`,
+        `${home}/.codex/settings.json`,
+      ],
+      settings: `${home}/.codex/config.toml`,
+    },
   };
 }
 
@@ -5210,7 +5769,7 @@ function projectPaths(root) {
       agents: `${root}/.claude/agents`,
       mcp: `${root}/.mcp.json`,
       mcpPaths: [`${root}/.mcp.json`, claudeProjectLocalMcpSpec(root)],
-      settings: `${root}/.claude/settings.json`
+      settings: `${root}/.claude/settings.json`,
     },
     codex: {
       instructions: `${root}/AGENTS.md`,
@@ -5219,9 +5778,13 @@ function projectPaths(root) {
       skillsPaths: [`${root}/.agents/skills`, `${root}/.codex/skills`],
       agents: `${root}/.codex/agents`,
       mcp: `${root}/.codex/config.toml`,
-      mcpPaths: [`${root}/.codex/config.toml`, `${root}/.codex/mcp.json`, `${root}/.codex/settings.json`],
-      settings: `${root}/.codex/config.toml`
-    }
+      mcpPaths: [
+        `${root}/.codex/config.toml`,
+        `${root}/.codex/mcp.json`,
+        `${root}/.codex/settings.json`,
+      ],
+      settings: `${root}/.codex/config.toml`,
+    },
   };
 }
 
@@ -5273,7 +5836,14 @@ function formatClaudeMcpDisplayPath(spec) {
   return projectKey ? `${file} (projects.${projectKey})` : file;
 }
 
-function compareInstructions(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {
+function compareInstructions(
+  entries,
+  scope,
+  claudePath,
+  codexPath,
+  claudePaths = [claudePath],
+  codexPaths = [codexPath]
+) {
   const claude = instructionState("claude", claudePaths);
   const codex = instructionState("codex", codexPaths);
 
@@ -5298,14 +5868,16 @@ function compareInstructions(entries, scope, claudePath, codexPath, claudePaths 
       codexInstructionContent: codex.content,
       claude: claude.summary,
       codex: codex.summary,
-      mappingQuality: "equivalent"
+      mappingQuality: "equivalent",
     });
   }
 }
 
 function instructionsEquivalent(claudeContent, codexContent) {
-  return transformTextForHost(claudeContent, "claude", "codex") === String(codexContent ?? "")
-    || transformTextForHost(codexContent, "codex", "claude") === String(claudeContent ?? "");
+  return (
+    transformTextForHost(claudeContent, "claude", "codex") === String(codexContent ?? "") ||
+    transformTextForHost(codexContent, "codex", "claude") === String(claudeContent ?? "")
+  );
 }
 
 function compareFile(entries, scope, area, claudePath, codexPath) {
@@ -5324,14 +5896,18 @@ function compareFile(entries, scope, area, claudePath, codexPath) {
       codexPath,
       claude: claude.summary,
       codex: codex.summary,
-      mappingQuality: area === "instructions" ? "equivalent" : "unsupported"
+      mappingQuality: area === "instructions" ? "equivalent" : "unsupported",
     });
   }
 }
 
 function classifyFileRisk(area, claudePath, codexPath) {
   if (area === "instructions") return "safe";
-  if (area === "mcp" && !claudePath.endsWith("marketplace.json") && !codexPath.endsWith("marketplace.json")) {
+  if (
+    area === "mcp" &&
+    !claudePath.endsWith("marketplace.json") &&
+    !codexPath.endsWith("marketplace.json")
+  ) {
     return "safe";
   }
   return "manual";
@@ -5349,18 +5925,26 @@ function comparePresence(entries, scope, area, claudePath, codexPath, risk) {
     summary: `${label(area)} presence differs`,
     claudePath,
     codexPath,
-      claude: claude.summary,
-      codex: codex.summary,
-      mappingQuality: risk === "safe" ? "exact" : "unsupported"
+    claude: claude.summary,
+    codex: codex.summary,
+    mappingQuality: risk === "safe" ? "exact" : "unsupported",
   });
 }
 
-function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [claudeDir], codexDirs = [codexDir], ignoreRules = []) {
+function compareSkillDirs(
+  entries,
+  scope,
+  claudeDir,
+  codexDir,
+  claudeDirs = [claudeDir],
+  codexDirs = [codexDir],
+  ignoreRules = []
+) {
   const claudeIndex = enumerateSkillIndex(claudeDirs);
   const codexIndex = enumerateSkillIndex(codexDirs);
   const symlinkNames = uniqueStrings([
     ...enumerateSkillSymlinkIndex(claudeDirs).keys(),
-    ...enumerateSkillSymlinkIndex(codexDirs).keys()
+    ...enumerateSkillSymlinkIndex(codexDirs).keys(),
   ]);
   const claude = [...claudeIndex.keys()].filter((name) => !symlinkNames.includes(name)).sort();
   const codex = [...codexIndex.keys()].filter((name) => !symlinkNames.includes(name)).sort();
@@ -5369,7 +5953,16 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [cla
   const skillsCompareEntry = { scope, area: "skills", claudePath: claudeDir, codexPath: codexDir };
   const conflicts = claude
     .filter((name) => codexIndex.has(name))
-    .filter((name) => !skillDirsEquivalent(join(claudeIndex.get(name), name), join(codexIndex.get(name), name), skillsCompareEntry, name, ignoreRules));
+    .filter(
+      (name) =>
+        !skillDirsEquivalent(
+          join(claudeIndex.get(name), name),
+          join(codexIndex.get(name), name),
+          skillsCompareEntry,
+          name,
+          ignoreRules
+        )
+    );
 
   const claudeSkillIndex = Object.fromEntries(claudeIndex);
   const codexSkillIndex = Object.fromEntries(codexIndex);
@@ -5388,7 +5981,7 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [cla
       claude: `${claude.length} skill(s)`,
       codex: `${codex.length} skill(s)`,
       unsupported: symlinkNames,
-      itemQualities: Object.fromEntries(symlinkNames.map((name) => [name, "unsupported"]))
+      itemQualities: Object.fromEntries(symlinkNames.map((name) => [name, "unsupported"])),
     });
   }
 
@@ -5406,7 +5999,7 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [cla
       codex: `${codex.length} skill(s)`,
       missingInCodex,
       missingInClaude,
-      itemQualities: itemQualities("skills", [...missingInCodex, ...missingInClaude])
+      itemQualities: itemQualities("skills", [...missingInCodex, ...missingInClaude]),
     });
   }
 
@@ -5423,7 +6016,7 @@ function compareSkillDirs(entries, scope, claudeDir, codexDir, claudeDirs = [cla
       claude: `${claude.length} skill(s)`,
       codex: `${codex.length} skill(s)`,
       conflicts,
-      itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"]))
+      itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"])),
     });
   }
 }
@@ -5441,12 +6034,23 @@ function compareAgents(entries, scope, claudeDir, codexDir, ignoreRules = []) {
   const agentsCompareEntry = { scope, area: "agents", claudePath: claudeDir, codexPath: codexDir };
   const conflicts = claudeNames
     .filter((name) => codexIndex.has(name))
-    .filter((name) => !agentsEquivalent(claudeIndex.get(name), codexIndex.get(name), agentsCompareEntry, name, ignoreRules));
+    .filter(
+      (name) =>
+        !agentsEquivalent(
+          claudeIndex.get(name),
+          codexIndex.get(name),
+          agentsCompareEntry,
+          name,
+          ignoreRules
+        )
+    );
 
   // Per-name path lookup for downstream preview/apply. Required because Claude agents
   // can live one folder deep (e.g. .claude/agents/code-writer/code-writer-logic.md);
   // a flat baseDir + ${name}.md guess misses them after canonical-name matching.
-  const claudeAgentPaths = Object.fromEntries(claudeAgents.map((agent) => [agent.name, agent.path]));
+  const claudeAgentPaths = Object.fromEntries(
+    claudeAgents.map((agent) => [agent.name, agent.path])
+  );
   const codexAgentPaths = Object.fromEntries(codexAgents.map((agent) => [agent.name, agent.path]));
 
   if (missingInCodex.length > 0 || missingInClaude.length > 0) {
@@ -5463,7 +6067,7 @@ function compareAgents(entries, scope, claudeDir, codexDir, ignoreRules = []) {
       codex: `${codexNames.length} agent(s)`,
       missingInCodex,
       missingInClaude,
-      itemQualities: itemQualities("agents", [...missingInCodex, ...missingInClaude])
+      itemQualities: itemQualities("agents", [...missingInCodex, ...missingInClaude]),
     });
   }
 
@@ -5480,7 +6084,7 @@ function compareAgents(entries, scope, claudeDir, codexDir, ignoreRules = []) {
       claude: `${claudeNames.length} agent(s)`,
       codex: `${codexNames.length} agent(s)`,
       conflicts,
-      itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"]))
+      itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"])),
     });
   }
 }
@@ -5492,14 +6096,22 @@ function enumerateClaudeAgents(dir) {
     if (entry.isFile() && entry.name.endsWith(".md")) {
       const path = join(dir, entry.name);
       const stem = entry.name.slice(0, -3);
-      agents.push({ name: canonicalAgentName(parseClaudeAgentFile(path).frontmatter?.name, stem), path, group: null });
+      agents.push({
+        name: canonicalAgentName(parseClaudeAgentFile(path).frontmatter?.name, stem),
+        path,
+        group: null,
+      });
     } else if (entry.isDirectory()) {
       const groupDir = join(dir, entry.name);
       for (const child of readdirSync(groupDir, { withFileTypes: true })) {
         if (!child.isFile() || !child.name.endsWith(".md")) continue;
         const path = join(groupDir, child.name);
         const stem = child.name.slice(0, -3);
-        agents.push({ name: canonicalAgentName(parseClaudeAgentFile(path).frontmatter?.name, stem), path, group: entry.name });
+        agents.push({
+          name: canonicalAgentName(parseClaudeAgentFile(path).frontmatter?.name, stem),
+          path,
+          group: entry.name,
+        });
       }
     }
   }
@@ -5530,9 +6142,9 @@ function agentsEquivalent(claudeAgent, codexAgent, entry, item, rules) {
   const codex = parseCodexAgentFile(codexAgent.path);
   const terms = entry
     ? uniqueStrings([
-      ...applicableTermRules(rules ?? [], entry, item, "claude"),
-      ...applicableTermRules(rules ?? [], entry, item, "codex")
-    ])
+        ...applicableTermRules(rules ?? [], entry, item, "claude"),
+        ...applicableTermRules(rules ?? [], entry, item, "codex"),
+      ])
     : [];
   const overrides = activeOverridesForFilePair(claudeAgent.path, codexAgent.path);
   const { claudeBody, codexBody } = maskBodiesWithOverrides(
@@ -5555,8 +6167,16 @@ function agentBodiesEqual(claudeBody, codexBody, terms) {
     const maskedLeft = maskLinesContaining(left, expandedTerms);
     const maskedRight = maskLinesContaining(right, expandedTerms);
     if (maskedLeft === maskedRight) return true;
-    if (maskLinesContaining(transformTextForHost(left, "claude", "codex"), expandedTerms) === maskedRight) return true;
-    if (maskedLeft === maskLinesContaining(transformTextForHost(right, "codex", "claude"), expandedTerms)) return true;
+    if (
+      maskLinesContaining(transformTextForHost(left, "claude", "codex"), expandedTerms) ===
+      maskedRight
+    )
+      return true;
+    if (
+      maskedLeft ===
+      maskLinesContaining(transformTextForHost(right, "codex", "claude"), expandedTerms)
+    )
+      return true;
   }
   return false;
 }
@@ -5636,7 +6256,8 @@ function serializeFrontmatterScalar(value) {
 }
 
 function parseCodexAgentFile(path) {
-  if (!existsSync(path)) return { name: "", description: "", model: "", developer_instructions: "" };
+  if (!existsSync(path))
+    return { name: "", description: "", model: "", developer_instructions: "" };
   return parseCodexAgentText(readFileSync(path, "utf8"));
 }
 
@@ -5654,13 +6275,19 @@ function parseCodexAgentText(text) {
     description: fields.description ?? "",
     model: fields.model ?? "",
     model_reasoning_effort: fields.model_reasoning_effort,
-    developer_instructions: fields.developer_instructions ?? ""
+    developer_instructions: fields.developer_instructions ?? "",
   };
 }
 
 function serializeCodexAgentFile(fields) {
   const lines = [];
-  for (const key of ["name", "description", "model", "model_reasoning_effort", "developer_instructions"]) {
+  for (const key of [
+    "name",
+    "description",
+    "model",
+    "model_reasoning_effort",
+    "developer_instructions",
+  ]) {
     const value = fields[key];
     if (value === undefined || value === null || value === "") continue;
     lines.push(`${key} = ${JSON.stringify(String(value))}`);
@@ -5672,16 +6299,21 @@ function mapAgentToCodex(claude, options = {}) {
   const aliases = modelAliasMap("claude", "codex");
   const fm = claude.frontmatter ?? {};
   const rawBody = claude.body ?? "";
-  const body = transformTextForHost(rawBody, "claude", "codex", { callArchive: options.callArchive });
+  const body = transformTextForHost(rawBody, "claude", "codex", {
+    callArchive: options.callArchive,
+  });
   recordVocabFindings(options.callArchive, lintHostVocab(body, "codex"), "claude", "codex");
   const fallbackName = (typeof options.fallbackName === "string" && options.fallbackName) || "";
   const name = (fm.name && String(fm.name).trim()) || fallbackName;
-  const description = (fm.description && String(fm.description).trim()) || extractDescriptionFromBody(rawBody) || name;
+  const description =
+    (fm.description && String(fm.description).trim()) ||
+    extractDescriptionFromBody(rawBody) ||
+    name;
   const codexFields = {
     name,
     description,
     model: aliases[fm.model] ?? fm.model ?? "",
-    developer_instructions: body
+    developer_instructions: body,
   };
   if (options.preserveCodex?.model_reasoning_effort) {
     codexFields.model_reasoning_effort = options.preserveCodex.model_reasoning_effort;
@@ -5693,7 +6325,10 @@ function extractDescriptionFromBody(body) {
   const text = String(body ?? "").replace(/\r\n/g, "\n");
   const paragraphs = text.split(/\n{2,}/);
   for (const paragraph of paragraphs) {
-    const lines = paragraph.split("\n").map((line) => line.trim()).filter((line) => line && !line.startsWith("#"));
+    const lines = paragraph
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
     if (lines.length === 0) continue;
     const oneLine = lines.join(" ").replace(/\s+/g, " ").trim();
     if (!oneLine) continue;
@@ -5704,12 +6339,17 @@ function extractDescriptionFromBody(body) {
 
 function mapAgentToClaude(codex, options = {}) {
   const aliases = modelAliasMap("codex", "claude");
-  const body = transformTextForHost(stripAgentMigrationPreamble(codex.developer_instructions ?? ""), "codex", "claude", { callArchive: options.callArchive });
+  const body = transformTextForHost(
+    stripAgentMigrationPreamble(codex.developer_instructions ?? ""),
+    "codex",
+    "claude",
+    { callArchive: options.callArchive }
+  );
   recordVocabFindings(options.callArchive, lintHostVocab(body, "claude"), "codex", "claude");
   const frontmatter = {
     name: codex.name ?? "",
     description: codex.description ?? "",
-    model: aliases[codex.model] ?? codex.model ?? ""
+    model: aliases[codex.model] ?? codex.model ?? "",
   };
   const preserved = options.preserveClaude ?? {};
   for (const key of ["tools", "color", "memory"]) {
@@ -5725,7 +6365,7 @@ function mapAgentToClaude(codex, options = {}) {
           action: "vocab-mismatch-sanitized",
           original: preserved.tools,
           fields: { removed, kept: sanitized },
-          reason: `tools field had codex-only tokens stripped: ${removed.join(", ")}`
+          reason: `tools field had codex-only tokens stripped: ${removed.join(", ")}`,
         });
       }
     } else {
@@ -5745,7 +6385,12 @@ function modelAliasMap(from, to) {
   for (const tier of modelTiers()) {
     const sourceAlias = tier?.[from]?.alias;
     const targetAlias = tier?.[to]?.alias;
-    if (typeof sourceAlias === "string" && sourceAlias && typeof targetAlias === "string" && targetAlias) {
+    if (
+      typeof sourceAlias === "string" &&
+      sourceAlias &&
+      typeof targetAlias === "string" &&
+      targetAlias
+    ) {
       aliases[sourceAlias] = targetAlias;
     }
   }
@@ -5756,8 +6401,14 @@ function modelTerminologyRules() {
   return modelTiers()
     .map((tier) => ({
       id: tier?.id ?? "model-tier",
-      claude: [tier?.claude?.alias, ...(Array.isArray(tier?.claude?.terms) ? tier.claude.terms : [])].filter((value) => typeof value === "string" && value),
-      codex: [tier?.codex?.alias, ...(Array.isArray(tier?.codex?.terms) ? tier.codex.terms : [])].filter((value) => typeof value === "string" && value)
+      claude: [
+        tier?.claude?.alias,
+        ...(Array.isArray(tier?.claude?.terms) ? tier.claude.terms : []),
+      ].filter((value) => typeof value === "string" && value),
+      codex: [
+        tier?.codex?.alias,
+        ...(Array.isArray(tier?.codex?.terms) ? tier.codex.terms : []),
+      ].filter((value) => typeof value === "string" && value),
     }))
     .filter((rule) => rule.claude.length > 0 && rule.codex.length > 0);
 }
@@ -5782,7 +6433,7 @@ function agentsMapCandidates() {
   return [
     join(resolve(process.cwd()), "rules/agents-map.json"),
     `${home}/.ai-config-sync-manager/rules/agents-map.json`,
-    join(runtimeRoot, "rules/agents-map.json")
+    join(runtimeRoot, "rules/agents-map.json"),
   ];
 }
 
@@ -5801,7 +6452,14 @@ function agentTargetPath(name, baseDir, host, sourceAgent) {
   return join(baseDir, `${name}.md`);
 }
 
-function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = [claudePath], codexPaths = [codexPath]) {
+function compareMcpServers(
+  entries,
+  scope,
+  claudePath,
+  codexPath,
+  claudePaths = [claudePath],
+  codexPaths = [codexPath]
+) {
   const claudeServers = readClaudeMcpServers(claudePaths);
   const codexServers = readCodexMcpServers(codexPaths);
   const claudeNames = Object.keys(claudeServers).sort();
@@ -5810,7 +6468,9 @@ function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = 
   const missingInClaude = codexNames.filter((name) => !claudeNames.includes(name));
   const conflicts = claudeNames
     .filter((name) => codexNames.includes(name))
-    .filter((name) => mcpServerSignature(claudeServers[name]) !== mcpServerSignature(codexServers[name]))
+    .filter(
+      (name) => mcpServerSignature(claudeServers[name]) !== mcpServerSignature(codexServers[name])
+    )
     .sort();
 
   if (missingInCodex.length === 0 && missingInClaude.length === 0 && conflicts.length === 0) return;
@@ -5829,7 +6489,7 @@ function compareMcpServers(entries, scope, claudePath, codexPath, claudePaths = 
     missingInCodex,
     missingInClaude,
     conflicts,
-    itemQualities: itemQualities("mcp", [...missingInCodex, ...missingInClaude, ...conflicts])
+    itemQualities: itemQualities("mcp", [...missingInCodex, ...missingInClaude, ...conflicts]),
   });
 }
 
@@ -5847,7 +6507,7 @@ function mcpServerSignature(server) {
     args: server.args ?? [],
     env,
     bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
-    headers
+    headers,
   });
 }
 
@@ -5863,7 +6523,9 @@ function compareSettingsItems(entries, scope, area, claudePath, codexPath) {
     // table without an explicit `enabled_tools = []` deny, treat the claude permission as
     // satisfied even though codex emits no item-level entry to capability-match against.
     const codexUnrestrictedServers = codexUnrestrictedMcpServers(codexPath);
-    missingInCodex = missingInCodex.filter((name) => !isServerScopeMcpAllowSatisfied(name, codexUnrestrictedServers));
+    missingInCodex = missingInCodex.filter(
+      (name) => !isServerScopeMcpAllowSatisfied(name, codexUnrestrictedServers)
+    );
   }
 
   if (missingInCodex.length === 0 && missingInClaude.length === 0) return;
@@ -5879,7 +6541,7 @@ function compareSettingsItems(entries, scope, area, claudePath, codexPath) {
     codex: `${codex.length} item(s)`,
     missingInCodex,
     missingInClaude,
-    itemQualities: itemQualities(area, [...missingInCodex, ...missingInClaude])
+    itemQualities: itemQualities(area, [...missingInCodex, ...missingInClaude]),
   });
 }
 
@@ -5992,7 +6654,7 @@ function claudeSettingsItems(area, path) {
       return uniqueStrings([
         ...permissionItems("allow", data.permissions?.allow),
         ...permissionItems("deny", data.permissions?.deny),
-        ...permissionItems("ask", data.permissions?.ask)
+        ...permissionItems("ask", data.permissions?.ask),
       ]);
     }
 
@@ -6008,9 +6670,7 @@ function claudeSettingsItems(area, path) {
 
 function permissionItems(prefix, values) {
   if (!Array.isArray(values)) return [];
-  return values
-    .filter((value) => typeof value === "string")
-    .map((value) => `${prefix}:${value}`);
+  return values.filter((value) => typeof value === "string").map((value) => `${prefix}:${value}`);
 }
 
 function codexSettingsItems(area, path) {
@@ -6078,7 +6738,9 @@ function codexRulePermissionItems(path) {
   const text = readFileSync(path, "utf8");
   const items = [];
 
-  for (const match of text.matchAll(/prefix_rule\(pattern=(\[[^\)]*?\]),\s*decision="(allow|prompt|forbidden)"/g)) {
+  for (const match of text.matchAll(
+    /prefix_rule\(pattern=(\[[^\)]*?\]),\s*decision="(allow|prompt|forbidden)"/g
+  )) {
     const parts = parseJsonLike(match[1], []);
     if (!Array.isArray(parts) || parts.some((part) => typeof part !== "string")) continue;
 
@@ -6093,7 +6755,8 @@ function codexRulePermissionItems(path) {
 
 function codexMcpApprovalItems(text) {
   const items = [];
-  const tablePattern = /^\[mcp_servers\.([^\].]+)\.tools\.([^\]]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
+  const tablePattern =
+    /^\[mcp_servers\.([^\].]+)\.tools\.([^\]]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
     const approval = match[3].match(/^approval_mode\s*=\s*"([^"]+)"/m);
@@ -6234,7 +6897,15 @@ function fileState(path) {
 function instructionState(host, paths) {
   const checkedPaths = Array.isArray(paths) ? paths : [paths];
   const sources = instructionSources(host, paths);
-  if (sources.length === 0) return { exists: false, hash: "missing", summary: "missing", paths: [], checkedPaths, content: "" };
+  if (sources.length === 0)
+    return {
+      exists: false,
+      hash: "missing",
+      summary: "missing",
+      paths: [],
+      checkedPaths,
+      content: "",
+    };
 
   const content = sources
     .map((source) => source.content)
@@ -6246,7 +6917,7 @@ function instructionState(host, paths) {
     summary: `${sources.length} source(s) sha256:${hash}`,
     paths: sources.map((source) => source.path),
     checkedPaths,
-    content
+    content,
   };
 }
 
@@ -6266,7 +6937,14 @@ function jsonInstructionSources(host, path) {
   const data = readJsonFile(path, {});
   const values = [];
 
-  for (const key of ["instructions", "instruction", "systemPrompt", "system_prompt", "appendSystemPrompt", "append_system_prompt"]) {
+  for (const key of [
+    "instructions",
+    "instruction",
+    "systemPrompt",
+    "system_prompt",
+    "appendSystemPrompt",
+    "append_system_prompt",
+  ]) {
     const value = data[key];
     if (typeof value === "string" && value.trim()) {
       values.push({ path: `${path}#${key}`, content: value });
@@ -6289,7 +6967,12 @@ function tomlInstructionSources(path) {
   const text = readFileSync(path, "utf8");
   const values = [];
 
-  for (const key of ["instructions", "instruction", "developer_instructions", "user_instructions"]) {
+  for (const key of [
+    "instructions",
+    "instruction",
+    "developer_instructions",
+    "user_instructions",
+  ]) {
     const pattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+)$`, "m");
     const match = text.match(pattern);
     if (!match) continue;
@@ -6386,13 +7069,23 @@ function skillDirsEquivalent(claudePath, codexPath, entry, item, rules) {
   if (transformedSkillContentHash(codexPath, "codex", "claude") === claudeHash) return true;
 
   if (entry) {
-    const terms = expandTermsBothDirections(uniqueStrings([
-      ...applicableTermRules(rules ?? [], entry, item, "claude"),
-      ...applicableTermRules(rules ?? [], entry, item, "codex")
-    ]));
+    const terms = expandTermsBothDirections(
+      uniqueStrings([
+        ...applicableTermRules(rules ?? [], entry, item, "claude"),
+        ...applicableTermRules(rules ?? [], entry, item, "codex"),
+      ])
+    );
     if (terms.length > 0) {
-      if (maskedSkillContentHash(claudePath, "claude", "codex", terms) === maskedSkillContentHash(codexPath, "codex", "codex", terms)) return true;
-      if (maskedSkillContentHash(claudePath, "claude", "claude", terms) === maskedSkillContentHash(codexPath, "codex", "claude", terms)) return true;
+      if (
+        maskedSkillContentHash(claudePath, "claude", "codex", terms) ===
+        maskedSkillContentHash(codexPath, "codex", "codex", terms)
+      )
+        return true;
+      if (
+        maskedSkillContentHash(claudePath, "claude", "claude", terms) ===
+        maskedSkillContentHash(codexPath, "codex", "claude", terms)
+      )
+        return true;
     }
   }
 
@@ -6404,8 +7097,16 @@ function skillDirsEquivalent(claudePath, codexPath, entry, item, rules) {
     // Override sentinels (` PO:<id> `) survive transformTextForHost untouched, so
     // a transform layered on top of paraphrase masking can close the remaining
     // gap when transform AND override are jointly required for equivalence.
-    if (overriddenTransformedSkillContentHash(claudePath, "claude", "codex", overrides) === codexOverridden) return true;
-    if (overriddenTransformedSkillContentHash(codexPath, "codex", "claude", overrides) === claudeOverridden) return true;
+    if (
+      overriddenTransformedSkillContentHash(claudePath, "claude", "codex", overrides) ===
+      codexOverridden
+    )
+      return true;
+    if (
+      overriddenTransformedSkillContentHash(codexPath, "codex", "claude", overrides) ===
+      claudeOverridden
+    )
+      return true;
   }
 
   const lineTerms = entry ? entryMaskTerms(entry, item, rules ?? []) : [];
@@ -6426,7 +7127,7 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
   const sourceByNormalized = new Map(sourceFiles.map((entry) => [entry.normalized, entry]));
   const allNormalized = uniqueStrings([
     ...targetFiles.map((entry) => entry.normalized),
-    ...sourceFiles.map((entry) => entry.normalized)
+    ...sourceFiles.map((entry) => entry.normalized),
   ]).sort();
 
   for (const normalized of allNormalized) {
@@ -6439,9 +7140,20 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
     let targetContent = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
     let sourceContent = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
 
-    const fileOverrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost, sourceHost);
+    const fileOverrides = activeManifestOverridesForPair(
+      targetAbs,
+      sourceAbs,
+      targetHost,
+      sourceHost
+    );
     if (fileOverrides.length > 0) {
-      const masked = maskBodiesForHosts(targetContent, sourceContent, targetHost, sourceHost, fileOverrides);
+      const masked = maskBodiesForHosts(
+        targetContent,
+        sourceContent,
+        targetHost,
+        sourceHost,
+        fileOverrides
+      );
       targetContent = masked.target;
       sourceContent = masked.source;
     }
@@ -6449,7 +7161,13 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
       sourceContent = transformTextForHost(sourceContent, sourceHost, targetHost);
     }
 
-    let changes = contentChangePreview("Target current", targetContent, "After apply", sourceContent, terms);
+    let changes = contentChangePreview(
+      "Target current",
+      targetContent,
+      "After apply",
+      sourceContent,
+      terms
+    );
     if (changes.length === 1 && changes[0] === "No line-level preview available.") continue;
 
     // Mask-before-transform fails when an override line sits inside a structured
@@ -6461,9 +7179,27 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
       const rawTarget = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
       let rawSource = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
       rawSource = transformTextForHost(rawSource, sourceHost, targetHost);
-      rawSource = applyOverrideParaphrasesAtTargetLines(rawSource, sourceAbs, targetAbs, sourceHost, targetHost);
-      const masked = maskBodiesForHosts(rawTarget, rawSource, targetHost, targetHost, fileOverrides);
-      changes = contentChangePreview("Target current", masked.target, "After apply", masked.source, terms);
+      rawSource = applyOverrideParaphrasesAtTargetLines(
+        rawSource,
+        sourceAbs,
+        targetAbs,
+        sourceHost,
+        targetHost
+      );
+      const masked = maskBodiesForHosts(
+        rawTarget,
+        rawSource,
+        targetHost,
+        targetHost,
+        fileOverrides
+      );
+      changes = contentChangePreview(
+        "Target current",
+        masked.target,
+        "After apply",
+        masked.source,
+        terms
+      );
       if (changes.length === 1 && changes[0] === "No line-level preview available.") continue;
     }
     return false;
@@ -6498,9 +7234,10 @@ function maskedSkillContentHash(path, sourceHost, targetHost, terms) {
     const canonical = readSkillFileForHash(path, raw);
     let content;
     if (isTextMappingFile(absolute)) {
-      const text = sourceHost === targetHost
-        ? canonical.toString("utf8")
-        : transformTextForHost(canonical.toString("utf8"), sourceHost, targetHost);
+      const text =
+        sourceHost === targetHost
+          ? canonical.toString("utf8")
+          : transformTextForHost(canonical.toString("utf8"), sourceHost, targetHost);
       content = Buffer.from(maskLinesContaining(text, terms), "utf8");
     } else {
       content = canonical;
@@ -6517,9 +7254,10 @@ function activeSkillOverridesForDirPair(claudeDir, codexDir) {
   const claudeRoot = expandHome(claudeDir);
   const codexRoot = expandHome(codexDir);
   const { active } = activeParaphraseOverrides();
-  return active.filter((entry) =>
-    expandHome(entry.claude_path).startsWith(`${claudeRoot}/`)
-    && expandHome(entry.codex_path).startsWith(`${codexRoot}/`)
+  return active.filter(
+    (entry) =>
+      expandHome(entry.claude_path).startsWith(`${claudeRoot}/`) &&
+      expandHome(entry.codex_path).startsWith(`${codexRoot}/`)
   );
 }
 
@@ -6537,7 +7275,9 @@ function overriddenSkillContentHash(path, host, overrides) {
     let content;
     if (isTextMappingFile(absolute)) {
       let text = canonical.toString("utf8");
-      const fileOverrides = overrides.filter((entry) => overrideMatchesSkillFile(entry[pathKey], root, raw));
+      const fileOverrides = overrides.filter((entry) =>
+        overrideMatchesSkillFile(entry[pathKey], root, raw)
+      );
       for (const entry of fileOverrides) {
         const sentinel = ` PO:${entry.id} `;
         text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
@@ -6572,7 +7312,9 @@ function overriddenTransformedSkillContentHash(path, sourceHost, targetHost, ove
     let content;
     if (isTextMappingFile(absolute)) {
       let text = canonical.toString("utf8");
-      const fileOverrides = overrides.filter((entry) => overrideMatchesSkillFile(entry[pathKey], root, raw));
+      const fileOverrides = overrides.filter((entry) =>
+        overrideMatchesSkillFile(entry[pathKey], root, raw)
+      );
       for (const entry of fileOverrides) {
         const sentinel = ` PO:${entry.id} `;
         text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
@@ -6637,7 +7379,9 @@ async function runConnect() {
   console.log(`Runtime root: ${runtimeRoot}`);
   console.log(`Config root: ${formatPathState(nextState.configRoot)}`);
   console.log(`Status ignore: ${formatPathState(nextState.statusIgnore)}`);
-  console.log(`Claude plugin: ${nextState.claudePlugin ? formatPathState(nextState.claudePlugin) : "missing"}`);
+  console.log(
+    `Claude plugin: ${nextState.claudePlugin ? formatPathState(nextState.claudePlugin) : "missing"}`
+  );
   console.log(`Codex plugin: ${formatPathState(nextState.codexPlugin)}`);
   console.log(`Codex marketplace: ${formatPathState(nextState.codexMarketplace)}`);
 
@@ -6646,7 +7390,9 @@ async function runConnect() {
   }
 
   if (!nextState.claudePlugin) {
-    console.log("Action needed: install Claude plugin with /plugin install config-manager@ai-config-sync-manager");
+    console.log(
+      "Action needed: install Claude plugin with /plugin install config-manager@ai-config-sync-manager"
+    );
   }
 
   if (!existsSync(nextState.codexPlugin) || !codexMarketplaceIncludes(nextState.codexMarketplace)) {
@@ -6663,7 +7409,7 @@ function connectState() {
     claudePlugin: findClaudePlugin(),
     claudePluginTarget: `${home}/.claude/plugins/config-manager@ai-config-sync-manager`,
     codexPlugin,
-    codexMarketplace: `${home}/.agents/plugins/marketplace.json`
+    codexMarketplace: `${home}/.agents/plugins/marketplace.json`,
   };
 }
 
@@ -6692,7 +7438,9 @@ async function registerMissingIntegrations(state) {
 
 function ensureDirectoryRoot(path) {
   if (existsSync(path) && lstatSync(path).isSymbolicLink()) {
-    throw new Error(`${path} is a symlink; remove it before using this path as the user config root`);
+    throw new Error(
+      `${path} is a symlink; remove it before using this path as the user config root`
+    );
   }
 
   mkdirSync(path, { recursive: true });
@@ -6714,7 +7462,7 @@ function tryConnectAction(results, message, action) {
   } catch (error) {
     results.push({
       status: "blocked",
-      message: `${message}: ${error instanceof Error ? error.message : "unknown error"}`
+      message: `${message}: ${error instanceof Error ? error.message : "unknown error"}`,
     });
   }
 }
@@ -6726,7 +7474,7 @@ async function tryConnectActionAsync(results, message, action) {
   } catch (error) {
     results.push({
       status: "blocked",
-      message: `${message}: ${error instanceof Error ? error.message : "unknown error"}`
+      message: `${message}: ${error instanceof Error ? error.message : "unknown error"}`,
     });
   }
 }
@@ -6746,8 +7494,8 @@ async function installClaudePlugin(targetPath) {
     {
       installPath: targetPath,
       source: "ai-config-sync-manager",
-      version: runtimeVersion
-    }
+      version: runtimeVersion,
+    },
   ];
 
   mkdirSync(dirname(installedPath), { recursive: true });
@@ -6779,7 +7527,7 @@ async function writeLauncher(launcherPath, host) {
   const { writeHostLauncher } = await import(join(runtimeRoot, "scripts/lib/host-launcher.mjs"));
   writeHostLauncher(launcherPath, host, {
     pinnedVersion: runtimeVersion,
-    packageName: runtimePackageName
+    packageName: runtimePackageName,
   });
 }
 
@@ -6793,8 +7541,8 @@ function updateCodexMarketplace(path, pluginPath) {
       name: "ai-config-sync-manager",
       version: runtimeVersion,
       path: pluginPath,
-      source: pluginPath
-    }
+      source: pluginPath,
+    },
   ];
 
   mkdirSync(dirname(path), { recursive: true });
@@ -6877,7 +7625,11 @@ function parseSync(argv) {
 function parseScopes(value, allowAll) {
   if (allowAll && (!value || value === "all")) return ["global", "project"];
   if (value === "global" || value === "project") return [value];
-  throw new Error(allowAll ? "Supported scopes are global, project, and all." : "Supported sync scopes are global and project.");
+  throw new Error(
+    allowAll
+      ? "Supported scopes are global, project, and all."
+      : "Supported sync scopes are global and project."
+  );
 }
 
 function noOptions(argv, command) {
@@ -7068,7 +7820,10 @@ function parseParaphraseMapArg(value, target) {
     if (!side) {
       if (claudeTokens.has(token)) side = "claude_only";
       else if (codexTokens.has(token)) side = "codex_only";
-      else throw new Error(`--map token "${token}" not in host-strict-vocab; prefix with claude_only: or codex_only:`);
+      else
+        throw new Error(
+          `--map token "${token}" not in host-strict-vocab; prefix with claude_only: or codex_only:`
+        );
     }
     target[side][token] = paraphrase;
   }
@@ -7189,12 +7944,14 @@ async function runParaphrase(options) {
         }
       }
 
-      const claudePath = info.host === "claude" ? path : counterpart?.path ?? null;
-      const codexPath = info.host === "codex" ? path : counterpart?.path ?? null;
-      const claudeLine = info.host === "claude" ? change.lineNumber : (cpLineNumber ?? change.lineNumber);
-      const codexLine = info.host === "codex" ? change.lineNumber : (cpLineNumber ?? change.lineNumber);
-      const claudeText = info.host === "claude" ? change.after : (counterpartMatched ? cpLine : null);
-      const codexText = info.host === "codex" ? change.after : (counterpartMatched ? cpLine : null);
+      const claudePath = info.host === "claude" ? path : (counterpart?.path ?? null);
+      const codexPath = info.host === "codex" ? path : (counterpart?.path ?? null);
+      const claudeLine =
+        info.host === "claude" ? change.lineNumber : (cpLineNumber ?? change.lineNumber);
+      const codexLine =
+        info.host === "codex" ? change.lineNumber : (cpLineNumber ?? change.lineNumber);
+      const claudeText = info.host === "claude" ? change.after : counterpartMatched ? cpLine : null;
+      const codexText = info.host === "codex" ? change.after : counterpartMatched ? cpLine : null;
       const overrideId = `${info.scope}-${info.area}-${sanitizeOverrideIdSegment(info.item)}-${info.host}-L${change.lineNumber}`;
 
       const record = {
@@ -7211,7 +7968,7 @@ async function runParaphrase(options) {
         counterpart_line: counterpartMatched ? cpLineNumber : null,
         counterpart_text: cpLine,
         counterpart_matched: counterpartMatched,
-        override_id: overrideId
+        override_id: overrideId,
       };
 
       if (!counterpartMatched) {
@@ -7219,7 +7976,7 @@ async function runParaphrase(options) {
           path,
           line: change.lineNumber,
           reason: counterpart ? "counterpart-line-mismatch" : "counterpart-file-not-found",
-          ...record
+          ...record,
         });
         continue;
       }
@@ -7239,7 +7996,7 @@ async function runParaphrase(options) {
           claude_text: claudeText,
           codex_text: codexText,
           tokens: change.tokens,
-          registered_at: new Date().toISOString()
+          registered_at: new Date().toISOString(),
         });
       }
     }
@@ -7252,7 +8009,10 @@ async function runParaphrase(options) {
 
   if (apply) {
     if (overridesToRegister.length > 0) registerParaphraseOverrides(overridesToRegister);
-    if (Object.keys(newMapEntries.claude_only).length > 0 || Object.keys(newMapEntries.codex_only).length > 0) {
+    if (
+      Object.keys(newMapEntries.claude_only).length > 0 ||
+      Object.keys(newMapEntries.codex_only).length > 0
+    ) {
       persistParaphraseMap(newMapEntries);
     }
   }
@@ -7263,7 +8023,7 @@ async function runParaphrase(options) {
     total: manualFindings.length,
     applied,
     skipped,
-    pendingTokens: pending
+    pendingTokens: pending,
   };
 }
 
@@ -7313,7 +8073,7 @@ async function runParaphraseRegister(options) {
             codexPath: item.codexPath,
             reason: "mapping-not-equivalent",
             claudeText,
-            codexText
+            codexText,
           });
           continue;
         }
@@ -7332,7 +8092,7 @@ async function runParaphraseRegister(options) {
           claude_text: claudeText,
           codex_text: codexText,
           tokens: equivalence.tokens,
-          registered_at: new Date().toISOString()
+          registered_at: new Date().toISOString(),
         };
         matched.push(record);
         overridesToRegister.push(record);
@@ -7342,7 +8102,10 @@ async function runParaphraseRegister(options) {
 
   if (apply) {
     if (overridesToRegister.length > 0) registerParaphraseOverrides(overridesToRegister);
-    if (Object.keys(newMapEntries.claude_only).length > 0 || Object.keys(newMapEntries.codex_only).length > 0) {
+    if (
+      Object.keys(newMapEntries.claude_only).length > 0 ||
+      Object.keys(newMapEntries.codex_only).length > 0
+    ) {
       persistParaphraseMap(newMapEntries);
     }
   }
@@ -7351,7 +8114,7 @@ async function runParaphraseRegister(options) {
     mode: apply ? "register-apply" : "register-dry-run",
     scopes,
     matched,
-    skipped
+    skipped,
   };
 }
 
@@ -7402,16 +8165,18 @@ function enumerateScopeItemsForRegister(scope, selectors) {
   }
 
   if (
-    includesArea(selectors, "instructions", "instructions")
-    && paths.claude.instructions && existsSync(paths.claude.instructions)
-    && paths.codex.instructions && existsSync(paths.codex.instructions)
+    includesArea(selectors, "instructions", "instructions") &&
+    paths.claude.instructions &&
+    existsSync(paths.claude.instructions) &&
+    paths.codex.instructions &&
+    existsSync(paths.codex.instructions)
   ) {
     items.push({
       scope,
       area: "instructions",
       item: "instructions",
       claudePath: paths.claude.instructions,
-      codexPath: paths.codex.instructions
+      codexPath: paths.codex.instructions,
     });
   }
 
@@ -7439,9 +8204,9 @@ function checkParaphraseMapEquivalence(claudeText, codexText, effectiveMap) {
   if (codexAll === claudeText && tokensB.length > 0) return { equivalent: true, tokens: tokensB };
 
   if (
-    (tokensA.length > 0 || tokensB.length > 0)
-    && claudeAll === codexBase
-    && claudeBase === codexAll
+    (tokensA.length > 0 || tokensB.length > 0) &&
+    claudeAll === codexBase &&
+    claudeBase === codexAll
   ) {
     return { equivalent: true, tokens: [...tokensA, ...tokensB] };
   }
@@ -7468,7 +8233,7 @@ function renderParaphraseRegister(result) {
     `Mode: ${result.mode}`,
     `Scopes: ${result.scopes.join(", ")}`,
     `Matched: ${result.matched.length} line pair(s)`,
-    `Skipped: ${result.skipped.length} line pair(s)`
+    `Skipped: ${result.skipped.length} line pair(s)`,
   ];
 
   if (result.matched.length > 0) {
@@ -7476,7 +8241,9 @@ function renderParaphraseRegister(result) {
     lines.push("Will register:");
     for (const entry of result.matched) {
       const tokens = entry.tokens.map((t) => `${t.token}→${t.paraphrase}`).join(", ");
-      lines.push(`  - ${entry.scope}/${entry.area}: ${entry.item} (claude L${entry.claude_line} ↔ codex L${entry.codex_line})`);
+      lines.push(
+        `  - ${entry.scope}/${entry.area}: ${entry.item} (claude L${entry.claude_line} ↔ codex L${entry.codex_line})`
+      );
       lines.push(`    tokens: ${tokens || "<none>"}`);
       lines.push(`    claude: ${previewLine(entry.claude_text)}`);
       lines.push(`    codex:  ${previewLine(entry.codex_text)}`);
@@ -7488,7 +8255,9 @@ function renderParaphraseRegister(result) {
     lines.push("Skipped (mapping does not equate):");
     const cap = 20;
     for (const entry of result.skipped.slice(0, cap)) {
-      lines.push(`  - ${entry.scope}/${entry.area}: ${entry.item} L${entry.line} — ${entry.reason}`);
+      lines.push(
+        `  - ${entry.scope}/${entry.area}: ${entry.item} L${entry.line} — ${entry.reason}`
+      );
       lines.push(`    claude: ${previewLine(entry.claudeText)}`);
       lines.push(`    codex:  ${previewLine(entry.codexText)}`);
     }
@@ -7508,7 +8277,13 @@ function renderParaphraseRegister(result) {
 
 function queueParaphraseFinding(fileWork, f, paraphrase) {
   if (!fileWork.has(f.path)) {
-    fileWork.set(f.path, { host: f.host, area: f.area, item: f.item, scope: f.scope, findings: [] });
+    fileWork.set(f.path, {
+      host: f.host,
+      area: f.area,
+      item: f.item,
+      scope: f.scope,
+      findings: [],
+    });
   }
   fileWork.get(f.path).findings.push({ ...f, paraphrase });
 }
@@ -7523,8 +8298,11 @@ function findCounterpartFile(info) {
   if (info.area === "agents") {
     const dir = paths[counterpartHost].agents;
     if (!dir || !existsSync(dir)) return null;
-    const list = counterpartHost === "claude" ? enumerateClaudeAgents(dir) : enumerateCodexAgents(dir);
-    const match = list.find((a) => a.name === info.item || a.name.split("/").pop() === info.item.split("/").pop());
+    const list =
+      counterpartHost === "claude" ? enumerateClaudeAgents(dir) : enumerateCodexAgents(dir);
+    const match = list.find(
+      (a) => a.name === info.item || a.name.split("/").pop() === info.item.split("/").pop()
+    );
     return match ? { path: match.path } : null;
   }
   if (info.area === "skills") {
@@ -7550,10 +8328,13 @@ async function promptParaphraseToken(p) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     const sideLabel = p.side.replace("_only", "-only");
     const occurrences = `${p.count} occurrence${p.count === 1 ? "" : "s"}`;
-    rl.question(`paraphrase token "${p.token}" [${sideLabel}, ${occurrences}] as (empty to skip): `, (answer) => {
-      rl.close();
-      resolveAnswer(answer.trim() || null);
-    });
+    rl.question(
+      `paraphrase token "${p.token}" [${sideLabel}, ${occurrences}] as (empty to skip): `,
+      (answer) => {
+        rl.close();
+        resolveAnswer(answer.trim() || null);
+      }
+    );
   });
 }
 
@@ -7570,7 +8351,9 @@ function registerParaphraseOverrides(entries) {
   const path = paraphraseOverridesHomePath();
   const data = readJsonFile(path, { version: 1, overrides: [] });
   const overrides = Array.isArray(data.overrides) ? data.overrides : [];
-  const filtered = overrides.filter((existing) => !entries.some((entry) => existing?.id === entry.id));
+  const filtered = overrides.filter(
+    (existing) => !entries.some((entry) => existing?.id === entry.id)
+  );
   const next = { version: 1, overrides: [...filtered, ...entries] };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
@@ -7582,7 +8365,7 @@ function persistParaphraseMap(newEntries) {
   const next = {
     version: 1,
     claude_only: { ...(data.claude_only ?? {}), ...(newEntries.claude_only ?? {}) },
-    codex_only: { ...(data.codex_only ?? {}), ...(newEntries.codex_only ?? {}) }
+    codex_only: { ...(data.codex_only ?? {}), ...(newEntries.codex_only ?? {}) },
   };
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(next, null, 2)}\n`);
@@ -7593,7 +8376,7 @@ function renderParaphrase(result, options) {
     "AI Config Sync Manager paraphrase",
     `Mode: ${result.mode}`,
     `Scopes: ${result.scopes.join(", ")}`,
-    `Manual mismatches scanned: ${result.total}`
+    `Manual mismatches scanned: ${result.total}`,
   ];
   lines.push(`Applied: ${result.applied.length} line change(s)`);
   if (result.skipped.length > 0) lines.push(`Skipped: ${result.skipped.length}`);
@@ -7601,7 +8384,9 @@ function renderParaphrase(result, options) {
     lines.push("");
     lines.push("Tokens needing a paraphrase mapping (no entry in paraphrase-map.json):");
     for (const p of result.pendingTokens) {
-      lines.push(`  - ${p.token} [${p.side.replace("_only", "-only")}] (${p.count} occurrence${p.count === 1 ? "" : "s"})`);
+      lines.push(
+        `  - ${p.token} [${p.side.replace("_only", "-only")}] (${p.count} occurrence${p.count === 1 ? "" : "s"})`
+      );
     }
     lines.push("Provide via `--map token=paraphrase` or run with TTY for interactive prompt.");
   }
@@ -7609,12 +8394,16 @@ function renderParaphrase(result, options) {
     lines.push("");
     lines.push("Changes:");
     for (const change of result.applied) {
-      lines.push(`  - ${change.scope}/${change.area}: ${change.item} (${change.host} L${change.line})`);
+      lines.push(
+        `  - ${change.scope}/${change.area}: ${change.item} (${change.host} L${change.line})`
+      );
       lines.push(`    file: ${change.path}`);
       lines.push(`      - before: ${change.before}`);
       lines.push(`      + after:  ${change.after}`);
       if (change.counterpart_path) {
-        lines.push(`    counterpart: ${change.counterpart_path} L${change.counterpart_line ?? "?"} (${change.counterpart_matched ? "matched" : "mismatch"})`);
+        lines.push(
+          `    counterpart: ${change.counterpart_path} L${change.counterpart_line ?? "?"} (${change.counterpart_matched ? "matched" : "mismatch"})`
+        );
       }
     }
   }
@@ -7622,7 +8411,9 @@ function renderParaphrase(result, options) {
     lines.push("");
     lines.push("Skipped:");
     for (const item of result.skipped) {
-      const where = item.path ? `${item.path}${item.line ? `:L${item.line}` : ""}` : `${item.token ?? ""}`;
+      const where = item.path
+        ? `${item.path}${item.line ? `:L${item.line}` : ""}`
+        : `${item.token ?? ""}`;
       lines.push(`  - ${item.reason}: ${where}`);
     }
   }
@@ -7632,7 +8423,11 @@ function renderParaphrase(result, options) {
   } else {
     lines.push("");
     lines.push(`Overrides registered to: ${paraphraseOverridesHomePath()}`);
-    if (options.cliMap && (Object.keys(options.cliMap.claude_only).length > 0 || Object.keys(options.cliMap.codex_only).length > 0)) {
+    if (
+      options.cliMap &&
+      (Object.keys(options.cliMap.claude_only).length > 0 ||
+        Object.keys(options.cliMap.codex_only).length > 0)
+    ) {
       lines.push(`Map updated: ${paraphraseMapHomePath()}`);
     }
   }
@@ -7685,7 +8480,7 @@ function generateReferenceMarkdown() {
     referenceParaphraseSection(),
     referenceHiddenMarkersSection(),
     referenceDefaultDirectionSection(),
-    referenceFileLocationsSection()
+    referenceFileLocationsSection(),
   ].join("\n");
 }
 
@@ -7740,12 +8535,12 @@ function referenceCommandsSection() {
     "- `--register` — Skip the rewrite stage; diff claude/codex line-by-line and register an override entry for each line pair the effective map equates. Use when one side was pre-paraphrased outside the CLI so `lintHostVocab` finds nothing to rewrite.",
     "- `--json` — Emit the full paraphrase report as JSON",
     "- `--non-interactive` — Skip the TTY prompt for unmapped tokens (still emits them under `pendingTokens`)",
-    "- `--map \"token=paraphrase[,...]\"` — Provide one or more inline token→paraphrase mappings (CLI overrides paraphrase-map.json)",
+    '- `--map "token=paraphrase[,...]"` — Provide one or more inline token→paraphrase mappings (CLI overrides paraphrase-map.json)',
     "- `--scope global|project|all` — Limit paraphrase scope",
     "- `--include area[:item][,...]` — Include only selected areas or items",
     "- `--exclude area[:item][,...]` — Exclude selected areas or items",
     "- `-h, --help` — Show paraphrase help",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7761,7 +8556,7 @@ function referenceAreasSection() {
     "- `mcp` — MCP server registrations (`.mcp.json`, `.claude.json`, `settings.json` ↔ `config.toml [mcp_servers.*]`).",
     "- `permissions` — Tool/bash/web permission rules (`settings.json` permissions ↔ Codex `[approvals]` / `default.rules`).",
     "- `hooks` — Lifecycle hook configuration (`settings.json` hooks ↔ Codex `[[hooks.Event]]` blocks).",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7771,7 +8566,7 @@ function referenceRiskLevelsSection() {
     "",
     "- `safe` — Apply automatically; the source meaning is fully preserved on the target.",
     "- `manual` — Hold for explicit review; mapping is lossy or the source file is missing. Apply will skip operations marked `approvalRequired: true` until rerun explicitly.",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7786,7 +8581,7 @@ function referenceMappingQualitiesSection() {
     "- `approximate` — Closest-fit mapping; behavior is similar but not identical (broad approval policies, prefix rules).",
     "- `metadata-only` — The wrapper is preserved but inner behavior cannot be enforced on the target host.",
     "- `unsupported` — No mapping exists; the item is left for manual review.",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7812,7 +8607,7 @@ function referenceSyncActionsSection() {
     "- `-` — Item will be removed on the target (baseline-tracked deletion).",
     "- `~` — Item exists on both hosts but content differs (will be overwritten on apply).",
     "- `!` — Conflict that requires manual review.",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7822,7 +8617,7 @@ function referenceTerminologyLayersSection() {
     "## Terminology layers",
     "",
     "Terminology rules live in `rules/terminology-map.json` (override at `~/.ai-config-sync-manager/rules/terminology-map.json` or `<project>/rules/terminology-map.json`). Each layer groups rules that rewrite host-specific vocabulary when transforming text between Claude and Codex.",
-    ""
+    "",
   ];
 
   if (Array.isArray(layers) && layers.length > 0) {
@@ -7854,7 +8649,9 @@ function referenceTerminologyLayersSection() {
 
   lines.push("### `model` (from `rules/agents-map.json`)");
   lines.push("");
-  lines.push("Model alias rules come from `rules/agents-map.json` `models.tiers` rather than the terminology map.");
+  lines.push(
+    "Model alias rules come from `rules/agents-map.json` `models.tiers` rather than the terminology map."
+  );
   lines.push("");
   const tiers = Array.isArray(agentsMapData()?.models?.tiers) ? agentsMapData().models.tiers : [];
   if (tiers.length === 0) {
@@ -7894,7 +8691,7 @@ function referenceParaphraseSection() {
     "### Override staleness",
     "",
     "Overrides are auto-invalidated when the pinned anchor text no longer matches the current file content, so manual edits on either host cleanly retire the recorded pairing without leaving stale entries.",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7907,7 +8704,7 @@ function referenceHiddenMarkersSection() {
     "- `ai-config-sync:agent-call` — Supported call transformed (Claude `Agent({...})` ↔ Codex prose `spawn_agent`).",
     "- `ai-config-sync:stripped` — Unsupported call removed (`TaskCreate`, `TaskUpdate`, `TeamCreate`); original archived under the backup root.",
     "- `ai-config-sync:manual-review` — Call left intact because it could not be parsed; needs manual translation.",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7926,7 +8723,7 @@ function referenceDefaultDirectionSection() {
     "- `AI_CONFIG_SYNC_HOST=codex` — Set default sync direction to `codex -> claude`.",
     "- `AI_CONFIG_SYNC_HOME=<path>` — Override the home directory used for global config and state (primarily for tests).",
     "- `AI_CONFIG_SYNC_STRIP_SECRETS=1` — Opt in to defensively stripping MCP env values whose keys look like secrets (`TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `AUTH`). Default behavior copies them because the source already stores the secret in plaintext under the same user's home; enable this if your source config is exposed beyond that trust boundary (e.g. dotfiles committed to git that include `.codex/config.toml`).",
-    ""
+    "",
   ].join("\n");
 }
 
@@ -7955,6 +8752,6 @@ function referenceFileLocationsSection() {
     "- `<repo>/rules/host-strict-vocab.json` — Host-native token list driving vocab-mismatch detection (`claude_only`, `codex_only`, `claude_only_patterns`).",
     "",
     "Override precedence for any rule file: `<project>/rules/<name>.json` → `~/.ai-config-sync-manager/rules/<name>.json` → `<repo>/rules/<name>.json`. Layers are merged by id (rule.id, template.id, areas key, fields claude+codex pair, models.tiers id) — partial overlays only need to declare the entries they want to add or change.",
-    ""
+    "",
   ].join("\n");
 }
