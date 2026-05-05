@@ -4317,9 +4317,9 @@ function mergeMcpIntoCodex(targetPath, sourcePath, sourceHost, serverNames) {
 }
 
 function mergeMcpIntoClaude(targetPath, sourcePath, sourceHost, serverNames) {
-  const sourceServers = pickServers(sourceHost === "codex"
+  const sourceServers = mcpServersForClaude(pickServers(sourceHost === "codex"
     ? readCodexMcpServers(sourcePath)
-    : readClaudeMcpServers(sourcePath), serverNames);
+    : readClaudeMcpServers(sourcePath), serverNames));
   const { file, projectKey } = parseClaudeMcpSource(targetPath);
   const target = readJsonFile(file, {});
   if (projectKey) {
@@ -4582,6 +4582,10 @@ function mcpServerChanges(source, target) {
     }
   }
 
+  if (source.bearerTokenEnvVar && source.bearerTokenEnvVar !== target?.bearerTokenEnvVar) {
+    changes.push(`bearer_token_env_var: ${fmt(source.bearerTokenEnvVar, target?.bearerTokenEnvVar)}`);
+  }
+
   if (source.args?.length && JSON.stringify(source.args) !== JSON.stringify(target?.args ?? [])) {
     changes.push(`args: ${fmt(source.args, target?.args ?? [])}`);
   }
@@ -4589,6 +4593,12 @@ function mcpServerChanges(source, target) {
   for (const [key, value] of Object.entries(source.env ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
     if (target?.env?.[key] !== value) {
       changes.push(`env.${key}: ${fmt(value, target?.env?.[key])}`);
+    }
+  }
+
+  for (const [key, value] of Object.entries(source.headers ?? {}).sort(([left], [right]) => left.localeCompare(right))) {
+    if (target?.headers?.[key] !== value) {
+      changes.push(`headers.${key}: ${fmt(value, target?.headers?.[key])}`);
     }
   }
 
@@ -4631,11 +4641,13 @@ function readCodexMcpServerDetails(path) {
     const url = body.match(/^url\s*=\s*"([^"]*)"/m);
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
+    const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
+    if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
     servers[match[1]] = server;
   }
 
@@ -4674,11 +4686,13 @@ function readCodexMcpServers(path) {
     const url = body.match(/^url\s*=\s*"([^"]*)"/m);
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
+    const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
+    if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
     servers[match[1]] = server;
   }
 
@@ -4691,7 +4705,9 @@ function normalizeMcpServers(servers) {
       ...(value.command ? { command: value.command } : {}),
       ...(value.url ? { url: value.url } : {}),
       ...(value.args?.length ? { args: value.args } : {}),
-      ...(value.env && Object.keys(value.env).length > 0 ? { env: value.env } : {})
+      ...(value.env && Object.keys(value.env).length > 0 ? { env: value.env } : {}),
+      ...(value.bearerTokenEnvVar ? { bearerTokenEnvVar: value.bearerTokenEnvVar } : {}),
+      ...(value.headers && Object.keys(value.headers).length > 0 ? { headers: value.headers } : {})
     }])
   );
 }
@@ -4700,14 +4716,66 @@ function normalizeMcpServerDetails(servers) {
   return Object.fromEntries(
     Object.entries(servers)
       .filter(([name, value]) => name && value && typeof value === "object")
-      .map(([name, value]) => [name, {
-        ...(typeof value.command === "string" ? { command: value.command } : {}),
-        ...(typeof value.url === "string" ? { url: value.url } : {}),
-        ...(Array.isArray(value.args) ? { args: value.args.filter((item) => typeof item === "string") } : {}),
-        ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {}),
-        ...(value.env && typeof value.env === "object" ? { secretEnvKeys: secretEnvKeys(value.env) } : {})
-      }])
+      .map(([name, value]) => {
+        const headers = normalizeMcpHeaders(value.headers);
+        const bearerTokenEnvVar = mcpBearerTokenEnvVar(value, headers);
+        const residualHeaders = mcpHeadersWithoutBearerTokenEnv(headers, bearerTokenEnvVar);
+        return [name, {
+          ...(typeof value.command === "string" ? { command: value.command } : {}),
+          ...(typeof value.url === "string" ? { url: value.url } : {}),
+          ...(Array.isArray(value.args) ? { args: value.args.filter((item) => typeof item === "string") } : {}),
+          ...(value.env && typeof value.env === "object" ? { env: safeEnv(value.env) } : {}),
+          ...(value.env && typeof value.env === "object" ? { secretEnvKeys: secretEnvKeys(value.env) } : {}),
+          ...(bearerTokenEnvVar ? { bearerTokenEnvVar } : {}),
+          ...(Object.keys(residualHeaders).length > 0 ? { headers: residualHeaders } : {})
+        }];
+      })
   );
+}
+
+function normalizeMcpHeaders(headers) {
+  if (!headers || typeof headers !== "object" || Array.isArray(headers)) return {};
+  return Object.fromEntries(
+    Object.entries(headers)
+      .filter(([key, value]) => typeof key === "string" && typeof value === "string" && key)
+  );
+}
+
+function mcpBearerTokenEnvVar(value, headers) {
+  if (typeof value.bearerTokenEnvVar === "string" && value.bearerTokenEnvVar) return value.bearerTokenEnvVar;
+  if (typeof value.bearer_token_env_var === "string" && value.bearer_token_env_var) return value.bearer_token_env_var;
+  const authorization = headers.Authorization ?? headers.authorization;
+  if (typeof authorization !== "string") return "";
+  const match = authorization.match(/^Bearer\s+\$\{([A-Za-z_][A-Za-z0-9_]*)\}$/);
+  return match?.[1] ?? "";
+}
+
+function mcpHeadersWithoutBearerTokenEnv(headers, bearerTokenEnvVar) {
+  if (!bearerTokenEnvVar) return headers;
+  return Object.fromEntries(
+    Object.entries(headers)
+      .filter(([key, value]) => !/^authorization$/i.test(key) || value !== `Bearer \${${bearerTokenEnvVar}}`)
+  );
+}
+
+function mcpServersForClaude(servers) {
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => [name, mcpServerForClaude(server)])
+  );
+}
+
+function mcpServerForClaude(server) {
+  const headers = {
+    ...(server.headers ?? {}),
+    ...(server.bearerTokenEnvVar ? { Authorization: `Bearer \${${server.bearerTokenEnvVar}}` } : {})
+  };
+  return {
+    ...(server.command ? { command: server.command } : {}),
+    ...(server.url ? { url: server.url } : {}),
+    ...(server.args?.length ? { args: server.args } : {}),
+    ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
+    ...(Object.keys(headers).length > 0 ? { headers } : {})
+  };
 }
 
 function safeEnv(env) {
@@ -4742,7 +4810,9 @@ function renderCodexMcpServers(servers) {
   for (const [name, server] of Object.entries(servers).sort(([left], [right]) => left.localeCompare(right))) {
     lines.push(`[mcp_servers.${name}]`);
     if (server.command) lines.push(`command = ${JSON.stringify(server.command)}`);
+    if (server.url) lines.push('transport = "streamable_http"');
     if (server.url) lines.push(`url = ${JSON.stringify(server.url)}`);
+    if (server.bearerTokenEnvVar) lines.push(`bearer_token_env_var = ${JSON.stringify(server.bearerTokenEnvVar)}`);
     if (server.args?.length) lines.push(`args = ${JSON.stringify(server.args)}`);
     if (server.env && Object.keys(server.env).length > 0) {
       lines.push(`env = { ${Object.entries(server.env).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join(", ")} }`);
@@ -5766,11 +5836,16 @@ function mcpServerSignature(server) {
   const env = Object.fromEntries(
     Object.entries(server.env ?? {}).sort(([left], [right]) => left.localeCompare(right))
   );
+  const headers = Object.fromEntries(
+    Object.entries(server.headers ?? {}).sort(([left], [right]) => left.localeCompare(right))
+  );
   return JSON.stringify({
     command: server.command ?? null,
     url: server.url ?? null,
     args: server.args ?? [],
-    env
+    env,
+    bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
+    headers
   });
 }
 

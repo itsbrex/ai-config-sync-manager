@@ -179,6 +179,57 @@ test("global MCP sync reads servers from ~/.claude.json", () => {
   assert.match(config, /args = \["notion-mcp"\]/);
 });
 
+test("global MCP sync maps Codex bearer_token_env_var to Claude Authorization header", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), [
+    "[mcp_servers.sentry]",
+    'transport = "streamable_http"',
+    'url = "https://mcp.sentry.io"',
+    'bearer_token_env_var = "SENTRY_AUTH_TOKEN"',
+    ""
+  ].join("\n"));
+
+  const output = runCli(fixture, ["sync", "--scope", "global", "--include", "mcp:sentry", "--from", "codex", "--to", "claude", "--apply"]);
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+
+  assert.match(output, /merged MCP servers codex -> claude: sentry/);
+  assert.deepEqual(claude.mcpServers.sentry, {
+    url: "https://mcp.sentry.io",
+    headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" }
+  });
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"]));
+  assert.equal(report.entries.length, 0);
+});
+
+test("global MCP sync maps Claude Authorization header to Codex bearer_token_env_var", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: {
+        type: "http",
+        url: "https://mcp.sentry.io",
+        headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" }
+      }
+    }
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, ["sync", "--scope", "global", "--include", "mcp:sentry", "--from", "claude", "--to", "codex", "--apply"]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(output, /merged MCP servers claude -> codex: sentry/);
+  assert.match(config, /\[mcp_servers\.sentry\]/);
+  assert.match(config, /transport = "streamable_http"/);
+  assert.match(config, /url = "https:\/\/mcp\.sentry\.io"/);
+  assert.match(config, /bearer_token_env_var = "SENTRY_AUTH_TOKEN"/);
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"]));
+  assert.equal(report.entries.length, 0);
+});
+
 test("global MCP status reports parity when ~/.claude.json and codex config.toml hold the same server", () => {
   // ~/.claude.json is the only canonical Claude global MCP source; settings.json
   // and the legacy ~/.claude/mcp.json must not be probed.
