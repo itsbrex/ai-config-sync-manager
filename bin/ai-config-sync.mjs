@@ -303,22 +303,6 @@ function renderVocabFindings(findings) {
   return lines;
 }
 
-function renderStatusList(entries, ignoreRules = []) {
-  const rows = statusTableRows(entries, ignoreRules);
-  return rows
-    .map((row, index) =>
-      [
-        `${index + 1}. ${row.scope}/${row.area} [${row.risk}]`,
-        `   change: ${row.change}`,
-        `   item: ${row.item}`,
-        `   details: ${row.details}`,
-        `   action: ${row.action}`,
-        `   apply: ${row.command}`,
-      ].join("\n")
-    )
-    .join("\n\n");
-}
-
 function renderStatusResult(entries, ignoreRules = []) {
   const rows = statusTableRows(entries, ignoreRules);
   const safeCount = rows.filter((row) => row.risk === "safe").length;
@@ -630,7 +614,7 @@ function statusPreview(entry, change, item, ignoreRules = []) {
       from === "claude"
         ? transformTextForHost(rawSource, "claude", "codex")
         : transformTextForHost(stripAgentMigrationPreamble(rawSource), "codex", "claude");
-    const overrides = activeManifestOverridesForPair(targetPath, sourcePath, to, from);
+    const overrides = activeManifestOverridesForPair(targetPath, sourcePath, to);
     const masked = maskBodiesForHosts(targetContent, sourceContent, to, from, overrides);
     return contentChangePreview(
       `${toLabel} current`,
@@ -1247,7 +1231,7 @@ function createOperations(entry, options) {
   }
 
   if (missingInSource.length > 0) {
-    operations.push(createDeleteOperation(entry, from, to, missingInSource, options));
+    operations.push(createDeleteOperation(entry, from, to, missingInSource));
   }
 
   if (conflicts.length > 0 || operations.length === 0) {
@@ -1266,7 +1250,7 @@ function createOperationForItems(entry, from, to, itemNames, options) {
   return createOperation(scoped, from, to, options);
 }
 
-function createDeleteOperation(entry, from, to, itemNames, options) {
+function createDeleteOperation(entry, from, to, itemNames) {
   const deletableAreas = ["mcp", "permissions", "hooks", "skills", "agents"];
   if (!deletableAreas.includes(entry.area)) {
     return {
@@ -1823,10 +1807,6 @@ function transformTextForHost(value, from, to, options = {}) {
   );
 }
 
-function callTemplatesPath() {
-  return callTemplatesSource().path;
-}
-
 function callTemplatesData() {
   return callTemplatesSource().data;
 }
@@ -1878,10 +1858,6 @@ function mergeHostStrictVocab(base, override) {
   return out;
 }
 
-function paraphraseMapPath() {
-  return paraphraseMapSource().path;
-}
-
 function paraphraseMapSource() {
   return loadLayeredRule(
     paraphraseMapCandidates(),
@@ -1913,10 +1889,6 @@ function mergeParaphraseMap(base, override) {
     }
   }
   return out;
-}
-
-function paraphraseOverridesPath() {
-  return paraphraseOverridesSource().path;
 }
 
 function paraphraseOverridesSource() {
@@ -2116,7 +2088,7 @@ function maskBodiesForHosts(targetBody, sourceBody, targetHost, sourceHost, over
   return { target, source };
 }
 
-function activeManifestOverridesForPair(targetPath, sourcePath, targetHost, sourceHost) {
+function activeManifestOverridesForPair(targetPath, sourcePath, targetHost) {
   if (!targetPath || !sourcePath) return [];
   const claudePath = targetHost === "claude" ? targetPath : sourcePath;
   const codexPath = targetHost === "codex" ? targetPath : sourcePath;
@@ -2328,20 +2300,6 @@ function vocabFindingIgnored(finding, ignoreRules) {
     }
   }
   return false;
-}
-
-function routeMappingsSource(direction) {
-  const fileName =
-    direction === "codex-to-claude" ? "codex-to-claude.json" : "claude-to-codex.json";
-  return loadLayeredRule(routeMappingsCandidates(fileName), { areas: {} }, mergeRouteMappings);
-}
-
-function routeMappingsCandidates(fileName) {
-  return [
-    join(resolve(process.cwd()), `rules/${fileName}`),
-    `${home}/.ai-config-sync-manager/rules/${fileName}`,
-    join(runtimeRoot, `rules/${fileName}`),
-  ];
 }
 
 function applyCallTransforms(value, from, to, archive) {
@@ -3165,7 +3123,7 @@ function skillChangePreview(
     const terms = entry ? entryMaskTerms(entry, skillName, ignoreRules) : [];
     const targetManifest = skillManifestPathFor(targetPath, skillName);
     const sourceManifest = skillManifestPathFor(sourceDir, skillName);
-    const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to, from);
+    const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to);
     // Two override layouts coexist: flat-prose lines (original mask-before-transform
     // works because the sentinel is inert text) and lines inside structured call
     // bodies like Agent({...prompt: <sentinel>...}) (mask-before-transform breaks
@@ -3274,7 +3232,7 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
     let targetContent = targetCanonical;
     let sourceContent = sourceCanonical;
 
-    const overrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost, sourceHost);
+    const overrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost);
     if (overrides.length > 0) {
       const masked = maskBodiesForHosts(
         targetContent,
@@ -3346,8 +3304,7 @@ function agentChangePreview(
     const overrides = activeManifestOverridesForPair(
       targetPaths[agentName],
       sourcePaths[agentName],
-      to,
-      from
+      to
     );
     const masked = maskBodiesForHosts(targetContent, transformedSource, to, from, overrides);
     lines.push(
@@ -3503,7 +3460,7 @@ function applyOverrideParaphrasesAtTargetLines(
   sourceHost,
   targetHost
 ) {
-  const overrides = activeManifestOverridesForPair(targetPath, sourcePath, targetHost, sourceHost);
+  const overrides = activeManifestOverridesForPair(targetPath, sourcePath, targetHost);
   if (!Array.isArray(overrides) || overrides.length === 0) return text;
   const lineKey = targetHost === "claude" ? "claude_line" : "codex_line";
   const lines = text.split(/\r?\n/);
@@ -5513,35 +5470,6 @@ function mergeByIdShallow(baseList, overlayList) {
   return ordered;
 }
 
-function mergeRouteMappings(base, overlay) {
-  if (!overlay || typeof overlay !== "object") return base;
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(overlay)) {
-    if (key === "areas") continue;
-    merged[key] = value;
-  }
-  const baseAreas = base.areas && typeof base.areas === "object" ? base.areas : {};
-  const overlayAreas = overlay.areas && typeof overlay.areas === "object" ? overlay.areas : {};
-  const mergedAreas = {};
-  for (const [areaKey, areaValue] of Object.entries(baseAreas)) {
-    mergedAreas[areaKey] = { ...areaValue };
-  }
-  for (const [areaKey, overlayArea] of Object.entries(overlayAreas)) {
-    if (
-      mergedAreas[areaKey] &&
-      typeof mergedAreas[areaKey] === "object" &&
-      typeof overlayArea === "object" &&
-      overlayArea !== null
-    ) {
-      mergedAreas[areaKey] = { ...mergedAreas[areaKey], ...overlayArea };
-    } else {
-      mergedAreas[areaKey] = overlayArea;
-    }
-  }
-  merged.areas = mergedAreas;
-  return merged;
-}
-
 function mergeAgentsMap(base, overlay) {
   if (!overlay || typeof overlay !== "object") return base;
   const merged = { ...base };
@@ -5880,56 +5808,6 @@ function instructionsEquivalent(claudeContent, codexContent) {
   );
 }
 
-function compareFile(entries, scope, area, claudePath, codexPath) {
-  const claude = fileState(claudePath);
-  const codex = fileState(codexPath);
-
-  if (!claude.exists && !codex.exists) return;
-
-  if (claude.hash !== codex.hash) {
-    entries.push({
-      scope,
-      area,
-      risk: classifyFileRisk(area, claudePath, codexPath),
-      summary: `${label(area)} differs`,
-      claudePath,
-      codexPath,
-      claude: claude.summary,
-      codex: codex.summary,
-      mappingQuality: area === "instructions" ? "equivalent" : "unsupported",
-    });
-  }
-}
-
-function classifyFileRisk(area, claudePath, codexPath) {
-  if (area === "instructions") return "safe";
-  if (
-    area === "mcp" &&
-    !claudePath.endsWith("marketplace.json") &&
-    !codexPath.endsWith("marketplace.json")
-  ) {
-    return "safe";
-  }
-  return "manual";
-}
-
-function comparePresence(entries, scope, area, claudePath, codexPath, risk) {
-  const claude = fileState(claudePath);
-  const codex = fileState(codexPath);
-  if (claude.exists === codex.exists) return;
-
-  entries.push({
-    scope,
-    area,
-    risk,
-    summary: `${label(area)} presence differs`,
-    claudePath,
-    codexPath,
-    claude: claude.summary,
-    codex: codex.summary,
-    mappingQuality: risk === "safe" ? "exact" : "unsupported",
-  });
-}
 
 function compareSkillDirs(
   entries,
@@ -6868,10 +6746,6 @@ function skillManifestBasename(host) {
   return host === "claude" ? "skill.md" : "SKILL.md";
 }
 
-function skillManifestPath(skillDir, host) {
-  return join(skillDir, skillManifestBasename(host));
-}
-
 function findSkillManifest(skillDir) {
   for (const name of ["SKILL.md", "skill.md"]) {
     const candidate = join(skillDir, name);
@@ -6882,16 +6756,6 @@ function findSkillManifest(skillDir) {
 
 function isSkillManifestBasename(name) {
   return name === "SKILL.md" || name === "skill.md";
-}
-
-function fileState(path) {
-  if (!path || !existsSync(path)) {
-    return { exists: false, hash: "missing", summary: "missing" };
-  }
-
-  const content = readFileSync(path);
-  const hash = createHash("sha256").update(content).digest("hex").slice(0, 12);
-  return { exists: true, hash, summary: `${content.length} bytes sha256:${hash}` };
 }
 
 function instructionState(host, paths) {
@@ -6984,18 +6848,6 @@ function tomlInstructionSources(path) {
   }
 
   return values;
-}
-
-function directoryHash(path) {
-  if (!existsSync(path)) return "missing";
-  const hash = createHash("sha256");
-
-  for (const file of directoryFiles(path)) {
-    hash.update(file);
-    hash.update(readFileSync(join(path, file)));
-  }
-
-  return hash.digest("hex").slice(0, 12);
 }
 
 // Replace a skill manifest basename with a casing-neutral sentinel so two skills
@@ -7143,8 +6995,7 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
     const fileOverrides = activeManifestOverridesForPair(
       targetAbs,
       sourceAbs,
-      targetHost,
-      sourceHost
+      targetHost
     );
     if (fileOverrides.length > 0) {
       const masked = maskBodiesForHosts(

@@ -3,7 +3,7 @@ import { existsSync, statSync } from "node:fs";
 import { isAbsolute, relative } from "node:path";
 import { extractBackupRoot } from "./run-cli.mjs";
 import { readSyncState } from "./readers.mjs";
-import { assertSourceUnchanged, diffTrees, formatTreeDiff, snapshotTree } from "./snapshot.mjs";
+import { assertSourceUnchanged, diffTrees, formatTreeDiff } from "./snapshot.mjs";
 
 function isUnderHome(target, home) {
   if (!target) return false;

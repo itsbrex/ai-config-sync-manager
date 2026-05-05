@@ -106,7 +106,7 @@ export function diffTrees(actualMap, expectedMap, { ignore = [] } = {}) {
       changed.push({ path, actual, expected });
     }
   }
-  for (const [path, actual] of actualMap) {
+  for (const path of actualMap.keys()) {
     if (shouldIgnore(path, ignore)) continue;
     if (!expectedMap.has(path)) extra.push(path);
   }
