@@ -453,7 +453,7 @@ function writeStatusDetailFile(report) {
     if (targetRows.length === 0) continue;
     lines.push(`${target}:`);
     for (const row of targetRows) {
-      lines.push(renderDiffStatusRow(row).replace(/^    /gm, "  "));
+      lines.push(renderDiffStatusRow(row).replace(/^ {4}/gm, "  "));
     }
     lines.push("");
   }

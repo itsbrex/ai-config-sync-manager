@@ -588,7 +588,7 @@ test("status supports compact and tree output formats", () => {
   assert.match(compact, /^status: 1 diff\(s\) detected for project scope\./);
   assert.match(compact, /project\/mcp \[safe\] missing-in-codex: notion \[exact\]/);
   assert.match(compact, /details: Claude has it; Codex missing\./);
-  assert.match(tree, /project\/\n  mcp\/\n    \[safe\] MCP servers differ/);
+  assert.match(tree, /project\/\n {2}mcp\/\n {4}\[safe\] MCP servers differ/);
   assert.match(tree, /missing-in-codex: notion \[exact\]/);
   assert.match(tree, /details: Claude has it; Codex missing\./);
 });
@@ -707,7 +707,7 @@ test("commands support command-specific help", () => {
   const statusHelp = runCli(fixture, ["status", "--help"]);
   const syncHelp = runCli(fixture, ["sync", "--help"]);
 
-  assert.match(connectHelp, /Usage:\n  ai-config-sync connect/);
+  assert.match(connectHelp, /Usage:\n {2}ai-config-sync connect/);
   assert.match(statusHelp, /--compact/);
   assert.match(statusHelp, /--tree/);
   assert.match(syncHelp, /--plan-json/);
