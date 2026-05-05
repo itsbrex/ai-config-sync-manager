@@ -141,11 +141,11 @@ for c in "${cases[@]}"; do
     : > "$LOGS/$c.agents.diff"; agents_rc=0
   fi
 
-  # Lab rules comparison: when expected/<c>/lab-rules/ exists, normalize
-  # lab's .ai-config-sync-manager/rules/*.json by reverse-substituting the
-  # absolute lab path and the registered_at timestamp into placeholders,
-  # then diff against the expected canonical form.
-  if [ -d "$EXP/$c/lab-rules" ]; then
+  # Lab rules comparison: when expected/<c>/.ai-config-sync-manager/rules/
+  # exists, normalize lab's .ai-config-sync-manager/rules/*.json by
+  # reverse-substituting the absolute lab path and registered_at timestamp
+  # into placeholders, then diff against the expected canonical form.
+  if [ -d "$EXP/$c/.ai-config-sync-manager/rules" ]; then
     rm -rf "$LOGS/$c.lab-rules-canonical"
     mkdir -p "$LOGS/$c.lab-rules-canonical"
     for f in "$HOME_DIR/.ai-config-sync-manager/rules"/*.json; do
@@ -154,7 +154,7 @@ for c in "${cases[@]}"; do
           -e 's|"registered_at": "[^"]*"|"registered_at": "__REGISTERED_AT__"|g' \
           "$f" > "$LOGS/$c.lab-rules-canonical/$(basename "$f")"
     done
-    diff -ruN "$EXP/$c/lab-rules" "$LOGS/$c.lab-rules-canonical" > "$LOGS/$c.lab-rules.diff" 2>&1
+    diff -ruN "$EXP/$c/.ai-config-sync-manager/rules" "$LOGS/$c.lab-rules-canonical" > "$LOGS/$c.lab-rules.diff" 2>&1
     lab_rules_rc=$?
   else
     : > "$LOGS/$c.lab-rules.diff"; lab_rules_rc=0

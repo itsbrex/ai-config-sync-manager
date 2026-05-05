@@ -25,16 +25,16 @@ expected/case-09-ecc-rules-pre-registered/
   claude-home/.claude{,.json}        # post-sync claude tree
   codex-home/.codex/, .agents/       # post-paraphrase codex tree
                                      # (codex SKILL.md L6 token rewritten)
-  lab-rules/{paraphrase-overrides,paraphrase-map,status-ignore}.json
-                                     # canonical rule snapshots with
-                                     # __LAB_HOME__ + __REGISTERED_AT__
-                                     # placeholders
+  .ai-config-sync-manager/rules/{paraphrase-overrides,paraphrase-map,status-ignore}.json
+                                     # canonical rule snapshots mirroring
+                                     # the lab path, with __LAB_HOME__ +
+                                     # __REGISTERED_AT__ placeholders
 ```
 
 `run-cases.sh` invokes `setup.sh` automatically and compares the lab's
 rules JSON (after reverse-substituting the lab path and timestamp into
-placeholders) against `expected/<case>/lab-rules/` — so the registrations
-are deterministically verified across machines.
+placeholders) against `expected/<case>/.ai-config-sync-manager/rules/` —
+so the registrations are deterministically verified across machines.
 
 ## Manual reproduction
 

@@ -59,6 +59,9 @@ tests/integration/manual-codex-to-claude/**/.ai-config-sync-manager/
 !tests/integration/manual-codex-to-claude/templates/**/.ai-config-sync-manager/
 !tests/integration/manual-codex-to-claude/templates/**/.ai-config-sync-manager/rules/
 !tests/integration/manual-codex-to-claude/templates/**/.ai-config-sync-manager/rules/**
+!tests/integration/manual-codex-to-claude/expected/**/.ai-config-sync-manager/
+!tests/integration/manual-codex-to-claude/expected/**/.ai-config-sync-manager/rules/
+!tests/integration/manual-codex-to-claude/expected/**/.ai-config-sync-manager/rules/**
 tests/integration/manual-codex-to-claude/**/.claude/backups/
 tests/integration/manual-codex-to-claude/**/.claude/telemetry/
 tests/integration/manual-codex-to-claude/expected/*/.claude/

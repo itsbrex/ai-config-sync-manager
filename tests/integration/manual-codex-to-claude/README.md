@@ -60,8 +60,8 @@ run automatically after `sync --apply` so paraphrase/status-ignore
 registrations are part of the verified flow. The lab's
 `.ai-config-sync-manager/rules/*.json` is reverse-normalized
 (`__LAB_HOME__`, `__REGISTERED_AT__` placeholders) and diffed against
-`expected/<case>/lab-rules/`. Cases without `setup.sh` get a no-op
-`lab_rules_rc=0`.
+`expected/<case>/.ai-config-sync-manager/rules/` (mirroring the lab path).
+Cases without `setup.sh` get a no-op `lab_rules_rc=0`.
 
 No real secrets are stored here. Placeholder values are intentionally synthetic.
 Remote MCP server ids use `manual_*` names where needed to avoid Codex project config merging with a developer's real global MCP entries.
