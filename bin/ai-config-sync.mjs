@@ -2921,10 +2921,28 @@ function skillChangePreview(sourcePath, targetPath, skillNames, from, sourceInde
     const targetManifest = skillManifestPathFor(targetPath, skillName);
     const sourceManifest = skillManifestPathFor(sourceDir, skillName);
     const overrides = activeManifestOverridesForPair(targetManifest, sourceManifest, to, from);
-    const maskedRaw = maskBodiesForHosts(targetRaw, sourceRaw, to, from, overrides);
-    const source = normalizeYamlFrontmatter(transformTextForHost(maskedRaw.source, from, to));
+    // Two override layouts coexist: flat-prose lines (original mask-before-transform
+    // works because the sentinel is inert text) and lines inside structured call
+    // bodies like Agent({...prompt: <sentinel>...}) (mask-before-transform breaks
+    // applyCallTransforms' parser and degrades to a manual-review marker). Try the
+    // original order first; if that produced a parser fallback marker (or any other
+    // visible diff), retry with transform-then-mask + post-transform paraphrase so
+    // structured-block overrides also collapse to "No line-level preview available."
+    const maskedFirst = maskBodiesForHosts(targetRaw, sourceRaw, to, from, overrides);
+    const sourceFromMaskFirst = normalizeYamlFrontmatter(transformTextForHost(maskedFirst.source, from, to));
+    let previewLines = contentChangePreview("Target current", maskedFirst.target, `After apply from ${fromLabel(from)}`, sourceFromMaskFirst, terms);
+    const maskFirstClean = previewLines.length === 1 && previewLines[0] === "No line-level preview available.";
+    if (overrides.length > 0 && !maskFirstClean) {
+      let transformed = normalizeYamlFrontmatter(transformTextForHost(sourceRaw, from, to));
+      transformed = applyOverrideParaphrasesAtTargetLines(transformed, sourceManifest ?? "", targetManifest ?? "", from, to);
+      const maskedSecond = maskBodiesForHosts(targetRaw, transformed, to, to, overrides);
+      const fallbackLines = contentChangePreview("Target current", maskedSecond.target, `After apply from ${fromLabel(from)}`, maskedSecond.source, terms);
+      if (fallbackLines.length === 1 && fallbackLines[0] === "No line-level preview available.") {
+        previewLines = fallbackLines;
+      }
+    }
     lines.push(`${skillName}: target will be replaced from ${fromLabel(from)}`);
-    lines.push(...contentChangePreview("Target current", maskedRaw.target, `After apply from ${fromLabel(from)}`, source, terms).map((line) => `  ${line}`));
+    lines.push(...previewLines.map((line) => `  ${line}`));
   }
   return lines;
 }
@@ -3154,6 +3172,7 @@ function copyFileWithMappings(source, target, from, to, options = {}) {
   mkdirSync(dirname(target), { recursive: true });
   if (isTextMappingFile(source)) {
     let text = transformTextForHost(readFileSync(source, "utf8"), from, to, options);
+    text = applyOverrideParaphrasesAtTargetLines(text, source, target, from, to);
     recordVocabFindings(options?.callArchive, lintHostVocab(text, to), from, to);
     const sourceBasename = source.split("/").pop();
     if (isSkillManifestBasename(sourceBasename)) {
@@ -3163,6 +3182,43 @@ function copyFileWithMappings(source, target, from, to, options = {}) {
   } else {
     copyFileSync(source, target);
   }
+}
+
+// Reapply paraphrase override tokens after transformTextForHost so an override
+// pinned to a specific target line (e.g. codex L58 `Review .codex/...`) is
+// preserved across sync. Without this, transformTextForHost emits the un-paraphrased
+// form (`Read .codex/...`) and writes that to disk, silently invalidating the
+// override on the next status pass. Operates only on the target-host line numbers
+// recorded in the override entry and applies each entry's token substitutions
+// scoped to that single line so unrelated occurrences are not rewritten.
+function applyOverrideParaphrasesAtTargetLines(text, sourcePath, targetPath, sourceHost, targetHost) {
+  const overrides = activeManifestOverridesForPair(targetPath, sourcePath, targetHost, sourceHost);
+  if (!Array.isArray(overrides) || overrides.length === 0) return text;
+  const lineKey = targetHost === "claude" ? "claude_line" : "codex_line";
+  const lines = text.split(/\r?\n/);
+  let mutated = false;
+  for (const entry of overrides) {
+    const lineNumber = entry?.[lineKey];
+    if (!Number.isInteger(lineNumber) || lineNumber < 1 || lineNumber > lines.length) continue;
+    const tokens = Array.isArray(entry?.tokens) ? entry.tokens : [];
+    if (tokens.length === 0) continue;
+    const idx = lineNumber - 1;
+    let line = lines[idx];
+    let lineChanged = false;
+    for (const t of tokens) {
+      if (typeof t?.token !== "string" || !t.token) continue;
+      if (typeof t?.paraphrase !== "string" || !t.paraphrase) continue;
+      const re = new RegExp(`\\b${escapeRegExp(t.token)}\\b`, "g");
+      if (!re.test(line)) continue;
+      line = line.replace(new RegExp(`\\b${escapeRegExp(t.token)}\\b`, "g"), t.paraphrase);
+      lineChanged = true;
+    }
+    if (lineChanged) {
+      lines[idx] = line;
+      mutated = true;
+    }
+  }
+  return mutated ? lines.join("\n") : text;
 }
 
 // Re-serialize YAML frontmatter through the tolerant parser + quoting-aware serializer.
@@ -6316,8 +6372,24 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
       sourceContent = transformTextForHost(sourceContent, sourceHost, targetHost);
     }
 
-    const changes = contentChangePreview("Target current", targetContent, "After apply", sourceContent, terms);
-    if (!(changes.length === 1 && changes[0] === "No line-level preview available.")) return false;
+    let changes = contentChangePreview("Target current", targetContent, "After apply", sourceContent, terms);
+    if (changes.length === 1 && changes[0] === "No line-level preview available.") continue;
+
+    // Mask-before-transform fails when an override line sits inside a structured
+    // call body (e.g. Agent({...prompt: <sentinel>...})) because the sentinel breaks
+    // applyCallTransforms' parser. Retry with transform-first + post-transform
+    // paraphrase token application; if that yields target/source equivalence, the
+    // override is valid even though the simpler ordering above could not see it.
+    if (fileOverrides.length > 0 && isTextMappingFile(sourceAbs) && isTextMappingFile(targetAbs)) {
+      const rawTarget = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
+      let rawSource = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
+      rawSource = transformTextForHost(rawSource, sourceHost, targetHost);
+      rawSource = applyOverrideParaphrasesAtTargetLines(rawSource, sourceAbs, targetAbs, sourceHost, targetHost);
+      const masked = maskBodiesForHosts(rawTarget, rawSource, targetHost, targetHost, fileOverrides);
+      changes = contentChangePreview("Target current", masked.target, "After apply", masked.source, terms);
+      if (changes.length === 1 && changes[0] === "No line-level preview available.") continue;
+    }
+    return false;
   }
 
   return true;
