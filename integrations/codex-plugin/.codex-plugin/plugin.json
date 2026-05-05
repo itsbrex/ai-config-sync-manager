@@ -7,16 +7,7 @@
     "email": "slash9494@gmail.com"
   },
   "license": "MIT",
-  "keywords": [
-    "ai",
-    "agent",
-    "oss",
-    "config-sync",
-    "codex",
-    "claude",
-    "mcp",
-    "skills"
-  ],
+  "keywords": ["ai", "agent", "oss", "config-sync", "codex", "claude", "mcp", "skills"],
   "skills": "./skills/",
   "interface": {
     "displayName": "AI Config Sync Manager",
@@ -24,9 +15,7 @@
     "longDescription": "Open-source helper plugin that delegates connect, status, and sync workflows to the ai-config-sync CLI with dry-run-first behavior, backups, and manual confirmation for risky changes.",
     "developerName": "Maxx",
     "category": "Productivity",
-    "capabilities": [
-      "Interactive"
-    ],
+    "capabilities": ["Interactive"],
     "defaultPrompt": [
       "Run config manager status.",
       "Preview config sync changes.",

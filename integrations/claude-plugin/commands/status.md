@@ -1,6 +1,6 @@
 ---
 description: Show Claude and Codex configuration sync status.
-argument-hint: '[--scope global|project|all] [--include area[,area:item]] [--exclude area[,area:item]]'
+argument-hint: "[--scope global|project|all] [--include area[,area:item]] [--exclude area[,area:item]]"
 disable-model-invocation: true
 allowed-tools: Bash(*)
 ---

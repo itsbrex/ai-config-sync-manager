@@ -1,6 +1,6 @@
 ---
 description: Print the AI Config Sync Manager reference (commands, areas, risk levels, mapping qualities, action verbs, terminology layers, hidden markers, file locations).
-argument-hint: '[--output <path>]'
+argument-hint: "[--output <path>]"
 disable-model-invocation: true
 allowed-tools: Bash(*)
 ---

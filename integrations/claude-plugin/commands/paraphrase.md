@@ -1,6 +1,6 @@
 ---
 description: Paraphrase host-strict-vocab tokens (Claude-only in codex files, Codex-only in claude files) and register per-line overrides so the result is masked from future status diffs.
-argument-hint: '[--scope global|project|all] [--include area[:item][,...]] [--map token=paraphrase[,...]] [--apply] [--register] [--non-interactive] | [자연어 의도]'
+argument-hint: "[--scope global|project|all] [--include area[:item][,...]] [--map token=paraphrase[,...]] [--apply] [--register] [--non-interactive] | [자연어 의도]"
 allowed-tools: Bash(*)
 ---
 

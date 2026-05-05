@@ -1,6 +1,6 @@
 ---
 description: Preview or apply Claude/Codex configuration sync through AI Config Sync Manager.
-argument-hint: '[--scope global|project|all] [--from claude|codex --to claude|codex] [--include area[,area:item]] [--exclude area[,area:item]] [--apply]'
+argument-hint: "[--scope global|project|all] [--from claude|codex --to claude|codex] [--include area[,area:item]] [--exclude area[,area:item]] [--apply]"
 allowed-tools: Bash(*)
 ---
 
