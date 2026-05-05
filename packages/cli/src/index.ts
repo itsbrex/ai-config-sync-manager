@@ -17,7 +17,7 @@ import {
   isConfigScope,
   isHost,
   type ConfigScope,
-  type Host
+  type Host,
 } from "@ai-config-sync-manager/core";
 
 type CommandName = "connect" | "status" | "sync";
@@ -70,13 +70,13 @@ function parseCommand(argv: string[]): ParsedCommand {
   if (command !== "connect" && command !== "status" && command !== "sync") {
     return {
       command: "help",
-      args: createParsedArgs([])
+      args: createParsedArgs([]),
     };
   }
 
   return {
     command,
-    args: createParsedArgs(rest)
+    args: createParsedArgs(rest),
   };
 }
 
@@ -149,7 +149,7 @@ function runSync(args: ParsedArgs): void {
     target: options.target,
     scope: options.scope,
     dryRun: options.dryRun,
-    entries: report.entries
+    entries: report.entries,
   });
 
   console.log("AI Config Sync Manager sync");
@@ -196,7 +196,7 @@ function parseSyncOptions(args: ParsedArgs): SyncOptions {
       source: "claude",
       target: "codex",
       scope: scopeValue,
-      dryRun: !args.flags.has("--apply")
+      dryRun: !args.flags.has("--apply"),
     };
   }
 
@@ -216,7 +216,7 @@ function parseSyncOptions(args: ParsedArgs): SyncOptions {
     source: fromValue,
     target: toValue,
     scope: scopeValue,
-    dryRun: !args.flags.has("--apply")
+    dryRun: !args.flags.has("--apply"),
   };
 }
 
@@ -234,7 +234,11 @@ function ensureAllowedFlags(args: ParsedArgs, command: CommandName, allowedFlags
   }
 }
 
-function ensureAllowedValues(args: ParsedArgs, command: CommandName, allowedValues: string[]): void {
+function ensureAllowedValues(
+  args: ParsedArgs,
+  command: CommandName,
+  allowedValues: string[]
+): void {
   for (const key of args.values.keys()) {
     if (!allowedValues.includes(key)) {
       throw new Error(`Unknown option for ${command}: ${key}`);

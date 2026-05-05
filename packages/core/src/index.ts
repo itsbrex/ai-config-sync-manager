@@ -6,13 +6,7 @@ export type SyncMode = "dry-run" | "apply";
 
 export type ConfigScope = "global" | "project";
 
-export type ConfigArea =
-  | "instructions"
-  | "skills"
-  | "mcp"
-  | "permissions"
-  | "hooks"
-  | "commands";
+export type ConfigArea = "instructions" | "skills" | "mcp" | "permissions" | "hooks" | "commands";
 
 export const CONFIG_AREAS: ConfigArea[] = [
   "instructions",
@@ -20,7 +14,7 @@ export const CONFIG_AREAS: ConfigArea[] = [
   "mcp",
   "permissions",
   "hooks",
-  "commands"
+  "commands",
 ];
 
 export interface HostPaths {
@@ -86,7 +80,7 @@ export function createEmptySnapshot(
     host,
     scope,
     paths,
-    areas: {}
+    areas: {},
   };
 }
 
@@ -122,7 +116,7 @@ export function diffSnapshots(
       risk: classifyAreaRisk(area),
       summary: `${area} differs between ${source.host} and ${target.host}`,
       source: source.host,
-      target: target.host
+      target: target.host,
     });
   }
 
@@ -159,7 +153,7 @@ export function createScaffoldStatus(
     summary:
       entries.length === 0
         ? `No diff detected in scaffold snapshots for ${scopes.join("+")} scope.`
-        : `${entries.length} diff(s) detected between ${source} and ${target} for ${scopes.join("+")} scope.`
+        : `${entries.length} diff(s) detected between ${source} and ${target} for ${scopes.join("+")} scope.`,
   };
 }
 
@@ -179,7 +173,7 @@ export function createSyncPlan(options: CreateSyncPlanOptions): SyncPlan {
     summary:
       mode === "dry-run"
         ? `Scaffold dry-run only: ${options.source} -> ${options.target} (${options.scope ?? "project"}).`
-        : `Apply requested for ${options.source} -> ${options.target} (${options.scope ?? "project"}), but scaffold writes are disabled.`
+        : `Apply requested for ${options.source} -> ${options.target} (${options.scope ?? "project"}), but scaffold writes are disabled.`,
   };
 }
 
