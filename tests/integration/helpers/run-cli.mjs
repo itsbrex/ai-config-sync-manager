@@ -89,7 +89,9 @@ function extractFirstJson(text) {
   if (trimmed.length === 0) return null;
   try {
     return { value: JSON.parse(trimmed), end: text.length };
-  } catch {}
+  } catch {
+    // fall through to manual brace/bracket scan
+  }
   const start = text.indexOf("{");
   const arrStart = text.indexOf("[");
   const candidates = [start, arrStart].filter((i) => i >= 0).sort((a, b) => a - b);

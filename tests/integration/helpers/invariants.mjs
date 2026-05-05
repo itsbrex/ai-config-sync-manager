@@ -23,7 +23,9 @@ export function parsePlanJson(stdout) {
   if (trimmed.length === 0) return null;
   try {
     return JSON.parse(trimmed);
-  } catch {}
+  } catch {
+    // fall through to manual brace-scan extraction
+  }
   const start = stdout.indexOf("{");
   if (start < 0) return null;
   let depth = 0;

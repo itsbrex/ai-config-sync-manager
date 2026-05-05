@@ -4193,7 +4193,7 @@ function codexHookValues(sourcePath) {
 function parseCodexNativeHooks(text) {
   const values = {};
   const lines = text.split(/\r?\n/);
-  let currentEvent = null;
+  let currentEvent;
   let currentGroup = null;
   let currentHook = null;
 
@@ -6739,7 +6739,7 @@ function codexRulePermissionItems(path) {
   const items = [];
 
   for (const match of text.matchAll(
-    /prefix_rule\(pattern=(\[[^\)]*?\]),\s*decision="(allow|prompt|forbidden)"/g
+    /prefix_rule\(pattern=(\[[^)]*?\]),\s*decision="(allow|prompt|forbidden)"/g
   )) {
     const parts = parseJsonLike(match[1], []);
     if (!Array.isArray(parts) || parts.some((part) => typeof part !== "string")) continue;

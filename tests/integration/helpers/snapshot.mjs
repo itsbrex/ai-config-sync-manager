@@ -43,7 +43,9 @@ function walk(rootDir, currentDir, out, ignore) {
       let linkTarget = "";
       try {
         linkTarget = readlinkSync(abs);
-      } catch {}
+      } catch {
+        // unreadable symlink target — record as empty
+      }
       out.set(rel, {
         sha256: null,
         size: info.size,
