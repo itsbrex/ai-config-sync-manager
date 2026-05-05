@@ -14,7 +14,7 @@ const ENV_ALLOWLIST = [
   "NODE_OPTIONS",
   "LANG",
   "LC_ALL",
-  "LC_CTYPE"
+  "LC_CTYPE",
 ];
 
 function buildEnv(home, extra) {
@@ -28,15 +28,17 @@ function buildEnv(home, extra) {
 
 function invoke(subcommand, { home, projectRoot, args = [], env = {} }) {
   try {
-    const stdout = execFileSync(
-      process.execPath,
-      [cliPath, subcommand, ...args],
-      { cwd: projectRoot, env: buildEnv(home, env), encoding: "utf8" }
-    );
+    const stdout = execFileSync(process.execPath, [cliPath, subcommand, ...args], {
+      cwd: projectRoot,
+      env: buildEnv(home, env),
+      encoding: "utf8",
+    });
     return { stdout, stderr: "", status: 0, output: stdout };
   } catch (error) {
-    const stdout = typeof error.stdout === "string" ? error.stdout : (error.stdout?.toString?.("utf8") ?? "");
-    const stderr = typeof error.stderr === "string" ? error.stderr : (error.stderr?.toString?.("utf8") ?? "");
+    const stdout =
+      typeof error.stdout === "string" ? error.stdout : (error.stdout?.toString?.("utf8") ?? "");
+    const stderr =
+      typeof error.stderr === "string" ? error.stderr : (error.stderr?.toString?.("utf8") ?? "");
     const status = typeof error.status === "number" ? error.status : 1;
     return { stdout, stderr, status, output: stderr || stdout };
   }
@@ -50,14 +52,23 @@ export function runStatus(options) {
   return invoke("status", options);
 }
 
-export function runPlanJson({ home, projectRoot, include = [], from = "codex", to = "claude", scope = "global" }) {
+export function runPlanJson({
+  home,
+  projectRoot,
+  include = [],
+  from = "codex",
+  to = "claude",
+  scope = "global",
+}) {
   const args = ["--scope", scope, "--from", from, "--to", to, "--dry-run", "--plan-json"];
   if (include.length > 0) {
     args.push("--include", include.join(","));
   }
   const result = invoke("sync", { home, projectRoot, args });
   if (result.status !== 0) {
-    throw new Error(`sync --dry-run --plan-json failed (status ${result.status}): ${result.output}`);
+    throw new Error(
+      `sync --dry-run --plan-json failed (status ${result.status}): ${result.output}`
+    );
   }
   if (result.stderr.trim().length > 0) {
     throw new Error(`sync --dry-run --plan-json stderr not empty: ${result.stderr}`);
@@ -90,16 +101,29 @@ function extractFirstJson(text) {
     let escape = false;
     for (let i = begin; i < text.length; i++) {
       const ch = text[i];
-      if (escape) { escape = false; continue; }
-      if (ch === "\\") { escape = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
       if (inString) continue;
       if (ch === open) depth += 1;
       else if (ch === close) {
         depth -= 1;
         if (depth === 0) {
           const slice = text.slice(begin, i + 1);
-          try { return { value: JSON.parse(slice), end: i + 1 }; } catch { break; }
+          try {
+            return { value: JSON.parse(slice), end: i + 1 };
+          } catch {
+            break;
+          }
         }
       }
     }

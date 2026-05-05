@@ -41,13 +41,15 @@ function walk(rootDir, currentDir, out, ignore) {
     }
     if (info.isSymbolicLink()) {
       let linkTarget = "";
-      try { linkTarget = readlinkSync(abs); } catch {}
+      try {
+        linkTarget = readlinkSync(abs);
+      } catch {}
       out.set(rel, {
         sha256: null,
         size: info.size,
         mode: info.mode & 0o777,
         isSymlink: true,
-        linkTarget
+        linkTarget,
       });
       continue;
     }
@@ -60,7 +62,7 @@ function walk(rootDir, currentDir, out, ignore) {
         sha256: hashFile(abs),
         size: info.size,
         mode: info.mode & 0o777,
-        isSymlink: false
+        isSymlink: false,
       });
     }
   }
@@ -70,7 +72,11 @@ export function snapshotTree(rootDir, { ignore = [] } = {}) {
   const out = new Map();
   if (!existsSync(rootDir)) return out;
   let info;
-  try { info = statSync(rootDir); } catch { return out; }
+  try {
+    info = statSync(rootDir);
+  } catch {
+    return out;
+  }
   if (!info.isDirectory()) return out;
   walk(rootDir, rootDir, out, ignore);
   return out;
@@ -143,8 +149,12 @@ export function formatTreeDiff(diff) {
       const a = c.actual;
       const e = c.expected;
       lines.push(`  ~ ${c.path}`);
-      lines.push(`      expected sha=${e.sha256 ?? "(symlink)"} size=${e.size} symlink=${e.isSymlink}${e.isSymlink ? ` -> ${e.linkTarget}` : ""}`);
-      lines.push(`      actual   sha=${a.sha256 ?? "(symlink)"} size=${a.size} symlink=${a.isSymlink}${a.isSymlink ? ` -> ${a.linkTarget}` : ""}`);
+      lines.push(
+        `      expected sha=${e.sha256 ?? "(symlink)"} size=${e.size} symlink=${e.isSymlink}${e.isSymlink ? ` -> ${e.linkTarget}` : ""}`
+      );
+      lines.push(
+        `      actual   sha=${a.sha256 ?? "(symlink)"} size=${a.size} symlink=${a.isSymlink}${a.isSymlink ? ` -> ${a.linkTarget}` : ""}`
+      );
     }
   }
   if (lines.length === 0) return "(no diff)";

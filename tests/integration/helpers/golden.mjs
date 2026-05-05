@@ -13,7 +13,11 @@ function mergeIgnore(extra) {
 function isEmptyDir(dir) {
   if (!existsSync(dir)) return true;
   let info;
-  try { info = statSync(dir); } catch { return true; }
+  try {
+    info = statSync(dir);
+  } catch {
+    return true;
+  }
   if (!info.isDirectory()) return true;
   return readdirSync(dir).length === 0;
 }

@@ -21,7 +21,9 @@ export function parsePlanJson(stdout) {
   if (typeof stdout !== "string") return null;
   const trimmed = stdout.trim();
   if (trimmed.length === 0) return null;
-  try { return JSON.parse(trimmed); } catch {}
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
   const start = stdout.indexOf("{");
   if (start < 0) return null;
   let depth = 0;
@@ -29,15 +31,28 @@ export function parsePlanJson(stdout) {
   let escape = false;
   for (let i = start; i < stdout.length; i++) {
     const ch = stdout[i];
-    if (escape) { escape = false; continue; }
-    if (ch === "\\") { escape = true; continue; }
-    if (ch === '"') { inString = !inString; continue; }
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
     if (inString) continue;
     if (ch === "{") depth += 1;
     else if (ch === "}") {
       depth -= 1;
       if (depth === 0) {
-        try { return JSON.parse(stdout.slice(start, i + 1)); } catch { return null; }
+        try {
+          return JSON.parse(stdout.slice(start, i + 1));
+        } catch {
+          return null;
+        }
       }
     }
   }
@@ -52,7 +67,7 @@ export function assertInvariants(fixture, options) {
     applyOutput2,
     dryRunOutput,
     dryRunBeforeApply = true,
-    skip = {}
+    skip = {},
   } = options;
   const skipDryRun = skip.dryRun === true;
   const skipIdempotency = skip.idempotency === true;
@@ -67,7 +82,11 @@ export function assertInvariants(fixture, options) {
   // 2. direction
   if (planJson) {
     if (planJson.from !== "codex" || planJson.to !== "claude") {
-      fail(2, "direction", `expected from=codex to=claude, got from=${planJson.from} to=${planJson.to}`);
+      fail(
+        2,
+        "direction",
+        `expected from=codex to=claude, got from=${planJson.from} to=${planJson.to}`
+      );
     }
   }
 
@@ -85,7 +104,11 @@ export function assertInvariants(fixture, options) {
   // 4. dry-run no writes
   if (dryRunBeforeApply && !skipDryRun) {
     if (!(fixture.dryRunSnapshot instanceof Map)) {
-      fail(4, "dry-run no writes", "fixture.dryRunSnapshot not provided; pass skip.dryRun=true to opt out explicitly");
+      fail(
+        4,
+        "dry-run no writes",
+        "fixture.dryRunSnapshot not provided; pass skip.dryRun=true to opt out explicitly"
+      );
     }
     const diff = diffTrees(fixture.dryRunSnapshot, beforeSnapshot);
     if (diff.missing.length > 0 || diff.extra.length > 0 || diff.changed.length > 0) {
@@ -110,7 +133,11 @@ export function assertInvariants(fixture, options) {
     const backupRoot = extractBackupRoot(applyOutput);
     if (backupRoot) {
       let info;
-      try { info = statSync(backupRoot); } catch { info = null; }
+      try {
+        info = statSync(backupRoot);
+      } catch {
+        info = null;
+      }
       if (!info || !info.isDirectory()) {
         fail(6, "backup on overwrite", `backup root not a directory: ${backupRoot}`);
       }
@@ -123,7 +150,11 @@ export function assertInvariants(fixture, options) {
   // 7. idempotency
   if (!skipIdempotency) {
     if (!applyOutput2 || typeof applyOutput2 !== "object") {
-      fail(7, "idempotency", "applyOutput2 not provided; pass skip.idempotency=true to opt out explicitly");
+      fail(
+        7,
+        "idempotency",
+        "applyOutput2 not provided; pass skip.idempotency=true to opt out explicitly"
+      );
     }
     const results = Array.isArray(applyOutput2.results) ? applyOutput2.results : null;
     if (!results) {

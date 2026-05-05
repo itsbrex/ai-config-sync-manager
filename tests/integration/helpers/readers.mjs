@@ -47,7 +47,10 @@ function parseFrontmatter(text) {
     const key = line.slice(0, idx).trim();
     if (!key) continue;
     let value = line.slice(idx + 1).trim();
-    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
       value = value.slice(1, -1);
     }
     frontmatter[key] = value;
@@ -58,10 +61,18 @@ function parseFrontmatter(text) {
 function listDirs(parent) {
   if (!existsSync(parent)) return [];
   let info;
-  try { info = statSync(parent); } catch { return []; }
+  try {
+    info = statSync(parent);
+  } catch {
+    return [];
+  }
   if (!info.isDirectory()) return [];
   return readdirSync(parent).filter((name) => {
-    try { return statSync(join(parent, name)).isDirectory(); } catch { return false; }
+    try {
+      return statSync(join(parent, name)).isDirectory();
+    } catch {
+      return false;
+    }
   });
 }
 
@@ -72,7 +83,10 @@ export function scanClaudeSkills(home) {
     const candidates = [join(skillsRoot, name, "SKILL.md"), join(skillsRoot, name, "skill.md")];
     let hit = null;
     for (const c of candidates) {
-      if (existsSync(c)) { hit = c; break; }
+      if (existsSync(c)) {
+        hit = c;
+        break;
+      }
     }
     if (!hit) continue;
     const text = safeReadText(hit);
@@ -88,13 +102,21 @@ export function scanClaudeAgents(home) {
   const agentsRoot = join(home, ".claude", "agents");
   if (!existsSync(agentsRoot)) return out;
   let info;
-  try { info = statSync(agentsRoot); } catch { return out; }
+  try {
+    info = statSync(agentsRoot);
+  } catch {
+    return out;
+  }
   if (!info.isDirectory()) return out;
   for (const name of readdirSync(agentsRoot)) {
     if (!name.endsWith(".md")) continue;
     const path = join(agentsRoot, name);
     let s;
-    try { s = statSync(path); } catch { continue; }
+    try {
+      s = statSync(path);
+    } catch {
+      continue;
+    }
     if (!s.isFile()) continue;
     const text = safeReadText(path);
     if (text === null) continue;
