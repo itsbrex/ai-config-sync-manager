@@ -9,14 +9,14 @@ const HOSTS = [
     label: "Claude",
     cacheRoot: join(homedir(), ".claude/plugins/cache"),
     distSource: join(process.cwd(), "dist/claude-marketplace/plugins/config-manager"),
-    targetPattern: /\/\.claude\/plugins\/cache\/[^/]+\/[^/]+\/[^/]+(?:\/plugins\/[^/]+)?$/
+    targetPattern: /\/\.claude\/plugins\/cache\/[^/]+\/[^/]+\/[^/]+(?:\/plugins\/[^/]+)?$/,
   },
   {
     label: "Codex",
     cacheRoot: join(homedir(), ".codex/plugins/cache"),
     distSource: join(process.cwd(), "dist/codex-plugin"),
-    targetPattern: /\/\.codex\/plugins\/cache\/[^/]+\/[^/]+\/[^/]+(?:\/plugins\/[^/]+)?$/
-  }
+    targetPattern: /\/\.codex\/plugins\/cache\/[^/]+\/[^/]+\/[^/]+(?:\/plugins\/[^/]+)?$/,
+  },
 ];
 
 export function syncActivePluginCaches() {
@@ -28,7 +28,9 @@ export function syncActivePluginCaches() {
       const targets = findActiveCaches(host.cacheRoot, PLUGIN_NAMES);
       for (const target of targets) {
         if (!target.startsWith(`${host.cacheRoot}/`) || !host.targetPattern.test(target)) {
-          console.warn(`Plugin cache sync skipped (${host.label}): ${target} does not match expected cache pattern; remove it manually if you want a clean reinstall.`);
+          console.warn(
+            `Plugin cache sync skipped (${host.label}): ${target} does not match expected cache pattern; remove it manually if you want a clean reinstall.`
+          );
           continue;
         }
         rmSync(target, { recursive: true, force: true });
@@ -50,14 +52,20 @@ export function syncActivePluginCaches() {
 
 export function findActiveCaches(cacheRoot, pluginNames) {
   const results = [];
-  const marketplaces = readdirSync(cacheRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+  const marketplaces = readdirSync(cacheRoot, { withFileTypes: true }).filter((entry) =>
+    entry.isDirectory()
+  );
   for (const marketplace of marketplaces) {
     const marketplaceDir = join(cacheRoot, marketplace.name);
-    const plugins = readdirSync(marketplaceDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    const plugins = readdirSync(marketplaceDir, { withFileTypes: true }).filter((entry) =>
+      entry.isDirectory()
+    );
     for (const plugin of plugins) {
       if (!pluginNames.has(plugin.name)) continue;
       const pluginDir = join(marketplaceDir, plugin.name);
-      const versions = readdirSync(pluginDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+      const versions = readdirSync(pluginDir, { withFileTypes: true }).filter((entry) =>
+        entry.isDirectory()
+      );
       for (const version of versions) {
         const versionDir = join(pluginDir, version.name);
         if (existsSync(join(versionDir, ".orphaned_at"))) continue;

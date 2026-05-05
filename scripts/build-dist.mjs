@@ -31,11 +31,11 @@ writeFileSync(
       name: "ai-config-sync-manager",
       owner: {
         name: "Maxx",
-        email: "slash9494@gmail.com"
+        email: "slash9494@gmail.com",
       },
       metadata: {
         description: "Local marketplace for AI Config Sync Manager.",
-        version: pinnedVersion
+        version: pinnedVersion,
       },
       plugins: [
         {
@@ -44,18 +44,21 @@ writeFileSync(
           description: "Sync Claude and Codex agent config from an OSS bundled plugin.",
           author: {
             name: "Maxx",
-            email: "slash9494@gmail.com"
+            email: "slash9494@gmail.com",
           },
-          source: "./plugins/config-manager"
-        }
-      ]
+          source: "./plugins/config-manager",
+        },
+      ],
     },
     null,
     2
   )}\n`
 );
 
-writeHostLauncher(join(claudePlugin, "bin/ai-config-sync"), "claude", { pinnedVersion, packageName });
+writeHostLauncher(join(claudePlugin, "bin/ai-config-sync"), "claude", {
+  pinnedVersion,
+  packageName,
+});
 writeHostLauncher(join(codexPlugin, "bin/ai-config-sync"), "codex", { pinnedVersion, packageName });
 
 console.log("Built dist/claude-marketplace and dist/codex-plugin");

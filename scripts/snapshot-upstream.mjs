@@ -19,31 +19,31 @@ const SOURCES = [
     out: "claude/settings-schema.json",
     url: "https://json.schemastore.org/claude-code-settings.json",
     kind: "schema",
-    accept: "application/json"
+    accept: "application/json",
   },
   {
     out: "claude/releases.json",
     url: "https://api.github.com/repos/anthropics/claude-code/releases",
     kind: "releases",
-    accept: "application/vnd.github+json"
+    accept: "application/vnd.github+json",
   },
   {
     out: "claude/changelog.md",
     url: "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md",
     kind: "text",
-    accept: "text/plain"
+    accept: "text/plain",
   },
   {
     out: "codex/config-schema.json",
     url: "https://developers.openai.com/codex/config-schema.json",
     kind: "schema",
-    accept: "application/json"
+    accept: "application/json",
   },
   {
     out: "codex/releases.json",
     url: "https://api.github.com/repos/openai/codex/releases",
     kind: "releases",
-    accept: "application/vnd.github+json"
+    accept: "application/vnd.github+json",
   },
   {
     out: "codex/changelog.md",
@@ -53,9 +53,9 @@ const SOURCES = [
     fallback: {
       url: "https://api.github.com/repos/openai/codex/releases",
       accept: "application/vnd.github+json",
-      kind: "releases-as-changelog"
-    }
-  }
+      kind: "releases-as-changelog",
+    },
+  },
 ];
 
 function sortKeys(value) {
@@ -100,7 +100,7 @@ function shapeReleases(raw) {
     .map((r) => ({
       tag_name: r?.tag_name ?? null,
       published_at: r?.published_at ?? null,
-      body: r?.body ?? ""
+      body: r?.body ?? "",
     }))
     .sort((a, b) => {
       const ta = a.published_at ? Date.parse(a.published_at) : 0;
@@ -136,7 +136,10 @@ function isStubText(text) {
   try {
     const obj = JSON.parse(text);
     return (
-      obj && typeof obj === "object" && typeof obj._error === "string" && typeof obj._url === "string"
+      obj &&
+      typeof obj === "object" &&
+      typeof obj._error === "string" &&
+      typeof obj._url === "string"
     );
   } catch {
     return false;
