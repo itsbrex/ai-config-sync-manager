@@ -1,13 +1,12 @@
-// Flat ESLint config. Base recommended rules + typescript-eslint recommended for
-// .ts files in packages/. eslint-config-prettier last so style rules don't fight
-// prettier. Existing source is incrementally formatted/linted in follow-up commits,
-// so this config is intentionally permissive (warn-only on whitespace-y rules).
+// Flat ESLint config. Base recommended rules for all JS/TS; typescript-eslint
+// recommended scoped to .ts files only (no duplicate @typescript-eslint rules
+// on .mjs). eslint-config-prettier last so style rules don't fight prettier.
 
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier";
 
-export default [
+export default tseslint.config(
   {
     ignores: [
       "node_modules/**",
@@ -22,7 +21,20 @@ export default [
     ],
   },
   js.configs.recommended,
-  ...tseslint.configs.recommended,
+  {
+    files: ["**/*.ts"],
+    extends: [...tseslint.configs.recommended],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: "module",
+    },
+    rules: {
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
   {
     files: ["bin/**/*.mjs", "scripts/**/*.mjs", "tests/**/*.mjs", "packages/**/*.mjs"],
     languageOptions: {
@@ -43,24 +55,12 @@ export default [
         setImmediate: "readonly",
         global: "readonly",
         globalThis: "readonly",
+        fetch: "readonly",
       },
     },
     rules: {
       "no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },
   },
-  {
-    files: ["packages/**/*.ts"],
-    languageOptions: {
-      ecmaVersion: 2023,
-      sourceType: "module",
-    },
-    rules: {
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
-      ],
-    },
-  },
-  prettier,
-];
+  prettier
+);
