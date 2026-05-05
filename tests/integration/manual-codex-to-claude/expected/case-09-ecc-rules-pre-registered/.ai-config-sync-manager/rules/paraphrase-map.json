@@ -1,7 +1,8 @@
 {
   "version": 1,
   "claude_only": {
-    "Skill": "verification routine"
+    "Skill": "verification routine",
+    "Hooks": "event handlers"
   },
   "codex_only": {}
 }

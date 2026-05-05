@@ -7,10 +7,15 @@ manually:
 
 1. `paraphrase --apply --map "Skill=verification routine"` —
    rewrites the `Skill` token on the codex-side
-   `.agents/skills/verification-loop/SKILL.md` (line 6), persists the
-   override to `.ai-config-sync-manager/rules/paraphrase-overrides.json`,
-   and updates `paraphrase-map.json`.
-2. Hand-authored `.ai-config-sync-manager/rules/status-ignore.json` —
+   `.agents/skills/verification-loop/SKILL.md` (line 6) and registers the
+   override under `paraphrase-overrides.json`. Also seeds
+   `paraphrase-map.json` with `Skill -> verification routine`.
+2. Extra dictionary entry appended to `paraphrase-map.json` —
+   `Hooks -> event handlers`. This token has no matching line in the
+   fixture, so it never produces an override; it only lives in the map.
+   This split (override = matched-line registry, map = lookup library)
+   keeps the two files distinct rather than redundant copies.
+3. Hand-authored `.ai-config-sync-manager/rules/status-ignore.json` —
    masks the over-translated `Codex CLI` / `AGENTS.md` table cells in the
    instructions area.
 
