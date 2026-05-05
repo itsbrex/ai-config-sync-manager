@@ -1,0 +1,11 @@
+node_modules
+dist
+snapshots
+package-lock.json
+tests/integration/manual-codex-to-claude
+tests/integration/fixtures
+.claude/docs/repo-analysis
+.codex/docs/repo-analysis
+rules
+schemas
+README.md
