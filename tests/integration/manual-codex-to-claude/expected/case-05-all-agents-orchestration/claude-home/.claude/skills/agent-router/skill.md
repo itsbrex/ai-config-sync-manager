@@ -1,0 +1,8 @@
+---
+name: agent-router
+description: Choose one external agent for bounded comparison work.
+---
+
+# Agent Router
+
+Use this skill only when the user explicitly asks for cross-agent comparison.

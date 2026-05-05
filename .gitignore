@@ -48,6 +48,13 @@ tmp/
 !tests/integration/fixtures/**/.claude/
 !tests/integration/fixtures/**/.codex/
 !tests/integration/fixtures/**/.agents/
+!tests/integration/manual-codex-to-claude/**/.claude/
+!tests/integration/manual-codex-to-claude/**/.codex/
+!tests/integration/manual-codex-to-claude/**/.agents/
 
-# Manual codex→claude lab (local-only; not tracked)
-tests/integration/manual-codex-to-claude/
+# Manual codex-to-claude lab runtime outputs
+tests/integration/manual-codex-to-claude/lab/
+tests/integration/manual-codex-to-claude/**/.DS_Store
+tests/integration/manual-codex-to-claude/**/.ai-config-sync-manager/
+tests/integration/manual-codex-to-claude/**/.claude/backups/
+tests/integration/manual-codex-to-claude/**/.claude/telemetry/

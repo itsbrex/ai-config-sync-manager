@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Edit",
+      "MultiEdit",
+      "WebSearch",
+      "Write",
+      "mcp__notion__search"
+    ],
+    "ask": [
+      "mcp__exa__web_search_exa"
+    ]
+  }
+}

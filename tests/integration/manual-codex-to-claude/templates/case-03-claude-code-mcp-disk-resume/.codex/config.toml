@@ -1,0 +1,8 @@
+[mcp_servers.claude-code-mcp]
+command = "npx"
+args = ["-y", "@leo000001/claude-code-mcp"]
+env = { CLAUDE_CODE_MCP_ALLOW_DISK_RESUME = "1", CLAUDE_CODE_MCP_RESUME_SECRET = "change-me" }
+enabled_tools = ["claude_code", "claude_code_check"]
+
+[mcp_servers.claude-code-mcp.tools.claude_code_reply]
+approval_mode = "prompt"

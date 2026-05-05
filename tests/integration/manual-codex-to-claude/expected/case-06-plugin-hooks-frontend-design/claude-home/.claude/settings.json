@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run format:*)",
+      "Edit",
+      "MultiEdit",
+      "Write"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "npm run format"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/check-ui-scope.mjs"
+          }
+        ],
+        "matcher": "Write|Edit|MultiEdit"
+      }
+    ]
+  }
+}

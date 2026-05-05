@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "claude-code-mcp": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@leo000001/claude-code-mcp"
+      ],
+      "env": {
+        "CLAUDE_CODE_MCP_ALLOW_DISK_RESUME": "1",
+        "CLAUDE_CODE_MCP_RESUME_SECRET": "change-me"
+      }
+    }
+  }
+}

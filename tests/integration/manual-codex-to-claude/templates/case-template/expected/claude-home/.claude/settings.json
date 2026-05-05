@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit",
+      "MultiEdit",
+      "WebSearch",
+      "Write"
+    ],
+    "ask": [
+      "Bash(npm test:*)",
+      "mcp__example__search"
+    ]
+  }
+}

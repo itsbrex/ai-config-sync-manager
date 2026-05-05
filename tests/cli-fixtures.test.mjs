@@ -195,6 +195,7 @@ test("global MCP sync maps Codex bearer_token_env_var to Claude Authorization he
 
   assert.match(output, /merged MCP servers codex -> claude: sentry/);
   assert.deepEqual(claude.mcpServers.sentry, {
+    type: "http",
     url: "https://mcp.sentry.io",
     headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" }
   });
@@ -323,7 +324,7 @@ test("project MCP sync apply merges into ~/.claude.json projects.<root>.mcpServe
   assert.match(output, /merged MCP servers codex -> claude: notion/);
   // Default target stays ${root}/.mcp.json — that file should now own the merged server.
   const projectMcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
-  assert.deepEqual(projectMcp.mcpServers.notion, { command: "npx", args: ["notion-mcp"] });
+  assert.deepEqual(projectMcp.mcpServers.notion, { type: "stdio", command: "npx", args: ["notion-mcp"] });
 });
 
 test("project MCP sync delete removes from both .mcp.json and ~/.claude.json projects.<root>", () => {
@@ -1418,7 +1419,7 @@ test("default sync applies Codex-only config to Claude", () => {
   const mcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
 
   assert.match(output, /merged MCP servers codex -> claude: notion/);
-  assert.deepEqual(mcp.mcpServers.notion, { command: "npx", args: ["notion-mcp"] });
+  assert.deepEqual(mcp.mcpServers.notion, { type: "stdio", command: "npx", args: ["notion-mcp"] });
 });
 
 test("default sync propagates Codex deletion to Claude after baseline", () => {

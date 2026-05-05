@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__github__create_pull_request"
+    ],
+    "ask": [
+      "Bash(docker:*)",
+      "mcp__postgres__execute_query"
+    ]
+  }
+}

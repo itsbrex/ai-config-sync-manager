@@ -1,0 +1,21 @@
+web_search = "live"
+
+[mcp_servers.gcloud]
+command = "npx"
+args = ["-y", "gcloud-mcp"]
+
+[mcp_servers.azure]
+command = "npx"
+args = ["-y", "@azure/mcp@latest"]
+
+[mcp_servers.tavily]
+command = "npx"
+args = ["-y", "tavily-mcp"]
+env = { TAVILY_API_KEY = "${TAVILY_API_KEY}" }
+
+[mcp_servers.paper-search]
+command = "docker"
+args = ["run", "-i", "--rm", "mcp/paper-search"]
+
+[mcp_servers.tavily.tools.search]
+approval_mode = "approve"

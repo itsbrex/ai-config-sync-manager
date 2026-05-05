@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gcloud logging read:*)",
+      "WebSearch",
+      "mcp__tavily__search"
+    ],
+    "deny": [
+      "Bash(kubectl delete:*)"
+    ]
+  }
+}

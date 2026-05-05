@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "gcloud": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "gcloud-mcp"
+      ]
+    },
+    "azure": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@azure/mcp@latest"
+      ]
+    },
+    "tavily": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "tavily-mcp"
+      ],
+      "env": {
+        "TAVILY_API_KEY": "${TAVILY_API_KEY}"
+      }
+    },
+    "paper-search": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/paper-search"
+      ]
+    }
+  }
+}
