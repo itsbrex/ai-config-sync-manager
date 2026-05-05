@@ -63,3 +63,12 @@ tests/integration/manual-codex-to-claude/expected/*/.claude.json
 tests/integration/manual-codex-to-claude/expected/*/.local/
 tests/integration/manual-codex-to-claude/expected/*/Applications/
 tests/integration/manual-codex-to-claude/expected/*/Library/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/projects/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/sessions/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/cache/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/plugins/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/.credentials.json
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/history.jsonl
+tests/integration/manual-codex-to-claude/expected/**/claude-home/.local/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/Applications/
+tests/integration/manual-codex-to-claude/expected/**/claude-home/Library/
