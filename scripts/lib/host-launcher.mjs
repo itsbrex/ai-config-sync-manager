@@ -1,5 +1,13 @@
+// @ts-check
+
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+
+/**
+ * @typedef {Object} LauncherIdentity
+ * @property {string} pinnedVersion - Semver-like version pinned at build time
+ * @property {string} packageName - npm package name used by npm exec fallback
+ */
 
 // Resolution order (see .claude/docs/distribution-workflow.md §4):
 //   1) AI_CONFIG_SYNC_ROOT env (dev/local override)
@@ -9,6 +17,12 @@ import { dirname } from "node:path";
 //
 // Version compare policy (§6.2):
 //   patch diff -> ignore, minor diff -> warn, major diff or unparsable -> abort.
+/**
+ * @param {string} targetPath - Absolute path of the launcher script to write
+ * @param {string} host - "claude" or "codex"; injected as AI_CONFIG_SYNC_HOST default
+ * @param {LauncherIdentity} identity
+ * @returns {void}
+ */
 export function writeHostLauncher(targetPath, host, { pinnedVersion, packageName }) {
   if (!host || !pinnedVersion || !packageName) {
     throw new Error("writeHostLauncher requires host, pinnedVersion, packageName");
@@ -20,6 +34,10 @@ export function writeHostLauncher(targetPath, host, { pinnedVersion, packageName
   chmodSync(targetPath, 0o755);
 }
 
+/**
+ * @param {{ host: string } & LauncherIdentity} options
+ * @returns {string}
+ */
 function renderLauncherScript({ host, pinnedVersion, packageName }) {
   return `#!/usr/bin/env bash
 set -euo pipefail

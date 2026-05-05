@@ -170,10 +170,46 @@ Drift 가드: version pin 자동 주입 / PATH binary 일치 검사 / state `sch
 - [x] mermaid 다이어그램 §0 갱신: SRC 서브그래프를 `BIN` 단일 노드로 정리. 점선 `CLI -.-> BIN` 제거, 점선 `SCH -.-> BIN` 유지.
 - [x] `npm test` 259/259 pass + `npm run build:dist` 정상 빌드 확인.
 
-**재검토 트리거 (옵션 A로 회귀 조건)**
-- `bin/ai-config-sync.mjs` LOC가 5,000+ 도달 (현재 8,608이므로 *이미 도달했지만 단일 maintainer + publish 전이라 분리 이익 < 비용*. 외부 contributor 신호와 함께 종합 판단).
-- `core` 로직을 별도 npm 패키지로 publish하려는 외부 요청 발생.
-- 외부 contributor가 모듈 단위 PR을 보내기 시작 (모듈 경계가 외부에 가시화되는 시점).
+#### 점진 분리 정책 (Strangler Fig)
+
+옵션 B 적용 후에도 *전체* 정지 분리는 아님. 새 기능 / 큰 보강은 별도 mjs로 작성하고 `bin/ai-config-sync.mjs`가 import하는 방식으로 점진 분리한다 (이미 `scripts/lib/host-launcher.mjs`가 같은 패턴의 선례). 기존 코드는 그 자리에 둠 — circular dep 리스크 없음, publish 노출 부담 없음.
+
+| 상황 | 처리 |
+|---|---|
+| 새 기능 추가 | `scripts/lib/<feature>.mjs` 별도 파일로 작성, bin이 import |
+| 기존 영역에 큰 로직 보강 | 그 영역을 먼저 추출 → 추출된 모듈에서 보강 |
+| 단순 버그 수정 | mjs in-place 수정 (분리 안 함) |
+| 큰 도메인 변경 | 추출 후 변경 (boundary 명확해지는 효과) |
+
+**미리 추출하면 가치 있는 *낮은 리스크* 후보** (각 영역이 함수 단위로 이미 격리되어 있어 export 추가만으로 충분):
+- `renderStatus` / `renderSyncPlans` 출력 렌더러 (~500 LOC) — 변경 빈도 높음, 격리 이익 큼
+- `generateReferenceMarkdown` (~400 LOC) — self-contained, `docs/reference.md` 중복도 함께 정리 가능
+- TOML mini-editor (~300 LOC) — §8.4 "@iarna/toml 교체 검토" task와 연결
+- `loadLayeredRule` + 매핑 사전 로더 (~200 LOC) — §8.4 "rules/*.json import" task와 연결
+
+#### 코드 분리 시점 신호 — 2-tier
+
+**Tier 1: `bin/` thin wrapper + `lib/` core 분리 (가벼운 재구성)**
+
+CLI entry는 argv 파싱·exit code만 담고, 로직은 `lib/`로 분리. publish 후에도 호환성 깨지지 않음.
+
+| 트리거 | 강도 | 이유 |
+|---|---|---|
+| 외부에서 `import { ... } from "ai-config-sync-manager"`로 함수 사용 요청 | **필수** | dual-use idiom 필요. import만으로 `await main()`이 실행되는 현재 구조는 부작용 |
+| `--version` / `--help` 응답 속도 불만 (현재 8,608 LOC 모두 evaluate) | **필수** | thin entry는 lib/ load 없이 즉시 응답 |
+| 단위 테스트가 fixture spawn-only로 못 견디게 느림 | 권장 | lib/ 직접 import 단위 테스트 |
+| publish artifact 정리가 `files` 필드로도 부담 | 권장 | 폴더 분리만으로도 명확 |
+
+**Tier 2: 전체 모노레포 회귀 (옵션 A)**
+
+`packages/{cli,core,...}` 부활 + workspaces 활성화. 더 큰 결정.
+
+| 트리거 | 비고 |
+|---|---|
+| `bin/ai-config-sync.mjs` LOC 5,000+ 도달 | 현재 8,608 *이미 도달*했지만 단일 maintainer + publish 전이라 분리 이익 < 비용. 외부 contributor 신호와 함께 종합 판단 |
+| `core` 로직을 별도 npm publish 외부 요청 | scoped 패키지 (`@ai-config-sync-manager/core`) 분리 검토 |
+| 외부 contributor가 모듈 단위 PR을 보내기 시작 | 모듈 경계가 외부에 가시화되는 시점 |
+| 점진 분리(Strangler Fig) 4-5개 누적 후 본체에서도 동일 boundary 추출 필요 | 절반의 monorepo 상태 도달 → 한 번에 정리하는 게 깔끔 |
 
 ### 8.3 Publish 단계 (실행 단계 + 모노레포 결정 후)
 
@@ -195,7 +231,9 @@ Drift 가드: version pin 자동 주입 / PATH binary 일치 검사 / state `sch
 - [ ] **TOML 파서 교체**: 현재 정규식 mini-editor. inline env 객체 등 가정이 깨지는 케이스 도래 전 `@iarna/toml` 또는 자체 구조체 기반 에디터로 교체.
 - [ ] **CI 도입**: GitHub Actions 1개로 `npm run check` + `npm test` + `npm run build:dist` + `npm run lint` + `npm run format:check`.
 - [ ] **schemas 런타임 검증**: 사용자 편집 가능한 `paraphrase-overrides.json` / `paraphrase-map.json` / `status-ignore.json` 손상 시 친절한 에러 메시지가 필요하면 AJV 도입 검토. 현재는 try/catch + 수동 가드로 충분.
-- [ ] **mjs type-check 도입 검토**: 옵션 B로 packages 제거 시 `tsconfig.check.json`도 함께 삭제했음. mjs 자체에 `// @ts-check` + JSDoc 또는 `tsconfig` (allowJs/checkJs) 설정으로 type-check를 다시 도입할지 여부는 별도 task. 현재는 `node:test` runtime 검증으로 충분.
+- [x] **mjs type-check 인프라 (opt-in JSDoc + `// @ts-check`)**: `tsconfig.check.json` 재생성 (`allowJs: true, checkJs: false`, `types: ["node"]`), `@types/node` devDependency 추가, `npm run check` script 부활. 새 모듈 / 추출되는 파일에 `// @ts-check` + JSDoc 정책. 8,608 LOC mjs 본체는 점진 적용 (한 번에 enable 시 type 에러 폭탄). PoC: `scripts/lib/host-launcher.mjs` JSDoc 적용 + `npm run check` 0 errors.
+- [ ] **JSDoc 정책 점진 확장**: 새 함수 작성 / 기존 함수 큰 수정 시 JSDoc + `// @ts-check` 추가. Strangler Fig 패턴 (추출되는 lib 모듈)에 우선 적용. 본체 mjs는 영역별로 점진 enable.
+- [ ] **TS 풀 도입 결정 트리거**: 다음 중 하나 발생 시 `bin/ai-config-sync.mjs`를 `bin/ai-config-sync.ts`로 전환 검토 (build step + dist 도입을 감수할 가치가 생긴 시점). (1) 외부에서 `import { ... } from "ai-config-sync-manager"`로 함수 사용 요청 → `.d.ts` 발행 의무 발생. (2) 도메인 모델이 폭발 (10+ entity, 복잡한 discriminated union). (3) 외부 contributor 다수 합류 (협업 안전망 가치 증가). (4) 리팩토링 빈도 급증. JSDoc + `// @ts-check`가 95%의 type 안전 이익을 0% 빌드 비용으로 제공하므로, 위 신호 없이는 TS 전환을 보류한다.
 - [x] **backups / status-details retention**: `BACKUP_RETENTION = 30` / `STATUS_DETAILS_RETENTION = 100` 상수 + `pruneRetention(dir, keep)` FIFO 헬퍼 도입. `applySyncPlan` 시작 시점과 `writeStatusDetailFile`의 mkdir 직후에 호출. ISO timestamp 이름이라 `readdirSync.sort()` 결과가 chronological과 일치, 별도 mtime 비교 불필요. (kubectl rollout 10 / Time Machine 30일 / logrotate 7-30일 관행 참고).
 
 ### 8.5 Milestone 검증 절차
