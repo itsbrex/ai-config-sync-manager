@@ -239,6 +239,13 @@ CLI entry는 argv 파싱·exit code만 담고, 로직은 `lib/`로 분리. publi
   - **타깃 함수 (시그니처 명확, 도메인 boundary)**: `parseStatus` (122), `parseSync` (7445), `parseParaphrase` (7626), `createStatusReport` (158), `createSyncPlan` (1185), `createOperation` (1311), `applySyncPlan` (3615). 파일 상단 typedef block + 함수별 `@param`/`@returns`. 전체 파일 `// @ts-check` 활성화는 LOC 폭탄이라 *함수 위에 inline JSDoc만* 우선 적용.
 - [ ] **TS 풀 도입 결정 트리거**: 다음 중 하나 발생 시 `bin/ai-config-sync.mjs`를 `bin/ai-config-sync.ts`로 전환 검토 (build step + dist 도입을 감수할 가치가 생긴 시점). (1) 외부에서 `import { ... } from "ai-config-sync-manager"`로 함수 사용 요청 → `.d.ts` 발행 의무 발생. (2) 도메인 모델이 폭발 (10+ entity, 복잡한 discriminated union). (3) 외부 contributor 다수 합류 (협업 안전망 가치 증가). (4) 리팩토링 빈도 급증. JSDoc + `// @ts-check`가 95%의 type 안전 이익을 0% 빌드 비용으로 제공하므로, 위 신호 없이는 TS 전환을 보류한다.
 - [x] **backups / status-details retention**: `BACKUP_RETENTION = 30` / `STATUS_DETAILS_RETENTION = 100` 상수 + `pruneRetention(dir, keep)` FIFO 헬퍼 도입. `applySyncPlan` 시작 시점과 `writeStatusDetailFile`의 mkdir 직후에 호출. ISO timestamp 이름이라 `readdirSync.sort()` 결과가 chronological과 일치, 별도 mtime 비교 불필요. (kubectl rollout 10 / Time Machine 30일 / logrotate 7-30일 관행 참고).
+- [ ] **빌드 도입 결정 트리거 (zero-build → bundle/minify 전환)**: 현재는 zero-build 유지가 ROI 최적 (CLI-only · zero runtime deps · 단일 파일 · 단일 메인테이너). npm tarball gzip이 자동 적용되므로 추가 minify의 사용자 체감 이득 < source map 복잡성·CI 빌드 단계 비용. 다음 중 **2개 이상** 발생 시 esbuild/rollup 기반 bundle 도입 검토:
+  - (1) 라이브러리 API 노출 (ESM/CJS dual entry 필요).
+  - (2) runtime dependency 추가로 tree-shaking 이득 ≥ 20%.
+  - (3) 브라우저 / edge runtime 타깃 추가 (Node API 폴리필 필요).
+  - (4) 소스 파일 수 ≥ 30개로 확장되어 import 그래프 정리 가치 발생.
+  - (5) `npm i -g` cold-cache가 빈번한 사용자층 확보 (CI runner ephemeral 환경 등) AND 다운로드 사이즈가 실측 병목.
+  - 단순 "파일이 커 보여서" / "관행적으로" 도입 금지. minify는 `dist/*.js` + `dist/*.js.map` 이중 산출로 이어져 single-file 디버깅 이점을 상쇄한다.
 
 ### 8.5 Milestone 검증 절차
 
