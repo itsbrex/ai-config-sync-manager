@@ -1,6 +1,7 @@
 {
   "mcpServers": {
     "notion": {
+      "type": "stdio",
       "command": "npx",
       "args": [
         "-y",
