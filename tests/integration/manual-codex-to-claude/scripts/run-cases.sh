@@ -75,6 +75,16 @@ for c in "${cases[@]}"; do
     > "$LOGS/$c.apply.out" 2> "$LOGS/$c.apply.err"
   apply_rc=$?
 
+  # Per-case post-sync hook: setup.sh runs additional registrations
+  # (paraphrase --apply, status-ignore.json) so the fixture exercises
+  # rule-registration flows that real users perform after sync.
+  if [ -x "$TMPL/$c/setup.sh" ]; then
+    AI_CONFIG_SYNC_HOME="$HOME_DIR" "$TMPL/$c/setup.sh" "$REPO" \
+      > "$LOGS/$c.setup.out" 2> "$LOGS/$c.setup.err"
+    setup_rc=$?
+    [ "$apply_rc" -eq 0 ] && apply_rc="$setup_rc"
+  fi
+
   diff -ruN --exclude='.ai-config-sync-manager' \
     --exclude='backups' --exclude='telemetry' \
     "$EXP/$c/claude-home/.claude" "$HOME_DIR/.claude" > "$LOGS/$c.claude.diff" 2>&1
@@ -113,13 +123,41 @@ for c in "${cases[@]}"; do
     : > "$LOGS/$c.mcp.json.diff"; mcp_json_rc=0
   fi
 
-  diff -ruN "$TMPL/$c/.codex" "$HOME_DIR/.codex" > "$LOGS/$c.codex.diff" 2>&1
+  # Default: codex/agents source must equal templates (sync-only cases).
+  # When expected/<c>/codex-home/{.codex,.agents} exists, prefer it — that
+  # signals a setup.sh case that legitimately mutates the codex side
+  # (e.g. paraphrase --apply rewriting tokens).
+  codex_base="$TMPL/$c/.codex"
+  [ -d "$EXP/$c/codex-home/.codex" ] && codex_base="$EXP/$c/codex-home/.codex"
+  diff -ruN "$codex_base" "$HOME_DIR/.codex" > "$LOGS/$c.codex.diff" 2>&1
   codex_rc=$?
-  if [ -d "$TMPL/$c/.agents" ] || [ -d "$HOME_DIR/.agents" ]; then
-    diff -ruN "$TMPL/$c/.agents" "$HOME_DIR/.agents" > "$LOGS/$c.agents.diff" 2>&1
+
+  agents_base="$TMPL/$c/.agents"
+  [ -d "$EXP/$c/codex-home/.agents" ] && agents_base="$EXP/$c/codex-home/.agents"
+  if [ -d "$agents_base" ] || [ -d "$HOME_DIR/.agents" ]; then
+    diff -ruN "$agents_base" "$HOME_DIR/.agents" > "$LOGS/$c.agents.diff" 2>&1
     agents_rc=$?
   else
     : > "$LOGS/$c.agents.diff"; agents_rc=0
+  fi
+
+  # Lab rules comparison: when expected/<c>/lab-rules/ exists, normalize
+  # lab's .ai-config-sync-manager/rules/*.json by reverse-substituting the
+  # absolute lab path and the registered_at timestamp into placeholders,
+  # then diff against the expected canonical form.
+  if [ -d "$EXP/$c/lab-rules" ]; then
+    rm -rf "$LOGS/$c.lab-rules-canonical"
+    mkdir -p "$LOGS/$c.lab-rules-canonical"
+    for f in "$HOME_DIR/.ai-config-sync-manager/rules"/*.json; do
+      [ -f "$f" ] || continue
+      sed -e "s|$HOME_DIR|__LAB_HOME__|g" \
+          -e 's|"registered_at": "[^"]*"|"registered_at": "__REGISTERED_AT__"|g' \
+          "$f" > "$LOGS/$c.lab-rules-canonical/$(basename "$f")"
+    done
+    diff -ruN "$EXP/$c/lab-rules" "$LOGS/$c.lab-rules-canonical" > "$LOGS/$c.lab-rules.diff" 2>&1
+    lab_rules_rc=$?
+  else
+    : > "$LOGS/$c.lab-rules.diff"; lab_rules_rc=0
   fi
 
   HOME="$HOME_DIR" claude mcp list > "$LOGS/$c.claude-cli.out" 2> "$LOGS/$c.claude-cli.err"
@@ -152,19 +190,20 @@ for c in "${cases[@]}"; do
     done
   fi
 
-  printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n" \
+  printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n" \
     "$c" "$status_rc" "$dry_rc" "$apply_rc" \
     "$claude_diff_rc" "$claude_json_rc" "$mcp_json_rc" "$codex_rc" "$agents_rc" \
-    "$claude_cli_rc" "$codex_cli_rc" "$codex_project_cli_rc" \
+    "$claude_cli_rc" "$codex_cli_rc" "$codex_project_cli_rc" "$lab_rules_rc" \
     >> "$RESULTS"
   if [ "$status_rc" -ne 0 ] || [ "$dry_rc" -ne 0 ] || [ "$apply_rc" -ne 0 ] \
     || [ "$claude_diff_rc" -ne 0 ] || [ "$claude_json_rc" -ne 0 ] || [ "$mcp_json_rc" -ne 0 ] \
     || [ "$codex_rc" -ne 0 ] || [ "$agents_rc" -ne 0 ] \
-    || [ "$claude_cli_rc" -ne 0 ] || [ "$codex_cli_rc" -ne 0 ] || [ "$codex_project_cli_rc" -ne 0 ]; then
+    || [ "$claude_cli_rc" -ne 0 ] || [ "$codex_cli_rc" -ne 0 ] || [ "$codex_project_cli_rc" -ne 0 ] \
+    || [ "$lab_rules_rc" -ne 0 ]; then
     overall_rc=1
   fi
 done
 
-echo "----- RESULTS (case status dry apply claude claude_json mcp_json codex agents claude_cli codex_cli codex_project_cli) -----"
+echo "----- RESULTS (case status dry apply claude claude_json mcp_json codex agents claude_cli codex_cli codex_project_cli lab_rules) -----"
 cat "$RESULTS"
 exit "$overall_rc"

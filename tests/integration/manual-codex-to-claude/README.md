@@ -50,9 +50,18 @@ scripts/run-cases.sh
 ```
 
 `run-cases.sh` writes per-case logs and diffs to `/tmp/manual-cases-out/` and a
-TSV summary to `/tmp/manual-cases-results.tsv` (12 columns: case, status_rc,
+TSV summary to `/tmp/manual-cases-results.tsv` (13 columns: case, status_rc,
 dry_rc, apply_rc, claude_diff_rc, claude_json_rc, mcp_json_rc, codex_rc,
-agents_rc, claude_cli_rc, codex_cli_rc, codex_project_cli_rc — all `0` = PASS).
+agents_rc, claude_cli_rc, codex_cli_rc, codex_project_cli_rc, lab_rules_rc —
+all `0` = PASS).
+
+Cases that ship a `setup.sh` (e.g. `case-09-ecc-rules-pre-registered`) have it
+run automatically after `sync --apply` so paraphrase/status-ignore
+registrations are part of the verified flow. The lab's
+`.ai-config-sync-manager/rules/*.json` is reverse-normalized
+(`__LAB_HOME__`, `__REGISTERED_AT__` placeholders) and diffed against
+`expected/<case>/lab-rules/`. Cases without `setup.sh` get a no-op
+`lab_rules_rc=0`.
 
 No real secrets are stored here. Placeholder values are intentionally synthetic.
 Remote MCP server ids use `manual_*` names where needed to avoid Codex project config merging with a developer's real global MCP entries.

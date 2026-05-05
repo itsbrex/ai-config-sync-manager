@@ -1,42 +1,58 @@
 # case-09-ecc-rules-pre-registered
 
-Same upstream content as `case-08-ecc-realworld-mapping`, but with three rule
-files pre-seeded under `.ai-config-sync-manager/rules/` so that:
+Same upstream source as `case-08-ecc-realworld-mapping` (no rules pre-seeded
+in templates). The harness invokes `setup.sh` after `sync --apply` so that
+the post-sync rule registrations match the real-world flow a user would run
+manually:
 
-1. **status-ignore** suppresses the over-translated `Codex CLI` / `AGENTS.md`
-   table cells from showing up as conflicts.
-2. **paraphrase-overrides** masks the `Skill` vocab mismatch on
-   `verification-loop/SKILL.md` line 6 — the active override means the pair
-   is treated as in sync without rewriting either side.
-3. **paraphrase-map** registers the codex paraphrase for `Skill`
-   (`verification routine`) so a future `ai-config-sync paraphrase --apply`
-   would rewrite host-native tokens using the shared mapping.
+1. `paraphrase --apply --map "Skill=verification routine"` —
+   rewrites the `Skill` token on the codex-side
+   `.agents/skills/verification-loop/SKILL.md` (line 6), persists the
+   override to `.ai-config-sync-manager/rules/paraphrase-overrides.json`,
+   and updates `paraphrase-map.json`.
+2. Hand-authored `.ai-config-sync-manager/rules/status-ignore.json` —
+   masks the over-translated `Codex CLI` / `AGENTS.md` table cells in the
+   instructions area.
 
-## Placeholder substitution
+## Layout
 
-`paraphrase-overrides.json` pins absolute `claude_path` / `codex_path`. Since
-those depend on each user's lab location, the JSON ships with a
-`__LAB_HOME__` placeholder. `scripts/reset.sh` substitutes it for the actual
-`lab/<case>` absolute path on every reset, so no manual editing is needed:
+```
+templates/case-09-ecc-rules-pre-registered/
+  .codex/, .agents/, .claude/        # raw upstream (matches case-08)
+  setup.sh                           # post-sync registration script
 
-```bash
-scripts/reset.sh case-09-ecc-rules-pre-registered
-# rules/paraphrase-overrides.json now contains absolute paths under
-# .../lab/case-09-ecc-rules-pre-registered/...
+expected/case-09-ecc-rules-pre-registered/
+  claude-home/.claude{,.json}        # post-sync claude tree
+  codex-home/.codex/, .agents/       # post-paraphrase codex tree
+                                     # (codex SKILL.md L6 token rewritten)
+  lab-rules/{paraphrase-overrides,paraphrase-map,status-ignore}.json
+                                     # canonical rule snapshots with
+                                     # __LAB_HOME__ + __REGISTERED_AT__
+                                     # placeholders
 ```
 
-## Verifying the rules took effect
+`run-cases.sh` invokes `setup.sh` automatically and compares the lab's
+rules JSON (after reverse-substituting the lab path and timestamp into
+placeholders) against `expected/<case>/lab-rules/` — so the registrations
+are deterministically verified across machines.
 
-After `sync --apply`, status should report 1 active paraphrase override and
-no `instructions` conflict on the over-translated lines:
+## Manual reproduction
 
 ```bash
 case=case-09-ecc-rules-pre-registered
+scripts/reset.sh "$case"
+
+AI_CONFIG_SYNC_HOME="$(pwd)/lab/${case}" \
+  node ../../../bin/ai-config-sync.mjs sync \
+    --scope global --from codex --to claude --apply
+
+AI_CONFIG_SYNC_HOME="$(pwd)/lab/${case}" \
+  ./templates/${case}/setup.sh "$(cd ../../.. && pwd)"
+
 AI_CONFIG_SYNC_HOME="$(pwd)/lab/${case}" \
   node ../../../bin/ai-config-sync.mjs status --scope global
-# Expect:
-#   "1 paraphrase override(s) active, 0 stale."
+# Expect: "1 paraphrase override(s) active, 0 stale."
 ```
 
 Reference: `case-08-ecc-realworld-mapping/MAPPING-NOTES.md` for the line/token
-inventory the rule files target.
+inventory the rules target.

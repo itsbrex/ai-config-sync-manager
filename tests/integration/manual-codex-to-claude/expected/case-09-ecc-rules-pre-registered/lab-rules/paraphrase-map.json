@@ -1,6 +1,7 @@
 {
   "version": 1,
-  "tokens": {
+  "claude_only": {
     "Skill": "verification routine"
-  }
+  },
+  "codex_only": {}
 }
