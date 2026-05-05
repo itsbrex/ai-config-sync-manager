@@ -15,6 +15,14 @@ reset_one() {
   fi
   rm -rf "$LAB/$c"
   cp -R "$TMPL/$c" "$LAB/$c"
+  # Substitute __LAB_HOME__ placeholder in any pre-seeded rule files so
+  # paraphrase overrides can pin absolute paths under the user's lab dir.
+  # No-op for cases that don't use the placeholder.
+  if [ -d "$LAB/$c/.ai-config-sync-manager/rules" ]; then
+    find "$LAB/$c/.ai-config-sync-manager/rules" -type f -name '*.json' -print0 \
+      | xargs -0 sed -i.bak "s|__LAB_HOME__|$LAB/$c|g" 2>/dev/null || true
+    find "$LAB/$c/.ai-config-sync-manager/rules" -type f -name '*.bak' -delete 2>/dev/null || true
+  fi
   echo "reset: $c"
 }
 
