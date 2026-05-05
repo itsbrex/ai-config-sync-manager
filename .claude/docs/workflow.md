@@ -196,7 +196,7 @@ Drift 가드: version pin 자동 주입 / PATH binary 일치 검사 / state `sch
 - [ ] **CI 도입**: GitHub Actions 1개로 `npm run check` + `npm test` + `npm run build:dist` + `npm run lint` + `npm run format:check`.
 - [ ] **schemas 런타임 검증**: 사용자 편집 가능한 `paraphrase-overrides.json` / `paraphrase-map.json` / `status-ignore.json` 손상 시 친절한 에러 메시지가 필요하면 AJV 도입 검토. 현재는 try/catch + 수동 가드로 충분.
 - [ ] **mjs type-check 도입 검토**: 옵션 B로 packages 제거 시 `tsconfig.check.json`도 함께 삭제했음. mjs 자체에 `// @ts-check` + JSDoc 또는 `tsconfig` (allowJs/checkJs) 설정으로 type-check를 다시 도입할지 여부는 별도 task. 현재는 `node:test` runtime 검증으로 충분.
-- [ ] **backups / status-details retention**: 현재 `${home}/.ai-config-sync-manager/backups/` (apply당 1 dir) / `status-details/` (status당 1 file) 모두 prune 로직 없음. 비슷한 도구 관행 (kubectl rollout 10 / Time Machine 30일 / logrotate 7-30일) 기반으로 **backups 30개 / status-details 100개** FIFO retention 도입. `sync --apply` 시작 시점에 oldest부터 정리하는 한 줄 추가 (minimal diff).
+- [x] **backups / status-details retention**: `BACKUP_RETENTION = 30` / `STATUS_DETAILS_RETENTION = 100` 상수 + `pruneRetention(dir, keep)` FIFO 헬퍼 도입. `applySyncPlan` 시작 시점과 `writeStatusDetailFile`의 mkdir 직후에 호출. ISO timestamp 이름이라 `readdirSync.sort()` 결과가 chronological과 일치, 별도 mtime 비교 불필요. (kubectl rollout 10 / Time Machine 30일 / logrotate 7-30일 관행 참고).
 
 ### 8.5 Milestone 검증 절차
 

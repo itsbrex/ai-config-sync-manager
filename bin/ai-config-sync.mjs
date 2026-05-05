@@ -22,6 +22,8 @@ const [command = "help", ...argv] = process.argv.slice(2);
 const runtimeRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const home = process.env.AI_CONFIG_SYNC_HOME ?? homedir();
 const STATE_SCHEMA_VERSION = 1;
+const BACKUP_RETENTION = 30;
+const STATUS_DETAILS_RETENTION = 100;
 const runtimePackage = readRuntimePackage();
 const runtimeVersion = runtimePackage.version;
 const runtimePackageName = runtimePackage.name;
@@ -465,6 +467,7 @@ function writeStatusDetailFile(report) {
   }
 
   mkdirSync(dirname(detailPath), { recursive: true });
+  pruneRetention(dirname(detailPath), STATUS_DETAILS_RETENTION - 1);
   writeFileSync(detailPath, `${lines.join("\n").trimEnd()}\n`);
   return detailPath;
 }
@@ -472,6 +475,15 @@ function writeStatusDetailFile(report) {
 function statusDetailPath() {
   const stamp = new Date().toISOString().replaceAll(":", "-");
   return `${home}/.ai-config-sync-manager/status-details/${stamp}.txt`;
+}
+
+function pruneRetention(dir, keep) {
+  if (!existsSync(dir)) return;
+  const entries = readdirSync(dir).sort();
+  if (entries.length <= keep) return;
+  for (const name of entries.slice(0, entries.length - keep)) {
+    rmSync(join(dir, name), { recursive: true, force: true });
+  }
 }
 
 function statusTableRows(entries, ignoreRules = []) {
@@ -3601,6 +3613,7 @@ function lineContainsAnyTerm(line, terms) {
 }
 
 function applySyncPlan(plan) {
+  pruneRetention(`${home}/.ai-config-sync-manager/backups`, BACKUP_RETENTION - 1);
   mkdirSync(plan.backupRoot, { recursive: true });
 
   for (const operation of plan.operations) {
