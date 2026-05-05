@@ -1,7 +1,18 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -24,10 +35,10 @@ function runCli(fixture, args, input, extraEnv = {}) {
     env: {
       ...process.env,
       AI_CONFIG_SYNC_HOME: fixture.home,
-      ...extraEnv
+      ...extraEnv,
     },
     encoding: "utf8",
-    input
+    input,
   });
 }
 
@@ -55,17 +66,17 @@ test("status supports item selectors for MCP servers", () => {
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] },
-      playwright: { command: "npx", args: ["playwright-mcp"] }
-    }
+      playwright: { command: "npx", args: ["playwright-mcp"] },
+    },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.playwright]",
-    'command = "npx"',
-    'args = ["playwright-mcp"]',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.playwright]", 'command = "npx"', 'args = ["playwright-mcp"]', ""].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"])
+  );
 
   assert.deepEqual(report.include, ["mcp:notion"]);
   assert.equal(report.entries.length, 1);
@@ -81,16 +92,29 @@ test("status supports glob item selectors", () => {
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
       notion: { command: "npx", args: ["notion-mcp"] },
-      playwright: { command: "npx", args: ["playwright-mcp"] }
-    }
+      playwright: { command: "npx", args: ["playwright-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const included = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:not*", "--json"]));
+  const included = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "mcp:not*", "--json"])
+  );
   assert.equal(included.entries.length, 1);
   assert.deepEqual(included.entries[0].missingInCodex, ["notion"]);
 
-  const excluded = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp", "--exclude", "mcp:play*", "--json"]));
+  const excluded = JSON.parse(
+    runCli(fixture, [
+      "status",
+      "--scope",
+      "project",
+      "--include",
+      "mcp",
+      "--exclude",
+      "mcp:play*",
+      "--json",
+    ])
+  );
   assert.equal(excluded.entries.length, 1);
   assert.deepEqual(excluded.entries[0].missingInCodex, ["notion"]);
 });
@@ -101,12 +125,14 @@ test("global MCP status reads Claude servers from configurable global paths", ()
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp:notion", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:notion", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
@@ -122,19 +148,24 @@ test("global MCP status ignores Claude settings.json mcpServers (only ~/.claude.
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude/settings.json"), {
-    mcpServers: { ignored: { command: "noop" } }
+    mcpServers: { ignored: { command: "noop" } },
   });
   writeJson(join(fixture.home, ".codex/mcp.json"), {
-    mcpServers: { github: { command: "github-mcp-server" } }
+    mcpServers: { github: { command: "github-mcp-server" } },
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
   assert.deepEqual(report.entries[0].claudeMcpPaths, []);
-  assert.deepEqual(report.entries[0].codexMcpPaths, [join(fixture.home, ".codex/config.toml"), join(fixture.home, ".codex/mcp.json")]);
+  assert.deepEqual(report.entries[0].codexMcpPaths, [
+    join(fixture.home, ".codex/config.toml"),
+    join(fixture.home, ".codex/mcp.json"),
+  ]);
   assert.deepEqual(report.entries[0].missingInClaude, ["github"]);
   assert.deepEqual(report.entries[0].missingInCodex ?? [], []);
 });
@@ -146,17 +177,22 @@ test("project MCP status reads Codex JSON MCP path", () => {
   writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
   writeJson(join(fixture.project, ".codex/mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
   const projectRoot = realpathSync(fixture.project);
-  assert.deepEqual(report.entries[0].codexMcpPaths, [join(projectRoot, ".codex/config.toml"), join(projectRoot, ".codex/mcp.json")]);
+  assert.deepEqual(report.entries[0].codexMcpPaths, [
+    join(projectRoot, ".codex/config.toml"),
+    join(projectRoot, ".codex/mcp.json"),
+  ]);
   assert.deepEqual(report.entries[0].missingInClaude, ["notion"]);
 });
 
@@ -166,12 +202,19 @@ test("global MCP sync reads servers from ~/.claude.json", () => {
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
 
-  const output = runCli(fixture, ["sync", "--scope", "global", "--include", "mcp:notion", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:notion",
+    "--apply",
+  ]);
   const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
 
   assert.match(output, /merged MCP servers claude -> codex: notion/);
@@ -182,25 +225,41 @@ test("global MCP sync reads servers from ~/.claude.json", () => {
 test("global MCP sync maps Codex bearer_token_env_var to Claude Authorization header", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
-  writeFileSync(join(fixture.home, ".codex/config.toml"), [
-    "[mcp_servers.sentry]",
-    'transport = "streamable_http"',
-    'url = "https://mcp.sentry.io"',
-    'bearer_token_env_var = "SENTRY_AUTH_TOKEN"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.sentry]",
+      'transport = "streamable_http"',
+      'url = "https://mcp.sentry.io"',
+      'bearer_token_env_var = "SENTRY_AUTH_TOKEN"',
+      "",
+    ].join("\n")
+  );
 
-  const output = runCli(fixture, ["sync", "--scope", "global", "--include", "mcp:sentry", "--from", "codex", "--to", "claude", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
   const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
 
   assert.match(output, /merged MCP servers codex -> claude: sentry/);
   assert.deepEqual(claude.mcpServers.sentry, {
     type: "http",
     url: "https://mcp.sentry.io",
-    headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" }
+    headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" },
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
   assert.equal(report.entries.length, 0);
 });
 
@@ -212,13 +271,24 @@ test("global MCP sync maps Claude Authorization header to Codex bearer_token_env
       sentry: {
         type: "http",
         url: "https://mcp.sentry.io",
-        headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" }
-      }
-    }
+        headers: { Authorization: "Bearer ${SENTRY_AUTH_TOKEN}" },
+      },
+    },
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
 
-  const output = runCli(fixture, ["sync", "--scope", "global", "--include", "mcp:sentry", "--from", "claude", "--to", "codex", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
   const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
 
   assert.match(output, /merged MCP servers claude -> codex: sentry/);
@@ -227,7 +297,9 @@ test("global MCP sync maps Claude Authorization header to Codex bearer_token_env
   assert.match(config, /url = "https:\/\/mcp\.sentry\.io"/);
   assert.match(config, /bearer_token_env_var = "SENTRY_AUTH_TOKEN"/);
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
   assert.equal(report.entries.length, 0);
 });
 
@@ -239,17 +311,17 @@ test("global MCP status reports parity when ~/.claude.json and codex config.toml
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
-  writeFileSync(join(fixture.home, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'command = "npx"',
-    'args = ["notion-mcp"]',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'command = "npx"', 'args = ["notion-mcp"]', ""].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "mcp", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp", "--json"])
+  );
 
   assert.equal(report.entries.length, 0);
   assert.match(report.summary, /No diff detected/);
@@ -260,16 +332,20 @@ test("project MCP status detects servers in top-level .mcp.json", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
-  assert.deepEqual(report.entries[0].claudeMcpPaths, [join(realpathSync(fixture.project), ".mcp.json")]);
+  assert.deepEqual(report.entries[0].claudeMcpPaths, [
+    join(realpathSync(fixture.project), ".mcp.json"),
+  ]);
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
 });
 
@@ -281,22 +357,23 @@ test("project MCP status detects servers in ~/.claude.json projects.<root>.mcpSe
     projects: {
       [projectRoot]: {
         mcpServers: {
-          notion: { command: "npx", args: ["notion-mcp"] }
-        }
-      }
-    }
+          notion: { command: "npx", args: ["notion-mcp"] },
+        },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "mcp");
   assert.deepEqual(report.entries[0].missingInCodex, ["notion"]);
-  assert.deepEqual(
-    report.entries[0].claudeMcpPaths,
-    [`${join(fixture.home, ".claude.json")}#projects:${projectRoot}`]
-  );
+  assert.deepEqual(report.entries[0].claudeMcpPaths, [
+    `${join(fixture.home, ".claude.json")}#projects:${projectRoot}`,
+  ]);
 });
 
 test("project MCP sync apply merges into ~/.claude.json projects.<root>.mcpServers when that is the only Claude target", () => {
@@ -305,14 +382,12 @@ test("project MCP sync apply merges into ~/.claude.json projects.<root>.mcpServe
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   // Pre-create ~/.claude.json without project-local section so apply can write back into it.
   writeJson(join(fixture.home, ".claude.json"), {
-    projects: { [projectRoot]: {} }
+    projects: { [projectRoot]: {} },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'command = "npx"',
-    'args = ["notion-mcp"]',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'command = "npx"', 'args = ["notion-mcp"]', ""].join("\n")
+  );
 
   const output = runCli(
     fixture,
@@ -324,7 +399,11 @@ test("project MCP sync apply merges into ~/.claude.json projects.<root>.mcpServe
   assert.match(output, /merged MCP servers codex -> claude: notion/);
   // Default target stays ${root}/.mcp.json — that file should now own the merged server.
   const projectMcp = JSON.parse(readFileSync(join(fixture.project, ".mcp.json"), "utf8"));
-  assert.deepEqual(projectMcp.mcpServers.notion, { type: "stdio", command: "npx", args: ["notion-mcp"] });
+  assert.deepEqual(projectMcp.mcpServers.notion, {
+    type: "stdio",
+    command: "npx",
+    args: ["notion-mcp"],
+  });
 });
 
 test("project MCP sync delete removes from both .mcp.json and ~/.claude.json projects.<root>", () => {
@@ -334,17 +413,17 @@ test("project MCP sync delete removes from both .mcp.json and ~/.claude.json pro
   // Same server name lives in both Claude project sources.
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeJson(join(fixture.home, ".claude.json"), {
     projects: {
       [projectRoot]: {
         mcpServers: {
-          notion: { command: "npx", args: ["notion-mcp"] }
-        }
-      }
-    }
+          notion: { command: "npx", args: ["notion-mcp"] },
+        },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -374,28 +453,23 @@ test("project MCP read merges both .mcp.json and ~/.claude.json projects.<root>;
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      shared: { command: "from-mcpjson" }
-    }
+      shared: { command: "from-mcpjson" },
+    },
   });
   writeJson(join(fixture.home, ".claude.json"), {
     projects: {
       [projectRoot]: {
         mcpServers: {
-          shared: { command: "from-claudejson" }
-        }
-      }
-    }
+          shared: { command: "from-claudejson" },
+        },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "mcp:shared",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:shared", "--plan-json"])
+  );
 
   // Both sources contribute; status sees a single missing-in-codex item.
   assert.equal(plan.operations.length, 1);
@@ -403,7 +477,9 @@ test("project MCP read merges both .mcp.json and ~/.claude.json projects.<root>;
   assert.deepEqual(plan.operations[0].serverNames, ["shared"]);
 
   // The patch preview's command field reflects the winning source (project-local override).
-  const change = plan.operations[0].patchPreview[0].changes.find((line) => line.startsWith("command:"));
+  const change = plan.operations[0].patchPreview[0].changes.find((line) =>
+    line.startsWith("command:")
+  );
   assert.equal(change, 'command: "from-claudejson"');
 });
 
@@ -414,16 +490,18 @@ test("project MCP status display path reflects actual data location for ~/.claud
   writeJson(join(fixture.home, ".claude.json"), {
     projects: {
       [projectRoot]: {
-        mcpServers: { notion: { command: "npx", args: ["notion-mcp"] } }
-      }
-    }
+        mcpServers: { notion: { command: "npx", args: ["notion-mcp"] } },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
   const output = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion"]);
 
   // The diff line should disclose the ~/.claude.json (projects.<root>) location, not .mcp.json.
-  const claudePathMatch = new RegExp(`Claude: ${escapeRe(join(fixture.home, ".claude.json"))} \\(projects\\.${escapeRe(projectRoot)}\\)`);
+  const claudePathMatch = new RegExp(
+    `Claude: ${escapeRe(join(fixture.home, ".claude.json"))} \\(projects\\.${escapeRe(projectRoot)}\\)`
+  );
   assert.match(output, claudePathMatch);
 });
 
@@ -435,18 +513,24 @@ test("global instructions status reads Claude settings instructions", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
-  writeJson(join(fixture.home, ".claude/settings.json"), { instructions: "claude settings instructions" });
+  writeJson(join(fixture.home, ".claude/settings.json"), {
+    instructions: "claude settings instructions",
+  });
   writeFileSync(join(fixture.home, ".codex/AGENTS.md"), "codex instructions\n");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "instructions", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "instructions", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "instructions");
   assert.equal(report.entries[0].claudePath, join(fixture.home, ".claude/CLAUDE.md"));
-  assert.deepEqual(report.entries[0].claudeInstructionPaths, [join(fixture.home, ".claude/settings.json#instructions")]);
+  assert.deepEqual(report.entries[0].claudeInstructionPaths, [
+    join(fixture.home, ".claude/settings.json#instructions"),
+  ]);
   assert.deepEqual(report.entries[0].claudeInstructionCheckedPaths, [
     join(fixture.home, ".claude/CLAUDE.md"),
-    join(fixture.home, ".claude/settings.json")
+    join(fixture.home, ".claude/settings.json"),
   ]);
   assert.match(report.entries[0].claude, /1 source\(s\) sha256:/);
 });
@@ -456,13 +540,20 @@ test("global instructions status reads Codex config instructions", () => {
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   writeFileSync(join(fixture.home, ".claude/CLAUDE.md"), "claude instructions\n");
-  writeFileSync(join(fixture.home, ".codex/config.toml"), 'instructions = "codex config instructions"\n');
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    'instructions = "codex config instructions"\n'
+  );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--include", "instructions", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "instructions", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "instructions");
-  assert.deepEqual(report.entries[0].codexInstructionPaths, [join(fixture.home, ".codex/config.toml#instructions")]);
+  assert.deepEqual(report.entries[0].codexInstructionPaths, [
+    join(fixture.home, ".codex/config.toml#instructions"),
+  ]);
   assert.match(report.entries[0].codex, /1 source\(s\) sha256:/);
 });
 
@@ -472,13 +563,27 @@ test("status supports compact and tree output formats", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const compact = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--compact"]);
-  const tree = runCli(fixture, ["status", "--scope", "project", "--include", "mcp:notion", "--tree"]);
+  const compact = runCli(fixture, [
+    "status",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--compact",
+  ]);
+  const tree = runCli(fixture, [
+    "status",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:notion",
+    "--tree",
+  ]);
 
   assert.match(compact, /^status: 1 diff\(s\) detected for project scope\./);
   assert.match(compact, /project\/mcp \[safe\] missing-in-codex: notion \[exact\]/);
@@ -494,8 +599,8 @@ test("default status prints grouped apply-ready diff status", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -521,9 +626,18 @@ test("default status details content differs sources", () => {
   const output = runCli(fixture, ["status", "--scope", "project", "--include", "instructions"]);
 
   assert.match(output, /review:/);
-  assert.match(output, /project\/instructions: ~instructions \[equivalent\] \(content differs, safe\)/);
-  assert.match(output, /details: Default sync updates Codex from Claude\. Claude: sources: .*CLAUDE\.md; checked: .*CLAUDE\.md, .*\.claude\/settings\.json \(1 source\(s\) sha256:/);
-  assert.match(output, /Codex: sources: .*AGENTS\.md; checked: .*AGENTS\.md, .*\.codex\/config\.toml \(1 source\(s\) sha256:/);
+  assert.match(
+    output,
+    /project\/instructions: ~instructions \[equivalent\] \(content differs, safe\)/
+  );
+  assert.match(
+    output,
+    /details: Default sync updates Codex from Claude\. Claude: sources: .*CLAUDE\.md; checked: .*CLAUDE\.md, .*\.claude\/settings\.json \(1 source\(s\) sha256:/
+  );
+  assert.match(
+    output,
+    /Codex: sources: .*AGENTS\.md; checked: .*AGENTS\.md, .*\.codex\/config\.toml \(1 source\(s\) sha256:/
+  );
   assert.match(output, /diff:/);
   assert.match(output, /- Codex current L1: codex instructions/);
   assert.match(output, /\+ After apply from Claude L1: claude instructions/);
@@ -534,7 +648,9 @@ test("instructions status treats terminology-mapped model names as equivalent", 
   writeFileSync(join(fixture.project, "CLAUDE.md"), "Use opus4.7(latest) for hard reasoning.\n");
   writeFileSync(join(fixture.project, "AGENTS.md"), "Use gpt-5.5 for hard reasoning.\n");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "instructions", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "instructions", "--json"])
+  );
 
   assert.equal(report.entries.length, 0);
 });
@@ -565,12 +681,21 @@ test("status labels permission mapping quality per item", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
     permissions: {
-      allow: ["Bash", "WebFetch"]
-    }
+      allow: ["Bash", "WebFetch"],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions:Bash,permissions:WebFetch", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, [
+      "status",
+      "--scope",
+      "project",
+      "--include",
+      "permissions:Bash,permissions:WebFetch",
+      "--json",
+    ])
+  );
 
   assert.equal(report.entries[0].itemQualities["allow:Bash"], "exact");
   assert.equal(report.entries[0].itemQualities["allow:WebFetch"], "approximate");
@@ -593,9 +718,15 @@ test("connect registers missing host integrations in an isolated home", () => {
   const fixture = createFixture();
 
   const output = runCli(fixture, ["connect"]);
-  const installed = JSON.parse(readFileSync(join(fixture.home, ".claude/plugins/installed_plugins.json"), "utf8"));
-  const marketplace = JSON.parse(readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8"));
-  const statusIgnore = JSON.parse(readFileSync(join(fixture.home, ".ai-config-sync-manager/rules/status-ignore.json"), "utf8"));
+  const installed = JSON.parse(
+    readFileSync(join(fixture.home, ".claude/plugins/installed_plugins.json"), "utf8")
+  );
+  const marketplace = JSON.parse(
+    readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8")
+  );
+  const statusIgnore = JSON.parse(
+    readFileSync(join(fixture.home, ".ai-config-sync-manager/rules/status-ignore.json"), "utf8")
+  );
 
   assert.match(output, /ok: initialized config root/);
   assert.match(output, /ok: initialized status ignore/);
@@ -603,7 +734,11 @@ test("connect registers missing host integrations in an isolated home", () => {
   assert.match(output, /ok: registered Codex plugin/);
   assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
   assert.deepEqual(statusIgnore, { version: 1, exclude: [] });
-  assert.ok(existsSync(join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager/bin/ai-config-sync")));
+  assert.ok(
+    existsSync(
+      join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager/bin/ai-config-sync")
+    )
+  );
   assert.ok(existsSync(join(fixture.home, "plugins/ai-config-sync-manager/bin/ai-config-sync")));
   assert.equal(
     installed.plugins["config-manager@ai-config-sync-manager"][0].installPath,
@@ -617,9 +752,14 @@ test("status reports same-name skill content drift as a manual conflict", () => 
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
   mkdirSync(join(fixture.project, ".agents/skills/review"), { recursive: true });
   writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\nmodel: opus\n");
-  writeFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "# Review\nCodex version\n");
+  writeFileSync(
+    join(fixture.project, ".agents/skills/review/SKILL.md"),
+    "# Review\nCodex version\n"
+  );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "skills");
@@ -629,10 +769,16 @@ test("status reports same-name skill content drift as a manual conflict", () => 
   const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:review"]);
   assert.match(output, /project\/skills: !review \[unsupported\] \(conflict, manual\)/);
   assert.match(output, /action: sync area/);
-  assert.match(output, /apply: ai-config-sync sync --scope project --include skills:review --apply/);
+  assert.match(
+    output,
+    /apply: ai-config-sync sync --scope project --include skills:review --apply/
+  );
   assert.match(output, /- Codex current L2: Codex version/);
   assert.match(output, /\+ After apply from Claude L2: model: gpt-5\.5/);
-  assert.match(readFileSync(statusDetailPath(output), "utf8"), /\+ After apply from Claude L2: model: gpt-5\.5/);
+  assert.match(
+    readFileSync(statusDetailPath(output), "utf8"),
+    /\+ After apply from Claude L2: model: gpt-5\.5/
+  );
 });
 
 test("status treats skill as equivalent when transform and override jointly equalize content", () => {
@@ -672,12 +818,14 @@ test("status treats skill as equivalent when transform and override jointly equa
         claude_line: 3,
         codex_line: 3,
         claude_text: "Read the docs.",
-        codex_text: "Inspect the docs."
-      }
-    ]
+        codex_text: "Inspect the docs.",
+      },
+    ],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:jointly", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:jointly", "--json"])
+  );
   assert.equal(report.entries.length, 0);
   assert.equal(report.paraphraseOverrides.active.length, 1);
   assert.equal(report.paraphraseOverrides.stale.length, 0);
@@ -714,9 +862,9 @@ test("status preview shows diff in references/* file when manifest is masked", (
         claude_line: 2,
         codex_line: 2,
         claude_text: "Read the spec.",
-        codex_text: "Inspect the spec."
-      }
-    ]
+        codex_text: "Inspect the spec.",
+      },
+    ],
   });
 
   const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:multi"]);
@@ -734,8 +882,14 @@ test("status preview masks skill overrides before host transform", () => {
   mkdirSync(join(claudeSkill, "references"), { recursive: true });
   mkdirSync(join(codexSkill, "references"), { recursive: true });
 
-  writeFileSync(join(claudeSkill, "skill.md"), "# Transform Mask\nUse Bash and Read.\nAgent path: `~/.claude/agents/team/{name}.md`\n");
-  writeFileSync(join(codexSkill, "SKILL.md"), "# Transform Mask\nUse exec_command and Inspect.\nAgent path: `~/.codex/agents/{name}.toml`\n");
+  writeFileSync(
+    join(claudeSkill, "skill.md"),
+    "# Transform Mask\nUse Bash and Read.\nAgent path: `~/.claude/agents/team/{name}.md`\n"
+  );
+  writeFileSync(
+    join(codexSkill, "SKILL.md"),
+    "# Transform Mask\nUse exec_command and Inspect.\nAgent path: `~/.codex/agents/{name}.toml`\n"
+  );
   writeFileSync(join(claudeSkill, "references/foo.md"), "alpha line\n");
   writeFileSync(join(codexSkill, "references/foo.md"), "omega line\n");
 
@@ -750,21 +904,40 @@ test("status preview masks skill overrides before host transform", () => {
         claude_line: 2,
         codex_line: 2,
         claude_text: "Use Bash and Read.",
-        codex_text: "Use exec_command and Inspect."
-      }
-    ]
+        codex_text: "Use exec_command and Inspect.",
+      },
+    ],
   });
 
-  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:transform-mask"]);
+  const output = runCli(fixture, [
+    "status",
+    "--scope",
+    "project",
+    "--include",
+    "skills:transform-mask",
+  ]);
   const detail = readFileSync(statusDetailPath(output), "utf8");
 
   assert.match(detail, /references\/foo\.md:/);
   assert.match(detail, /- Codex current L1: omega line/);
   assert.match(detail, /\+ After apply from Claude L1: alpha line/);
-  assert.doesNotMatch(detail, /skill-transform-mask|Use Bash and Read|Use exec_command and Inspect|Use exec_command and Read|agents\/team\/\{name\}\.md|agents\/\{name\}\.toml/);
+  assert.doesNotMatch(
+    detail,
+    /skill-transform-mask|Use Bash and Read|Use exec_command and Inspect|Use exec_command and Read|agents\/team\/\{name\}\.md|agents\/\{name\}\.toml/
+  );
 
-  const syncOutput = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:transform-mask", "--dry-run"]);
-  assert.doesNotMatch(syncOutput, /skill-transform-mask|Use Bash and Read|Use exec_command and Inspect|Use exec_command and Read|agents\/team\/\{name\}\.md|agents\/\{name\}\.toml/);
+  const syncOutput = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:transform-mask",
+    "--dry-run",
+  ]);
+  assert.doesNotMatch(
+    syncOutput,
+    /skill-transform-mask|Use Bash and Read|Use exec_command and Inspect|Use exec_command and Read|agents\/team\/\{name\}\.md|agents\/\{name\}\.toml/
+  );
 });
 
 test("status treats grouped and flat agent path references as equivalent inside skills", () => {
@@ -786,7 +959,7 @@ test("status treats grouped and flat agent path references as equivalent inside 
       "Use Bash, Read, Write.",
       "Agent(",
       ")",
-      ""
+      "",
     ].join("\n")
   );
   writeFileSync(
@@ -800,10 +973,13 @@ test("status treats grouped and flat agent path references as equivalent inside 
       "Use exec_command, Inspect, Emit.",
       '<!-- ai-config-sync:manual-review reason="cannot parse Agent arguments: argument is not a single object literal" -->Agent(',
       ")",
-      ""
+      "",
     ].join("\n")
   );
-  writeFileSync(join(claudeSkill, "references/foo.md"), "Cache: `~/.claude/agent-memory/notion/`\n");
+  writeFileSync(
+    join(claudeSkill, "references/foo.md"),
+    "Cache: `~/.claude/agent-memory/notion/`\n"
+  );
   writeFileSync(join(codexSkill, "references/foo.md"), "Cache: `~/.codex/agent-memory/notion/`\n");
 
   writeJson(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json"), {
@@ -817,12 +993,21 @@ test("status treats grouped and flat agent path references as equivalent inside 
         claude_line: 6,
         codex_line: 6,
         claude_text: "Use Bash, Read, Write.",
-        codex_text: "Use exec_command, Inspect, Emit."
-      }
-    ]
+        codex_text: "Use exec_command, Inspect, Emit.",
+      },
+    ],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:path-equivalent", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, [
+      "status",
+      "--scope",
+      "project",
+      "--include",
+      "skills:path-equivalent",
+      "--json",
+    ])
+  );
   assert.equal(report.entries.length, 0);
 });
 
@@ -858,7 +1043,9 @@ test("status keeps missing skills as safe copy candidates", () => {
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
   writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\n");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "skills");
@@ -875,7 +1062,9 @@ test("status reports symlink skills as unsupported and excludes them from sync",
   writeFileSync(join(sharedSkill, "SKILL.md"), "# GStack\n");
   symlinkSync(sharedSkill, join(fixture.project, ".claude/skills/gstack"), "dir");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:gstack", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:gstack", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "skills");
@@ -890,7 +1079,9 @@ test("status reports symlink skills as unsupported and excludes them from sync",
   assert.match(output, /action: manual review/);
   assert.match(output, /apply: manual review/);
 
-  const plan = JSON.parse(runCli(fixture, ["sync", "--scope", "project", "--include", "skills:gstack", "--plan-json"]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "skills:gstack", "--plan-json"])
+  );
   assert.deepEqual(plan.operations, []);
 });
 
@@ -901,21 +1092,26 @@ test("status ignore file hides diffs until the rule is removed", () => {
   writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\n");
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { scope: "project", area: "skills", item: "review" }
-    ]
+    exclude: [{ scope: "project", area: "skills", item: "review" }],
   });
 
-  const ignored = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
+  const ignored = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"])
+  );
   assert.equal(ignored.statusIgnored, 1);
-  assert.equal(ignored.statusIgnorePath, join(realpathSync(fixture.project), ".ai-config-sync-manager/status-ignore.json"));
+  assert.equal(
+    ignored.statusIgnorePath,
+    join(realpathSync(fixture.project), ".ai-config-sync-manager/status-ignore.json")
+  );
   assert.equal(ignored.entries.length, 0);
 
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: []
+    exclude: [],
   });
-  const visible = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"]));
+  const visible = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:review", "--json"])
+  );
   assert.equal(visible.statusIgnored, 0);
   assert.equal(visible.entries.length, 1);
 });
@@ -929,12 +1125,12 @@ test("status ignore file supports glob item selectors", () => {
   writeFileSync(join(fixture.project, ".claude/skills/review-ui/SKILL.md"), "# Review UI\n");
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { scope: "project", area: "skills", item: "review-*" }
-    ]
+    exclude: [{ scope: "project", area: "skills", item: "review-*" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
   assert.equal(report.statusIgnored, 2);
   assert.equal(report.entries.length, 0);
 });
@@ -946,21 +1142,24 @@ test("status ignore file also removes entries from sync plans", () => {
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { scope: "project", area: "mcp", item: "notion" }
-    ]
+    exclude: [{ scope: "project", area: "mcp", item: "notion" }],
   });
 
-  const plan = JSON.parse(runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:notion", "--plan-json"]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:notion", "--plan-json"])
+  );
 
   assert.equal(plan.ignored, 1);
-  assert.equal(plan.ignorePath, join(realpathSync(fixture.project), ".ai-config-sync-manager/status-ignore.json"));
+  assert.equal(
+    plan.ignorePath,
+    join(realpathSync(fixture.project), ".ai-config-sync-manager/status-ignore.json")
+  );
   assert.equal(plan.operations.length, 0);
 });
 
@@ -970,10 +1169,10 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
     permissions: {
-      allow: ["Bash(npm run check:*)", "mcp__notion__search"]
-    }
+      allow: ["Bash(npm run check:*)", "mcp__notion__search"],
+    },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), "approval_policy = \"never\"\n");
+  writeFileSync(join(fixture.project, ".codex/config.toml"), 'approval_policy = "never"\n');
 
   const output = runCli(fixture, [
     "sync",
@@ -981,7 +1180,7 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
     "project",
     "--include",
     "permissions:Bash(npm run check:*),permissions:mcp__notion__search",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
@@ -992,7 +1191,9 @@ test("sync apply maps Bash permissions, MCP tool approvals, and creates backups"
   assert.doesNotMatch(config, /# BEGIN ai-config-sync permissions/);
   assert.doesNotMatch(config, /# permissions\.allow/);
   assert.match(rules, /prefix_rule\(pattern=\["npm","run","check"\], decision="allow"/);
-  assert.ok(existsSync(join(backupRoot(output), realpathSync(fixture.project), ".codex/config.toml")));
+  assert.ok(
+    existsSync(join(backupRoot(output), realpathSync(fixture.project), ".codex/config.toml"))
+  );
 });
 
 test("sync apply without scope applies global and project scopes", () => {
@@ -1003,13 +1204,13 @@ test("sync apply without scope applies global and project scopes", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
-      globalNotion: { command: "npx", args: ["global-notion-mcp"] }
-    }
+      globalNotion: { command: "npx", args: ["global-notion-mcp"] },
+    },
   });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      projectNotion: { command: "npx", args: ["project-notion-mcp"] }
-    }
+      projectNotion: { command: "npx", args: ["project-notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
@@ -1032,13 +1233,13 @@ test("sync dry-run without scope plans global and project scopes", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.home, ".claude.json"), {
     mcpServers: {
-      globalNotion: { command: "npx", args: ["global-notion-mcp"] }
-    }
+      globalNotion: { command: "npx", args: ["global-notion-mcp"] },
+    },
   });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      projectNotion: { command: "npx", args: ["project-notion-mcp"] }
-    }
+      projectNotion: { command: "npx", args: ["project-notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.home, ".codex/config.toml"), "");
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
@@ -1056,17 +1257,14 @@ test("default sync plans equivalent instruction content diffs", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/settings.json"), { instructions: "claude settings instructions" });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    instructions: "claude settings instructions",
+  });
   writeFileSync(join(fixture.project, "AGENTS.md"), "codex instructions\n");
 
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--plan-json"])
+  );
 
   assert.equal(plan.operations.length, 1);
   assert.equal(plan.operations[0].risk, "safe");
@@ -1076,14 +1274,16 @@ test("default sync plans equivalent instruction content diffs", () => {
   assert.equal(plan.operations[0].content, "claude settings instructions");
   assert.deepEqual(plan.operations[0].changePreview, [
     "- Codex current L1: codex instructions",
-    "+ After apply from Claude L1: claude settings instructions"
+    "+ After apply from Claude L1: claude settings instructions",
   ]);
 });
 
 test("sync apply writes equivalent instruction content diffs", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
-  writeJson(join(fixture.project, ".claude/settings.json"), { instructions: "claude settings instructions" });
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    instructions: "claude settings instructions",
+  });
   writeFileSync(join(fixture.project, "AGENTS.md"), "codex instructions\n");
 
   const output = runCli(fixture, [
@@ -1092,7 +1292,7 @@ test("sync apply writes equivalent instruction content diffs", () => {
     "project",
     "--include",
     "instructions",
-    "--apply"
+    "--apply",
   ]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
@@ -1102,7 +1302,10 @@ test("sync apply writes equivalent instruction content diffs", () => {
 
 test("sync applies default terminology mappings to instructions", () => {
   const fixture = createFixture();
-  writeFileSync(join(fixture.project, "CLAUDE.md"), "Use CLAUDE.md with opus4.7(latest), thinking budget, and Task-tool delegation.\n");
+  writeFileSync(
+    join(fixture.project, "CLAUDE.md"),
+    "Use CLAUDE.md with opus4.7(latest), thinking budget, and Task-tool delegation.\n"
+  );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
   const output = runCli(fixture, [
@@ -1111,31 +1314,33 @@ test("sync applies default terminology mappings to instructions", () => {
     "project",
     "--include",
     "instructions",
-    "--apply"
+    "--apply",
   ]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.match(output, /Term mapping: .*rules\/terminology-map\.json/);
   assert.match(output, /Target templates: .*rules\/host-target-templates\.json/);
-  assert.equal(agents, "Use AGENTS.md with gpt-5.5, reasoning effort, and Codex spawn_agent delegation.\n");
+  assert.equal(
+    agents,
+    "Use AGENTS.md with gpt-5.5, reasoning effort, and Codex spawn_agent delegation.\n"
+  );
 });
 
 test("sync applies host target templates to generic host surfaces", () => {
   const fixture = createFixture();
-  writeFileSync(join(fixture.project, "CLAUDE.md"), "Use a Claude slash command with Claude hook handler and Task tool.\n");
+  writeFileSync(
+    join(fixture.project, "CLAUDE.md"),
+    "Use a Claude slash command with Claude hook handler and Task tool.\n"
+  );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
-  assert.equal(agents, "Use a Codex skill command with Codex native hook and Codex spawn_agent delegation.\n");
+  assert.equal(
+    agents,
+    "Use a Codex skill command with Codex native hook and Codex spawn_agent delegation.\n"
+  );
 });
 
 test("sync applies project host target template override", () => {
@@ -1148,26 +1353,19 @@ test("sync applies project host target template override", () => {
         id: "qa",
         aliases: {
           claude: ["qa skill"],
-          codex: ["qa command"]
+          codex: ["qa command"],
         },
         target: {
           claude: "custom Claude QA template",
-          codex: "custom Codex QA template"
-        }
-      }
-    ]
+          codex: "custom Codex QA template",
+        },
+      },
+    ],
   });
   writeFileSync(join(fixture.project, "CLAUDE.md"), "Run the qa skill.\n");
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.equal(agents, "Run the custom Codex QA template.\n");
@@ -1182,21 +1380,14 @@ test("sync applies project terminology mapping override", () => {
       {
         id: "custom-model",
         claude: ["custom-claude-model"],
-        codex: ["custom-codex-model"]
-      }
-    ]
+        codex: ["custom-codex-model"],
+      },
+    ],
   });
   writeFileSync(join(fixture.project, "CLAUDE.md"), "Use custom-claude-model.\n");
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.equal(agents, "Use custom-codex-model.\n");
@@ -1214,23 +1405,16 @@ test("sync applies layered project terminology mapping override", () => {
           {
             id: "custom-layer-model",
             claude: ["layer-claude-model"],
-            codex: ["layer-codex-model"]
-          }
-        ]
-      }
-    ]
+            codex: ["layer-codex-model"],
+          },
+        ],
+      },
+    ],
   });
   writeFileSync(join(fixture.project, "CLAUDE.md"), "Use layer-claude-model.\n");
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.equal(agents, "Use layer-codex-model.\n");
@@ -1241,7 +1425,10 @@ test("sync apply replaces manual skill conflicts without per-operation approval"
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
   mkdirSync(join(fixture.project, ".agents/skills/review"), { recursive: true });
   writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\nmodel: opus\n");
-  writeFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "# Review\nCodex version\n");
+  writeFileSync(
+    join(fixture.project, ".agents/skills/review/SKILL.md"),
+    "# Review\nCodex version\n"
+  );
 
   const output = runCli(fixture, [
     "sync",
@@ -1249,7 +1436,7 @@ test("sync apply replaces manual skill conflicts without per-operation approval"
     "project",
     "--include",
     "skills:review",
-    "--apply"
+    "--apply",
   ]);
   const skill = readFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "utf8");
 
@@ -1266,16 +1453,12 @@ test("sync apply replaces manual skill conflicts without per-operation approval"
 test("sync applies terminology mappings when copying skills", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
-  writeFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "# Review\nUse CLAUDE.md with Opus.\n");
+  writeFileSync(
+    join(fixture.project, ".claude/skills/review/SKILL.md"),
+    "# Review\nUse CLAUDE.md with Opus.\n"
+  );
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "skills:review",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:review", "--apply"]);
   const skill = readFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "utf8");
 
   assert.equal(skill, "# Review\nUse AGENTS.md with gpt-5.5.\n");
@@ -1284,16 +1467,12 @@ test("sync applies terminology mappings when copying skills", () => {
 test("sync applies host target templates when copying skills", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude/skills/host-surface"), { recursive: true });
-  writeFileSync(join(fixture.project, ".claude/skills/host-surface/SKILL.md"), "# Host Surface\nUse Claude plugin command and Claude command hook.\n");
+  writeFileSync(
+    join(fixture.project, ".claude/skills/host-surface/SKILL.md"),
+    "# Host Surface\nUse Claude plugin command and Claude command hook.\n"
+  );
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "skills:host-surface",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:host-surface", "--apply"]);
   const skill = readFileSync(join(fixture.project, ".agents/skills/host-surface/SKILL.md"), "utf8");
 
   assert.equal(skill, "# Host Surface\nUse Codex skill command and Codex native hook.\n");
@@ -1307,14 +1486,7 @@ test("sync regex-translates agent file paths and extensions when copying skills"
     "# Agent Path\nRead .claude/agents/preview-tester.md for your role.\n"
   );
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "skills:agent-path",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:agent-path", "--apply"]);
   const skill = readFileSync(join(fixture.project, ".agents/skills/agent-path/SKILL.md"), "utf8");
 
   assert.equal(skill, "# Agent Path\nRead .codex/agents/preview-tester.toml for your role.\n");
@@ -1326,19 +1498,14 @@ test("sync supports JSON plan output", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "mcp:notion",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:notion", "--plan-json"])
+  );
 
   assert.equal(plan.mode, "dry-run");
   assert.equal(plan.route, "auto");
@@ -1358,26 +1525,19 @@ test("default sync plans Codex-only config toward Claude", () => {
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'command = "npx"',
-    'args = ["notion-mcp"]',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'command = "npx"', 'args = ["notion-mcp"]', ""].join("\n")
+  );
 
-  const plan = JSON.parse(runCli(
-    fixture,
-    [
-      "sync",
-      "--scope",
-      "project",
-      "--include",
-      "mcp:notion",
-      "--plan-json"
-    ],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  ));
+  const plan = JSON.parse(
+    runCli(
+      fixture,
+      ["sync", "--scope", "project", "--include", "mcp:notion", "--plan-json"],
+      undefined,
+      { AI_CONFIG_SYNC_HOST: "codex" }
+    )
+  );
 
   assert.equal(plan.route, "auto");
   assert.equal(plan.from, "codex");
@@ -1396,23 +1556,14 @@ test("default sync applies Codex-only config to Claude", () => {
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), { mcpServers: {} });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'command = "npx"',
-    'args = ["notion-mcp"]',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'command = "npx"', 'args = ["notion-mcp"]', ""].join("\n")
+  );
 
   const output = runCli(
     fixture,
-    [
-      "sync",
-      "--scope",
-      "project",
-      "--include",
-      "mcp:notion",
-      "--apply"
-    ],
+    ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"],
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
@@ -1431,21 +1582,14 @@ test("default sync propagates Codex deletion to Claude after baseline", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
   const output = runCli(
     fixture,
-    [
-      "sync",
-      "--scope",
-      "project",
-      "--include",
-      "mcp:notion",
-      "--apply"
-    ],
+    ["sync", "--scope", "project", "--include", "mcp:notion", "--apply"],
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
@@ -1465,8 +1609,8 @@ test("default sync propagates Claude addition to Codex after baseline", () => {
   runCli(fixture, ["sync", "--scope", "project", "--apply"]);
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
 
   const output = runCli(fixture, [
@@ -1475,7 +1619,7 @@ test("default sync propagates Claude addition to Codex after baseline", () => {
     "project",
     "--include",
     "mcp:notion",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -1495,14 +1639,7 @@ test("default sync deletes Claude skill not present in Codex (codex->claude dire
 
   const output = runCli(
     fixture,
-    [
-      "sync",
-      "--scope",
-      "project",
-      "--include",
-      "skills:orphan",
-      "--apply"
-    ],
+    ["sync", "--scope", "project", "--include", "skills:orphan", "--apply"],
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
@@ -1517,7 +1654,10 @@ test("default sync deletes Claude skill not present in Codex (codex->claude dire
   // and backupPath() strips the leading "/" then joins under backupRoot.
   // Reconstruct the same path off the resolved project root.
   const projectRoot = realpathSync(fixture.project);
-  const backupPath = join(backup, join(projectRoot, ".claude/skills/orphan/SKILL.md").replace(/^\/+/, ""));
+  const backupPath = join(
+    backup,
+    join(projectRoot, ".claude/skills/orphan/SKILL.md").replace(/^\/+/, "")
+  );
   assert.ok(
     existsSync(backupPath),
     `backup should contain SKILL.md for the deleted skill at ${backupPath}`
@@ -1537,14 +1677,7 @@ test("default sync deletes Claude agent not present in Codex (codex->claude dire
 
   const output = runCli(
     fixture,
-    [
-      "sync",
-      "--scope",
-      "project",
-      "--include",
-      "agents:orphan",
-      "--apply"
-    ],
+    ["sync", "--scope", "project", "--include", "agents:orphan", "--apply"],
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
@@ -1556,7 +1689,10 @@ test("default sync deletes Claude agent not present in Codex (codex->claude dire
   const backup = backupRoot(output);
   // backupPath() mirrors the resolved cwd-rooted absolute path under backupRoot.
   const projectRoot = realpathSync(fixture.project);
-  const backupAgentPath = join(backup, join(projectRoot, ".claude/agents/orphan.md").replace(/^\/+/, ""));
+  const backupAgentPath = join(
+    backup,
+    join(projectRoot, ".claude/agents/orphan.md").replace(/^\/+/, "")
+  );
   assert.ok(
     existsSync(backupAgentPath),
     `backup should contain the deleted agent file at ${backupAgentPath}`
@@ -1577,7 +1713,7 @@ test("default sync deletes Codex skill not present in Claude (claude->codex dire
     "project",
     "--include",
     "skills:orphan",
-    "--apply"
+    "--apply",
   ]);
 
   const codexSkillDir = join(fixture.project, ".agents/skills/orphan");
@@ -1586,7 +1722,10 @@ test("default sync deletes Codex skill not present in Claude (claude->codex dire
 
   const backup = backupRoot(output);
   const projectRoot = realpathSync(fixture.project);
-  const backupSkillFile = join(backup, join(projectRoot, ".agents/skills/orphan/SKILL.md").replace(/^\/+/, ""));
+  const backupSkillFile = join(
+    backup,
+    join(projectRoot, ".agents/skills/orphan/SKILL.md").replace(/^\/+/, "")
+  );
   assert.ok(
     existsSync(backupSkillFile),
     `backup should contain SKILL.md for the deleted skill at ${backupSkillFile}`
@@ -1602,18 +1741,20 @@ test("explicit --from codex --to claude deletes Claude-only item", () => {
   writeFileSync(join(fixture.project, ".claude/skills/orphan/SKILL.md"), "# Orphan\n");
   mkdirSync(join(fixture.project, ".agents/skills"), { recursive: true });
 
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--from",
-    "codex",
-    "--to",
-    "claude",
-    "--scope",
-    "project",
-    "--include",
-    "skills:orphan",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, [
+      "sync",
+      "--from",
+      "codex",
+      "--to",
+      "claude",
+      "--scope",
+      "project",
+      "--include",
+      "skills:orphan",
+      "--plan-json",
+    ])
+  );
 
   assert.equal(plan.route, "explicit");
   assert.equal(plan.from, "codex");
@@ -1636,26 +1777,21 @@ test("direction-driven plan reports - symbol for missing-in-source items", () =>
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      notion: { command: "npx", args: ["notion-mcp"] }
-    }
+      notion: { command: "npx", args: ["notion-mcp"] },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
   // With AI_CONFIG_SYNC_HOST=codex, source=codex and notion is only on the
   // Claude target -> action should label as "delete from Claude".
-  const statusReport = JSON.parse(runCli(
-    fixture,
-    [
-      "status",
-      "--scope",
-      "project",
-      "--include",
-      "mcp:notion",
-      "--json"
-    ],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  ));
+  const statusReport = JSON.parse(
+    runCli(
+      fixture,
+      ["status", "--scope", "project", "--include", "mcp:notion", "--json"],
+      undefined,
+      { AI_CONFIG_SYNC_HOST: "codex" }
+    )
+  );
 
   const entry = statusReport.entries.find((item) => item.area === "mcp");
   assert.ok(entry, "expected an mcp status entry");
@@ -1666,19 +1802,14 @@ test("direction-driven plan reports - symbol for missing-in-source items", () =>
   assert.deepEqual(entry.missingInClaude ?? [], []);
   // Driven from the same data, the direction-aware sync plan exposes the
   // delete operation to the same target host.
-  const plan = JSON.parse(runCli(
-    fixture,
-    [
-      "sync",
-      "--scope",
-      "project",
-      "--include",
-      "mcp:notion",
-      "--plan-json"
-    ],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  ));
+  const plan = JSON.parse(
+    runCli(
+      fixture,
+      ["sync", "--scope", "project", "--include", "mcp:notion", "--plan-json"],
+      undefined,
+      { AI_CONFIG_SYNC_HOST: "codex" }
+    )
+  );
 
   assert.equal(plan.operations.length, 1);
   assert.equal(plan.operations[0].action, "delete-items");
@@ -1688,13 +1819,7 @@ test("direction-driven plan reports - symbol for missing-in-source items", () =>
   // The default text status output exposes the symbol/action labels.
   const text = runCli(
     fixture,
-    [
-      "status",
-      "--scope",
-      "project",
-      "--include",
-      "mcp:notion"
-    ],
+    ["status", "--scope", "project", "--include", "mcp:notion"],
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
@@ -1721,8 +1846,8 @@ test("sync plan includes permission review notes for risky and approximate mappi
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
     permissions: {
-      allow: ["Bash", "WebFetch"]
-    }
+      allow: ["Bash", "WebFetch"],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -1732,16 +1857,18 @@ test("sync plan includes permission review notes for risky and approximate mappi
     "project",
     "--include",
     "permissions:Bash,permissions:WebFetch",
-    "--dry-run"
+    "--dry-run",
   ]);
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:Bash,permissions:WebFetch",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, [
+      "sync",
+      "--scope",
+      "project",
+      "--include",
+      "permissions:Bash,permissions:WebFetch",
+      "--plan-json",
+    ])
+  );
 
   assert.match(text, /Review notes:/);
   assert.match(text, /Patch preview:/);
@@ -1750,11 +1877,13 @@ test("sync plan includes permission review notes for risky and approximate mappi
   assert.match(text, /Bash: broad, interpreter, shell-wrapper, network, or destructive command/);
   assert.match(text, /WebFetch: maps to config\.toml web_search/);
   assert.equal(plan.operations[0].patchPreview[0].item, "allow:Bash");
-  assert.deepEqual(plan.operations[0].patchPreview[0].changes, ['rules/default.rules prefix_rule(pattern=["bash"], decision="allow", justification="Migrated from Claude allow permission Bash.")']);
+  assert.deepEqual(plan.operations[0].patchPreview[0].changes, [
+    'rules/default.rules prefix_rule(pattern=["bash"], decision="allow", justification="Migrated from Claude allow permission Bash.")',
+  ]);
   assert.deepEqual(plan.operations[0].patchPreview[1].changes, ['config.toml web_search = "live"']);
   assert.deepEqual(plan.operations[0].reviewNotes, [
     "Bash: broad, interpreter, shell-wrapper, network, or destructive command will be written as a prefix_rule; review before apply",
-    "WebFetch: maps to config.toml web_search = \"live\"; reverse sync will normalize to WebSearch (lossy)"
+    'WebFetch: maps to config.toml web_search = "live"; reverse sync will normalize to WebSearch (lossy)',
   ]);
 });
 
@@ -1764,8 +1893,8 @@ test("sync apply maps allow:WebFetch to native web_search instead of managed met
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
     permissions: {
-      allow: ["Bash", "WebFetch"]
-    }
+      allow: ["Bash", "WebFetch"],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -1775,7 +1904,7 @@ test("sync apply maps allow:WebFetch to native web_search instead of managed met
     "project",
     "--include",
     "permissions:Bash,permissions:WebFetch",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
@@ -1794,13 +1923,22 @@ test("status treats Claude file-write permissions as equivalent to Codex workspa
     mkdirSync(join(fixture.project, ".codex"), { recursive: true });
     writeJson(join(fixture.project, ".claude/settings.json"), {
       permissions: {
-        allow: [permission]
-      }
+        allow: [permission],
+      },
     });
     writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-    runCli(fixture, ["sync", "--scope", "project", "--include", `permissions:${permission}`, "--apply"]);
-    const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"]));
+    runCli(fixture, [
+      "sync",
+      "--scope",
+      "project",
+      "--include",
+      `permissions:${permission}`,
+      "--apply",
+    ]);
+    const report = JSON.parse(
+      runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+    );
     const permissionEntries = report.entries.filter((entry) => entry.area === "permissions");
 
     assert.equal(
@@ -1816,20 +1954,23 @@ test("sync apply converts Codex native permissions back to Claude permissions", 
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    'approval_policy = "never"',
-    'sandbox_mode = "workspace-write"',
-    'web_search = "live"',
-    "",
-    "[mcp_servers.github]",
-    'command = "github-mcp-server"',
-    'enabled_tools = ["search_repositories", "get_issue"]',
-    'disabled_tools = ["delete_repository"]',
-    "",
-    "[mcp_servers.notion.tools.search]",
-    'approval_mode = "approve"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    [
+      'approval_policy = "never"',
+      'sandbox_mode = "workspace-write"',
+      'web_search = "live"',
+      "",
+      "[mcp_servers.github]",
+      'command = "github-mcp-server"',
+      'enabled_tools = ["search_repositories", "get_issue"]',
+      'disabled_tools = ["delete_repository"]',
+      "",
+      "[mcp_servers.notion.tools.search]",
+      'approval_mode = "approve"',
+      "",
+    ].join("\n")
+  );
   writeFileSync(
     join(fixture.project, ".codex/rules/default.rules"),
     'prefix_rule(pattern=["npm","run","check"], decision="prompt", justification="test")\n'
@@ -1845,12 +1986,19 @@ test("sync apply converts Codex native permissions back to Claude permissions", 
     "project",
     "--include",
     "permissions:Bash(npm run check:*),permissions:mcp__notion__search,permissions:WebSearch,permissions:mcp__github__search_repositories,permissions:mcp__github__delete_repository,permissions:Write,permissions:Edit,permissions:MultiEdit",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
   assert.deepEqual(settings.permissions.ask, ["Bash(npm run check:*)"]);
-  assert.deepEqual(settings.permissions.allow, ["Edit", "MultiEdit", "WebSearch", "Write", "mcp__github__search_repositories", "mcp__notion__search"]);
+  assert.deepEqual(settings.permissions.allow, [
+    "Edit",
+    "MultiEdit",
+    "WebSearch",
+    "Write",
+    "mcp__github__search_repositories",
+    "mcp__notion__search",
+  ]);
   assert.deepEqual(settings.permissions.deny, ["mcp__github__delete_repository"]);
   assert.ok(!settings.permissions.allow.includes("approval_policy"));
 });
@@ -1866,10 +2014,10 @@ test("sync apply strips secret-like env values when AI_CONFIG_SYNC_STRIP_SECRETS
         args: ["server.js"],
         env: {
           NOTION_TOKEN: "secret",
-          SAFE_ENV: "visible"
-        }
-      }
-    }
+          SAFE_ENV: "visible",
+        },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -1905,12 +2053,12 @@ test("sync apply converts Claude command hooks to Codex native hook TOML", () =>
               type: "command",
               command: "npm run check",
               timeout: 30,
-              statusMessage: "checking"
-            }
-          ]
-        }
-      ]
-    }
+              statusMessage: "checking",
+            },
+          ],
+        },
+      ],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -1937,12 +2085,12 @@ test("sync apply keeps unsupported hooks as managed metadata", () => {
           hooks: [
             {
               type: "webhook",
-              url: "https://example.invalid/hook"
-            }
-          ]
-        }
-      ]
-    }
+              url: "https://example.invalid/hook",
+            },
+          ],
+        },
+      ],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -1960,16 +2108,10 @@ test("sync apply with hook subset preserves previously synced hooks", () => {
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
     hooks: {
-      Notification: [
-        { hooks: [{ type: "command", command: "echo notify" }] }
-      ],
-      PreToolUse: [
-        { matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }
-      ],
-      Stop: [
-        { hooks: [{ type: "command", command: "echo stop" }] }
-      ]
-    }
+      Notification: [{ hooks: [{ type: "command", command: "echo notify" }] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }],
+      Stop: [{ hooks: [{ type: "command", command: "echo stop" }] }],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -1979,34 +2121,19 @@ test("sync apply with hook subset preserves previously synced hooks", () => {
     "project",
     "--include",
     "hooks:Notification,hooks:PreToolUse,hooks:Stop",
-    "--apply"
+    "--apply",
   ]);
 
   writeJson(join(fixture.project, ".claude/settings.json"), {
     hooks: {
-      Notification: [
-        { hooks: [{ type: "command", command: "echo notify" }] }
-      ],
-      PreToolUse: [
-        { matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }
-      ],
-      Stop: [
-        { hooks: [{ type: "command", command: "echo stop" }] }
-      ],
-      UserPromptSubmit: [
-        { hooks: [{ type: "command", command: "echo ups" }] }
-      ]
-    }
+      Notification: [{ hooks: [{ type: "command", command: "echo notify" }] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "echo pre" }] }],
+      Stop: [{ hooks: [{ type: "command", command: "echo stop" }] }],
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "echo ups" }] }],
+    },
   });
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "hooks:UserPromptSubmit",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "hooks:UserPromptSubmit", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /\[features\]/);
@@ -2036,19 +2163,22 @@ test("sync apply converts Codex native hooks back to Claude settings", () => {
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {});
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[features]",
-    "codex_hooks = true",
-    "",
-    "[[hooks.PostToolUse]]",
-    'matcher = "Write"',
-    "[[hooks.PostToolUse.hooks]]",
-    'type = "command"',
-    'command = "npm run check"',
-    "timeout = 30",
-    'statusMessage = "checking"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    [
+      "[features]",
+      "codex_hooks = true",
+      "",
+      "[[hooks.PostToolUse]]",
+      'matcher = "Write"',
+      "[[hooks.PostToolUse.hooks]]",
+      'type = "command"',
+      'command = "npm run check"',
+      "timeout = 30",
+      'statusMessage = "checking"',
+      "",
+    ].join("\n")
+  );
 
   runCli(fixture, [
     "sync",
@@ -2060,7 +2190,7 @@ test("sync apply converts Codex native hooks back to Claude settings", () => {
     "project",
     "--include",
     "hooks:PostToolUse",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
@@ -2072,21 +2202,20 @@ test("sync apply converts Codex native hooks back to Claude settings", () => {
           type: "command",
           command: "npm run check",
           timeout: 30,
-          statusMessage: "checking"
-        }
-      ]
-    }
+          statusMessage: "checking",
+        },
+      ],
+    },
   ]);
 });
 
 test("AI_CONFIG_SYNC_HOST=codex flips default sync direction to codex -> claude", () => {
   const fixture = createFixture();
-  const plan = JSON.parse(runCli(
-    fixture,
-    ["sync", "--scope", "project", "--plan-json"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  ));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--plan-json"], undefined, {
+      AI_CONFIG_SYNC_HOST: "codex",
+    })
+  );
 
   assert.equal(plan.from, "codex");
   assert.equal(plan.to, "claude");
@@ -2095,12 +2224,11 @@ test("AI_CONFIG_SYNC_HOST=codex flips default sync direction to codex -> claude"
 
 test("AI_CONFIG_SYNC_HOST=claude keeps default sync direction as claude -> codex", () => {
   const fixture = createFixture();
-  const plan = JSON.parse(runCli(
-    fixture,
-    ["sync", "--scope", "project", "--plan-json"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "claude" }
-  ));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--plan-json"], undefined, {
+      AI_CONFIG_SYNC_HOST: "claude",
+    })
+  );
 
   assert.equal(plan.from, "claude");
   assert.equal(plan.to, "codex");
@@ -2177,18 +2305,12 @@ test("status instruction diff preview labels keep claude->codex labels by defaul
 
 test("compact and tree status formats include direction", () => {
   const fixture = createFixture();
-  const compact = runCli(
-    fixture,
-    ["status", "--scope", "project", "--compact"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  );
-  const tree = runCli(
-    fixture,
-    ["status", "--scope", "project", "--tree"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  );
+  const compact = runCli(fixture, ["status", "--scope", "project", "--compact"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+  const tree = runCli(fixture, ["status", "--scope", "project", "--tree"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
 
   assert.match(compact, /direction=codex->claude/);
   assert.match(tree, /Default sync direction: codex -> claude/);
@@ -2196,24 +2318,20 @@ test("compact and tree status formats include direction", () => {
 
 test("sync plan render shows default direction even on auto route", () => {
   const fixture = createFixture();
-  const output = runCli(
-    fixture,
-    ["sync", "--scope", "project"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  );
+  const output = runCli(fixture, ["sync", "--scope", "project"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
 
   assert.match(output, /Route: auto \(diff-directed, default codex -> claude\)/);
 });
 
 test("status JSON includes direction object", () => {
   const fixture = createFixture();
-  const report = JSON.parse(runCli(
-    fixture,
-    ["status", "--scope", "project", "--json"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  ));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--json"], undefined, {
+      AI_CONFIG_SYNC_HOST: "codex",
+    })
+  );
 
   assert.equal(report.source, "codex");
   assert.equal(report.target, "claude");
@@ -2222,12 +2340,14 @@ test("status JSON includes direction object", () => {
 
 test("explicit --from --to overrides AI_CONFIG_SYNC_HOST", () => {
   const fixture = createFixture();
-  const plan = JSON.parse(runCli(
-    fixture,
-    ["sync", "--from", "claude", "--to", "codex", "--scope", "project", "--plan-json"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  ));
+  const plan = JSON.parse(
+    runCli(
+      fixture,
+      ["sync", "--from", "claude", "--to", "codex", "--scope", "project", "--plan-json"],
+      undefined,
+      { AI_CONFIG_SYNC_HOST: "codex" }
+    )
+  );
 
   assert.equal(plan.from, "claude");
   assert.equal(plan.to, "codex");
@@ -2246,7 +2366,13 @@ function writeClaudeAgent(path, frontmatter, body) {
 
 function writeCodexAgent(path, fields) {
   mkdirSync(dirname(path), { recursive: true });
-  const order = ["name", "description", "model", "model_reasoning_effort", "developer_instructions"];
+  const order = [
+    "name",
+    "description",
+    "model",
+    "model_reasoning_effort",
+    "developer_instructions",
+  ];
   const lines = [];
   for (const key of order) {
     if (fields[key] === undefined || fields[key] === null) continue;
@@ -2264,7 +2390,9 @@ test("agents status reports Claude-only agent as missing in Codex", () => {
   );
   mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "agents");
@@ -2281,10 +2409,12 @@ test("agents status reports Codex-only agent as missing in Claude", () => {
     name: "sample",
     description: "Sample agent",
     model: "gpt-5.4",
-    developer_instructions: "Sample agent body"
+    developer_instructions: "Sample agent body",
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "agents");
@@ -2304,12 +2434,17 @@ test("agents status flags same-name agents with diverged bodies as conflict", ()
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: "Different codex body"
+    developer_instructions: "Different codex body",
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
-  const conflictEntry = report.entries.find((entry) => entry.area === "agents" && Array.isArray(entry.conflicts) && entry.conflicts.length > 0);
+  const conflictEntry = report.entries.find(
+    (entry) =>
+      entry.area === "agents" && Array.isArray(entry.conflicts) && entry.conflicts.length > 0
+  );
   assert.ok(conflictEntry, "expected an agents conflict entry");
   assert.equal(conflictEntry.risk, "manual");
   assert.deepEqual(conflictEntry.conflicts, ["sample"]);
@@ -2327,10 +2462,12 @@ test("agents status treats transform-equivalent bodies as no diff", () => {
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: `\n${body}\n`
+    developer_instructions: `\n${body}\n`,
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   const agentsEntries = report.entries.filter((entry) => entry.area === "agents");
   assert.equal(agentsEntries.length, 0);
@@ -2348,10 +2485,12 @@ test("agents status ignores migration preamble in Codex developer_instructions",
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: `Migrated from Claude agent: /old/path\n\n\n${body}\n`
+    developer_instructions: `Migrated from Claude agent: /old/path\n\n\n${body}\n`,
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   const agentsEntries = report.entries.filter((entry) => entry.area === "agents");
   assert.equal(agentsEntries.length, 0);
@@ -2366,7 +2505,14 @@ test("agents sync apply copies Claude agent to Codex with model alias", () => {
   );
   mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
 
-  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "agents:sample",
+    "--apply",
+  ]);
   const codexFile = readFileSync(join(fixture.project, ".codex/agents/sample.toml"), "utf8");
 
   assert.match(output, /copied agent sample -> .*\.codex\/agents\/sample\.toml/);
@@ -2381,14 +2527,20 @@ test("agents sync apply derives name and description from body when Claude front
   const fixture = createFixture();
   const claudePath = join(fixture.project, ".claude/agents/sample.md");
   mkdirSync(dirname(claudePath), { recursive: true });
-  writeFileSync(claudePath, "---\nmodel: opus\n---\n# Sample Heading\n\nThis agent reviews pull requests for security issues.\n\nMore detailed instructions follow.\n");
+  writeFileSync(
+    claudePath,
+    "---\nmodel: opus\n---\n# Sample Heading\n\nThis agent reviews pull requests for security issues.\n\nMore detailed instructions follow.\n"
+  );
   mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]);
   const codexFile = readFileSync(join(fixture.project, ".codex/agents/sample.toml"), "utf8");
 
   assert.match(codexFile, /^name = "sample"$/m);
-  assert.match(codexFile, /^description = "This agent reviews pull requests for security issues\."$/m);
+  assert.match(
+    codexFile,
+    /^description = "This agent reviews pull requests for security issues\."$/m
+  );
 });
 
 test("agents sync apply copies Codex agent to Claude with reverse model alias", () => {
@@ -2398,7 +2550,7 @@ test("agents sync apply copies Codex agent to Claude with reverse model alias", 
     name: "sample",
     description: "Example agent",
     model: "gpt-5.4",
-    developer_instructions: "Migrated from Claude agent: /old/path\n\nReal codex content"
+    developer_instructions: "Migrated from Claude agent: /old/path\n\nReal codex content",
   });
 
   const output = runCli(
@@ -2429,7 +2581,7 @@ test("agents sync apply preserves Codex metadata-only fields when overwriting", 
     description: "Sample",
     model: "gpt-5.4",
     model_reasoning_effort: "high",
-    developer_instructions: "Older codex body"
+    developer_instructions: "Older codex body",
   });
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]);
@@ -2451,7 +2603,7 @@ test("agents sync apply preserves Claude metadata-only fields when overwriting",
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: "Codex side body"
+    developer_instructions: "Codex side body",
   });
 
   runCli(
@@ -2501,10 +2653,12 @@ test("agents status labels mapping quality as exact for matched agents", () => {
     name: "foo",
     description: "Agent foo",
     model: "gpt-5.4",
-    developer_instructions: "\nFoo body\n"
+    developer_instructions: "\nFoo body\n",
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   const entry = report.entries.find((item) => item.area === "agents");
   assert.ok(entry, "expected agents entry");
@@ -2526,14 +2680,9 @@ test("agents sync propagates Claude-side deletion to Codex after baseline", () =
 
   rmSync(join(fixture.project, ".claude/agents/sample.md"));
 
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "agents:sample",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--plan-json"])
+  );
 
   assert.equal(plan.hasBaseline, true);
   assert.equal(plan.operations.length, 1);
@@ -2560,13 +2709,19 @@ test("agents status matches folder-layout Claude agent against flat Codex agent 
     name: "code-writer-logic",
     description: "Logic writer",
     model: "gpt-5.4",
-    developer_instructions: `\n${body}\n`
+    developer_instructions: `\n${body}\n`,
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   const agentsEntries = report.entries.filter((entry) => entry.area === "agents");
-  assert.equal(agentsEntries.length, 0, "no agent diff should be reported when canonical names match");
+  assert.equal(
+    agentsEntries.length,
+    0,
+    "no agent diff should be reported when canonical names match"
+  );
 });
 
 test("agents status matches slash-in-frontmatter Claude name against dash-flattened Codex name", () => {
@@ -2584,13 +2739,19 @@ test("agents status matches slash-in-frontmatter Claude name against dash-flatte
     name: "coderabbit-local-analyzer",
     description: "Local analyzer",
     model: "gpt-5.4",
-    developer_instructions: `\n${body}\n`
+    developer_instructions: `\n${body}\n`,
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "agents", "--json"])
+  );
 
   const agentsEntries = report.entries.filter((entry) => entry.area === "agents");
-  assert.equal(agentsEntries.length, 0, "slash-normalized canonical names should match across hosts");
+  assert.equal(
+    agentsEntries.length,
+    0,
+    "slash-normalized canonical names should match across hosts"
+  );
 });
 
 test("agents sync codex->claude writes new flat Codex agent to top-level Claude path", () => {
@@ -2602,7 +2763,7 @@ test("agents sync codex->claude writes new flat Codex agent to top-level Claude 
     name: "new-agent",
     description: "New agent",
     model: "gpt-5.4",
-    developer_instructions: "New agent body"
+    developer_instructions: "New agent body",
   });
 
   runCli(
@@ -2636,7 +2797,7 @@ test("agents sync claude->codex writes grouped Claude agent to flat Codex path",
     "project",
     "--include",
     "agents:agent-y",
-    "--apply"
+    "--apply",
   ]);
 
   assert.equal(existsSync(join(fixture.project, ".codex/agents/agent-y.toml")), true);
@@ -2662,7 +2823,7 @@ test("sync apply transforms Agent call inside skill body to Codex marker plus re
     [
       "# Preview",
       'Agent({ description: "Run preview tests", subagent_type: "general-purpose", prompt: "Read .claude/agents/preview-tester.md and run." })',
-      ""
+      "",
     ].join("\n")
   );
 
@@ -2685,7 +2846,7 @@ test("sync apply round-trips Codex agent-call marker back into Claude Agent({...
   const markerFields = {
     description: "Run preview tests",
     subagent_type: "general-purpose",
-    prompt: "Read .codex/agents/preview-tester.toml and run."
+    prompt: "Read .codex/agents/preview-tester.toml and run.",
   };
   const markerPayload = JSON.stringify({ call: "Agent", fields: markerFields });
   writeSkillManifest(
@@ -2698,7 +2859,7 @@ test("sync apply round-trips Codex agent-call marker back into Claude Agent({...
       "",
       "Task:",
       "Read .codex/agents/preview-tester.toml and run.",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -2721,11 +2882,7 @@ test("sync apply leaves unparseable Agent call intact and emits a manual-review 
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
     "claude",
-    [
-      "# Preview",
-      "Agent({ description: someVar, prompt: `Hello ${name}` })",
-      ""
-    ].join("\n")
+    ["# Preview", "Agent({ description: someVar, prompt: `Hello ${name}` })", ""].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
@@ -2746,7 +2903,7 @@ test("sync apply strips manual-review marker when copying Codex skill back to Cl
       '  subagent_type: "insight-analyzer",',
       '  prompt: "Run it"',
       ")",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -2760,7 +2917,7 @@ test("sync apply strips manual-review marker when copying Codex skill back to Cl
     "project",
     "--include",
     "skills:preview",
-    "--apply"
+    "--apply",
   ]);
   const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/skill.md"), "utf8");
 
@@ -2773,11 +2930,7 @@ test("sync apply does not transform identifier-suffixed call names like MyAgent"
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
     "claude",
-    [
-      "# Preview",
-      "MyAgent({ x: 1 })",
-      ""
-    ].join("\n")
+    ["# Preview", "MyAgent({ x: 1 })", ""].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
@@ -2793,14 +2946,17 @@ test("sync apply strips unsupported TaskCreate call and writes archive entry", (
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
     "claude",
-    [
-      "# Preview",
-      'TaskCreate({ items: ["task1","task2"] })',
-      ""
-    ].join("\n")
+    ["# Preview", 'TaskCreate({ items: ["task1","task2"] })', ""].join("\n")
   );
 
-  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:preview",
+    "--apply",
+  ]);
   const codexBody = readFileSync(join(fixture.project, ".agents/skills/preview/SKILL.md"), "utf8");
 
   assert.doesNotMatch(codexBody, /TaskCreate\(/);
@@ -2813,7 +2969,10 @@ test("sync apply strips unsupported TaskCreate call and writes archive entry", (
   const archive = JSON.parse(readFileSync(archivePath, "utf8"));
   assert.ok(Array.isArray(archive), "archive content should be an array");
   const stripped = archive.find(
-    (entry) => entry.call === "TaskCreate" && entry.action === "stripped" && entry.direction === "claude->codex"
+    (entry) =>
+      entry.call === "TaskCreate" &&
+      entry.action === "stripped" &&
+      entry.direction === "claude->codex"
   );
   assert.ok(stripped, "expected a stripped TaskCreate entry in the archive");
 });
@@ -2823,15 +2982,17 @@ test("sync apply records archive entries for each unsupported call in skill body
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
     "claude",
-    [
-      "# Preview",
-      'TaskCreate({ items: ["a"] })',
-      'TeamCreate({ name: "alpha" })',
-      ""
-    ].join("\n")
+    ["# Preview", 'TaskCreate({ items: ["a"] })', 'TeamCreate({ name: "alpha" })', ""].join("\n")
   );
 
-  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:preview",
+    "--apply",
+  ]);
   const archive = JSON.parse(readFileSync(callsArchivePath(output), "utf8"));
 
   const calls = archive.map((entry) => entry.call);
@@ -2845,16 +3006,12 @@ test("sync apply restores stripped Codex marker into a Claude TaskCreate call", 
   const markerPayload = JSON.stringify({
     call: "TaskCreate",
     fields: { items: ["task1", "task2"] },
-    reason: "Codex has no native todo/task tracker tool"
+    reason: "Codex has no native todo/task tracker tool",
   });
   writeSkillManifest(
     join(fixture.project, ".agents/skills/preview"),
     "codex",
-    [
-      "# Preview",
-      `<!-- ai-config-sync:stripped ${markerPayload} -->`,
-      ""
-    ].join("\n")
+    ["# Preview", `<!-- ai-config-sync:stripped ${markerPayload} -->`, ""].join("\n")
   );
 
   const output = runCli(
@@ -2870,7 +3027,10 @@ test("sync apply restores stripped Codex marker into a Claude TaskCreate call", 
 
   const archive = JSON.parse(readFileSync(callsArchivePath(output), "utf8"));
   const restored = archive.find(
-    (entry) => entry.call === "TaskCreate" && entry.action === "restored" && entry.direction === "codex->claude"
+    (entry) =>
+      entry.call === "TaskCreate" &&
+      entry.action === "restored" &&
+      entry.direction === "codex->claude"
   );
   assert.ok(restored, "expected a restored TaskCreate entry in the archive");
 });
@@ -2880,11 +3040,7 @@ test("sync dry-run does not write the calls archive file to disk", () => {
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
     "claude",
-    [
-      "# Preview",
-      'TaskCreate({ items: ["task1","task2"] })',
-      ""
-    ].join("\n")
+    ["# Preview", 'TaskCreate({ items: ["task1","task2"] })', ""].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--dry-run"]);
@@ -2898,37 +3054,35 @@ test("sync dry-run does not write the calls archive file to disk", () => {
 
 test("sync apply renames lowercase Claude skill manifest to uppercase SKILL.md on Codex side", () => {
   const fixture = createFixture();
-  writeSkillManifest(
-    join(fixture.project, ".claude/skills/foo"),
-    "claude",
-    "# Foo\nbody\n"
-  );
+  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", "# Foo\nbody\n");
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
   const codexEntries = readdirSync(join(fixture.project, ".agents/skills/foo"));
 
   assert.ok(codexEntries.includes("SKILL.md"), `expected SKILL.md, got: ${codexEntries.join(",")}`);
-  assert.ok(!codexEntries.includes("skill.md"), `did not expect skill.md in ${codexEntries.join(",")}`);
+  assert.ok(
+    !codexEntries.includes("skill.md"),
+    `did not expect skill.md in ${codexEntries.join(",")}`
+  );
 });
 
 test("sync apply renames uppercase Codex skill manifest to lowercase skill.md on Claude side", () => {
   const fixture = createFixture();
-  writeSkillManifest(
-    join(fixture.project, ".codex/skills/bar"),
-    "codex",
-    "# Bar\nbody\n"
-  );
+  writeSkillManifest(join(fixture.project, ".codex/skills/bar"), "codex", "# Bar\nbody\n");
 
-  runCli(
-    fixture,
-    ["sync", "--scope", "project", "--include", "skills:bar", "--apply"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  );
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:bar", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
   const claudeEntries = readdirSync(join(fixture.project, ".claude/skills/bar"));
 
-  assert.ok(claudeEntries.includes("skill.md"), `expected skill.md, got: ${claudeEntries.join(",")}`);
-  assert.ok(!claudeEntries.includes("SKILL.md"), `did not expect SKILL.md in ${claudeEntries.join(",")}`);
+  assert.ok(
+    claudeEntries.includes("skill.md"),
+    `expected skill.md, got: ${claudeEntries.join(",")}`
+  );
+  assert.ok(
+    !claudeEntries.includes("SKILL.md"),
+    `did not expect SKILL.md in ${claudeEntries.join(",")}`
+  );
 });
 
 test("sync apply rewrites skill.md body references to SKILL.md when copying to Codex", () => {
@@ -2952,7 +3106,9 @@ test("status treats identical skill content with mismatched manifest casing as n
   writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", sharedBody);
   writeSkillManifest(join(fixture.project, ".agents/skills/foo"), "codex", sharedBody);
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
   const skillsEntries = report.entries.filter((entry) => entry.area === "skills");
 
   assert.equal(
@@ -2971,7 +3127,9 @@ test("status treats transformed skill content as equivalent after apply", () => 
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
   const skillsEntries = report.entries.filter((entry) => entry.area === "skills");
 
   assert.equal(
@@ -2994,7 +3152,9 @@ test("status treats multi-file skills with mismatched manifest casing as no conf
   writeFileSync(join(claudeDir, "helpers/util.md"), sharedHelper);
   writeFileSync(join(codexDir, "helpers/util.md"), sharedHelper);
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
   const skillsEntries = report.entries.filter((entry) => entry.area === "skills");
 
   assert.equal(
@@ -3044,12 +3204,15 @@ test("sync apply rewrites grouped Claude agent paths to flat Codex agent paths w
       "에이전트 정의: ~/.claude/agents/insight-pipeline/{name}.md",
       "Concrete file: `.claude/agents/coderabbit/local-analyzer.md`",
       "Flat agent (no group): `~/.claude/agents/{name}.md`",
-      ""
+      "",
     ].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:agent-paths", "--apply"]);
-  const codexBody = readFileSync(join(fixture.project, ".agents/skills/agent-paths/SKILL.md"), "utf8");
+  const codexBody = readFileSync(
+    join(fixture.project, ".agents/skills/agent-paths/SKILL.md"),
+    "utf8"
+  );
 
   assert.match(codexBody, /~\/\.codex\/agents\/\{name\}\.toml/);
   assert.match(codexBody, /`\.codex\/agents\/local-analyzer\.toml`/);
@@ -3071,7 +3234,7 @@ test("sync apply rewrites Claude workspace path prefixes (.claude/docs, .claude/
       "Hooks live in `~/.claude/hooks/coderabbit/`.",
       "Pending insights at `.claude/insights/commit-insight-pending.jsonl`.",
       "Singular form `.claude/insight/foo.json` is preserved.",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -3096,12 +3259,15 @@ test("sync apply preserves precise settings.json / mcp.json / config.toml mappin
       "MCP servers live in `~/.claude/mcp.json`.",
       "Hooks live under `~/.claude/hooks/coderabbit/`.",
       "Reports go to `{repo}/.claude/docs/repo-analysis/`.",
-      ""
+      "",
     ].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:exceptions", "--apply"]);
-  const codexBody = readFileSync(join(fixture.project, ".agents/skills/exceptions/SKILL.md"), "utf8");
+  const codexBody = readFileSync(
+    join(fixture.project, ".agents/skills/exceptions/SKILL.md"),
+    "utf8"
+  );
 
   assert.match(codexBody, /`~\/\.codex\/config\.toml`/);
   assert.match(codexBody, /`~\/\.codex\/config\.toml \[mcp_servers\]`/);
@@ -3121,7 +3287,10 @@ test("sync apply rewrites prose mentions of TeamCreate to multiple spawn_agent i
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:team-prose", "--apply"]);
-  const codexBody = readFileSync(join(fixture.project, ".agents/skills/team-prose/SKILL.md"), "utf8");
+  const codexBody = readFileSync(
+    join(fixture.project, ".agents/skills/team-prose/SKILL.md"),
+    "utf8"
+  );
 
   assert.match(codexBody, /`multiple spawn_agent invocations` 로 아래 팀 구성한다\./);
   assert.doesNotMatch(codexBody, /TeamCreate/);
@@ -3136,7 +3305,10 @@ test("sync apply rewrites prose mentions of TaskCreate / TaskUpdate to spawn_age
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:task-prose", "--apply"]);
-  const codexBody = readFileSync(join(fixture.project, ".agents/skills/task-prose/SKILL.md"), "utf8");
+  const codexBody = readFileSync(
+    join(fixture.project, ".agents/skills/task-prose/SKILL.md"),
+    "utf8"
+  );
 
   assert.match(codexBody, /`spawn_agent` 로 동시 할당하고 `spawn_agent` 로 진행 상태를 갱신한다\./);
   assert.doesNotMatch(codexBody, /TaskCreate|TaskUpdate/);
@@ -3147,16 +3319,16 @@ test("sync apply preserves TaskCreate/TeamCreate inside ai-config-sync stripped 
   writeSkillManifest(
     join(fixture.project, ".claude/skills/round-trip"),
     "claude",
-    [
-      "# Round Trip",
-      'TaskCreate({ items: ["a","b"] })',
-      'TeamCreate({ name: "alpha" })',
-      ""
-    ].join("\n")
+    ["# Round Trip", 'TaskCreate({ items: ["a","b"] })', 'TeamCreate({ name: "alpha" })', ""].join(
+      "\n"
+    )
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:round-trip", "--apply"]);
-  const codexBody = readFileSync(join(fixture.project, ".agents/skills/round-trip/SKILL.md"), "utf8");
+  const codexBody = readFileSync(
+    join(fixture.project, ".agents/skills/round-trip/SKILL.md"),
+    "utf8"
+  );
 
   assert.match(codexBody, /"call":"TaskCreate"/);
   assert.match(codexBody, /"call":"TeamCreate"/);
@@ -3211,9 +3383,12 @@ test("sync apply rewrites Codex `codex exec` mention back to Claude `claude -p` 
     "project",
     "--include",
     "skills:headless-back",
-    "--apply"
+    "--apply",
   ]);
-  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/headless-back/SKILL.md"), "utf8");
+  const claudeBody = readFileSync(
+    join(fixture.project, ".claude/skills/headless-back/SKILL.md"),
+    "utf8"
+  );
 
   assert.match(claudeBody, /headless `claude -p`\./);
   assert.doesNotMatch(claudeBody, /codex exec/);
@@ -3224,7 +3399,7 @@ test("sync apply maps bare Claude Bash permission to a bash-scoped Codex prefix_
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["Bash"] }
+    permissions: { allow: ["Bash"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3256,7 +3431,7 @@ test("sync apply maps Codex bash-scoped prefix_rule back to bare Claude Bash per
     "project",
     "--include",
     "permissions:Bash",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
@@ -3269,7 +3444,7 @@ test("sync apply round-trips bare Claude Bash permission through Codex without d
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["Bash"] }
+    permissions: { allow: ["Bash"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3285,7 +3460,7 @@ test("sync apply round-trips bare Claude Bash permission through Codex without d
     "project",
     "--include",
     "permissions:Bash",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
@@ -3297,7 +3472,7 @@ test("sync apply preserves compound Bash permission round-trip without collapsin
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["Bash(git status:*)", "Bash(npm:*)"] }
+    permissions: { allow: ["Bash(git status:*)", "Bash(npm:*)"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3307,7 +3482,7 @@ test("sync apply preserves compound Bash permission round-trip without collapsin
     "project",
     "--include",
     "permissions:Bash(git status:*),permissions:Bash(npm:*)",
-    "--apply"
+    "--apply",
   ]);
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
   assert.match(rules, /prefix_rule\(pattern=\["git","status"\], decision="allow"/);
@@ -3324,7 +3499,7 @@ test("sync apply preserves compound Bash permission round-trip without collapsin
     "project",
     "--include",
     "permissions:Bash(git status:*),permissions:Bash(npm:*)",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
   assert.ok(settings.permissions.allow.includes("Bash(git status:*)"));
@@ -3353,7 +3528,7 @@ test("sync apply treats legacy Codex prefix_rule with empty pattern as bare Clau
     "project",
     "--include",
     "permissions:Bash",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
@@ -3365,18 +3540,11 @@ test("sync apply maps allow:WebSearch to web_search=live without flipping approv
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["WebSearch"] }
+    permissions: { allow: ["WebSearch"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:WebSearch",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "permissions:WebSearch", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /web_search = "live"/);
@@ -3389,18 +3557,11 @@ test("sync apply round-trips allow:WebSearch through Codex without drift", () =>
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["WebSearch"] }
+    permissions: { allow: ["WebSearch"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:WebSearch",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "permissions:WebSearch", "--apply"]);
   writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
   runCli(fixture, [
     "sync",
@@ -3412,7 +3573,7 @@ test("sync apply round-trips allow:WebSearch through Codex without drift", () =>
     "project",
     "--include",
     "permissions:WebSearch",
-    "--apply"
+    "--apply",
   ]);
   const settings = JSON.parse(readFileSync(join(fixture.project, ".claude/settings.json"), "utf8"));
 
@@ -3424,31 +3585,26 @@ test("sync apply emits a lossy round-trip review note for allow:WebFetch", () =>
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["WebFetch"] }
+    permissions: { allow: ["WebFetch"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:WebFetch",
-    "--plan-json"
-  ]));
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:WebFetch",
-    "--apply"
-  ]);
+  const plan = JSON.parse(
+    runCli(fixture, [
+      "sync",
+      "--scope",
+      "project",
+      "--include",
+      "permissions:WebFetch",
+      "--plan-json",
+    ])
+  );
+  runCli(fixture, ["sync", "--scope", "project", "--include", "permissions:WebFetch", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /web_search = "live"/);
   assert.deepEqual(plan.operations[0].reviewNotes, [
-    "WebFetch: maps to config.toml web_search = \"live\"; reverse sync will normalize to WebSearch (lossy)"
+    'WebFetch: maps to config.toml web_search = "live"; reverse sync will normalize to WebSearch (lossy)',
   ]);
 });
 
@@ -3457,7 +3613,7 @@ test("sync apply maps allow:mcp tools into enabled_tools array idempotently", ()
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["mcp__github__create_issue"] }
+    permissions: { allow: ["mcp__github__create_issue"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3467,7 +3623,7 @@ test("sync apply maps allow:mcp tools into enabled_tools array idempotently", ()
     "project",
     "--include",
     "permissions:mcp__github__create_issue",
-    "--apply"
+    "--apply",
   ]);
   const firstApply = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -3482,7 +3638,7 @@ test("sync apply maps allow:mcp tools into enabled_tools array idempotently", ()
     "project",
     "--include",
     "permissions:mcp__github__create_issue",
-    "--apply"
+    "--apply",
   ]);
   const secondApply = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -3499,7 +3655,7 @@ test("sync apply maps deny:mcp tools into disabled_tools and approval_mode=deny"
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { deny: ["mcp__github__delete_repo"] }
+    permissions: { deny: ["mcp__github__delete_repo"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3509,7 +3665,7 @@ test("sync apply maps deny:mcp tools into disabled_tools and approval_mode=deny"
     "project",
     "--include",
     "permissions:deny:mcp__github__delete_repo",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -3522,7 +3678,7 @@ test("sync apply maps ask:mcp tools to approval_mode=prompt without touching ena
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { ask: ["mcp__github__push_files"] }
+    permissions: { ask: ["mcp__github__push_files"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3532,7 +3688,7 @@ test("sync apply maps ask:mcp tools to approval_mode=prompt without touching ena
     "project",
     "--include",
     "permissions:ask:mcp__github__push_files",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -3546,7 +3702,7 @@ test("sync apply only sets approval_policy=on-request when at least one item is 
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { ask: ["WebFetch"] }
+    permissions: { ask: ["WebFetch"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3556,7 +3712,7 @@ test("sync apply only sets approval_policy=on-request when at least one item is 
     "project",
     "--include",
     "permissions:ask:WebFetch",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -3569,7 +3725,7 @@ test("sync apply treats bare allow:Agent as a no-op with no archive entry", () =
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["Agent"] }
+    permissions: { allow: ["Agent"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3579,7 +3735,7 @@ test("sync apply treats bare allow:Agent as a no-op with no archive entry", () =
     "project",
     "--include",
     "permissions:Agent",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
   const archivePath = join(backupRoot(output), "unsupported-calls.json");
@@ -3596,7 +3752,7 @@ test("sync apply skips deny:Agent because the item has no codex mapping", () => 
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { deny: ["Agent"] }
+    permissions: { deny: ["Agent"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -3606,7 +3762,7 @@ test("sync apply skips deny:Agent because the item has no codex mapping", () => 
     "project",
     "--include",
     "permissions:deny:Agent",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
   const archivePath = join(backupRoot(output), "unsupported-calls.json");
@@ -3626,25 +3782,20 @@ test("status reads sandbox_workspace_write.network_access=true as a WebFetch rev
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[sandbox_workspace_write]",
-    "network_access = true",
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[sandbox_workspace_write]", "network_access = true", ""].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:WebFetch",
-    "--json"
-  ]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions:WebFetch", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "permissions");
   assert.ok(
-    report.entries[0].missingInClaude.includes("WebFetch") || report.entries[0].missingInClaude.includes("allow:WebFetch"),
+    report.entries[0].missingInClaude.includes("WebFetch") ||
+      report.entries[0].missingInClaude.includes("allow:WebFetch"),
     `expected missingInClaude to contain WebFetch, got ${JSON.stringify(report.entries[0].missingInClaude)}`
   );
 });
@@ -3654,22 +3805,20 @@ test("reverse status ignores stale permission comments without matching native c
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), { permissions: {} });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "# BEGIN ai-config-sync permissions",
-    '# permissions.allow = "WebFetch"',
-    '# permissions.ask = "WebSearch"',
-    "# END ai-config-sync permissions",
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    [
+      "# BEGIN ai-config-sync permissions",
+      '# permissions.allow = "WebFetch"',
+      '# permissions.ask = "WebSearch"',
+      "# END ai-config-sync permissions",
+      "",
+    ].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions",
-    "--json"
-  ]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
 
   const permissionEntries = report.entries.filter((entry) => entry.area === "permissions");
   for (const entry of permissionEntries) {
@@ -3689,21 +3838,19 @@ test("reverse status ignores stale hook comments without native [[hooks.*]] tabl
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), { hooks: {} });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "# BEGIN ai-config-sync hooks",
-    '# hooks.PreToolUse = [{"hooks":[{"type":"webhook","url":"https://example.invalid/hook"}]}]',
-    "# END ai-config-sync hooks",
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    [
+      "# BEGIN ai-config-sync hooks",
+      '# hooks.PreToolUse = [{"hooks":[{"type":"webhook","url":"https://example.invalid/hook"}]}]',
+      "# END ai-config-sync hooks",
+      "",
+    ].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "hooks",
-    "--json"
-  ]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "hooks", "--json"])
+  );
 
   const hookEntries = report.entries.filter((entry) => entry.area === "hooks");
   for (const entry of hookEntries) {
@@ -3719,17 +3866,11 @@ test("status appends rules/default.rules to codex path summary when permissions 
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["Bash(git:*)"] }
+    permissions: { allow: ["Bash(git:*)"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const output = runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions"
-  ]);
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "permissions"]);
 
   const expectedRulesPath = join(realpathSync(fixture.project), ".codex/rules/default.rules");
   assert.ok(
@@ -3745,19 +3886,14 @@ test("status hides unsupported Agent permission items as drift", () => {
   writeJson(join(fixture.project, ".claude/settings.json"), {
     permissions: {
       allow: ["Agent(general-purpose)", "Bash(git:*)"],
-      deny: ["Agent"]
-    }
+      deny: ["Agent"],
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions",
-    "--json"
-  ]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
 
   const permissions = report.entries.find((entry) => entry.area === "permissions");
   assert.ok(permissions, "expected a permissions diff entry");
@@ -3769,7 +3905,9 @@ test("status hides unsupported Agent permission items as drift", () => {
   }
   // The supported Bash item should still surface.
   assert.ok(
-    permissions.missingInCodex.some((item) => item === "allow:Bash(git:*)" || item === "Bash(git:*)"),
+    permissions.missingInCodex.some(
+      (item) => item === "allow:Bash(git:*)" || item === "Bash(git:*)"
+    ),
     "expected supported Bash item to remain in drift"
   );
 });
@@ -3779,24 +3917,22 @@ test("sync apply maps server-level allow:mcp__<server> to a noop when codex alre
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["mcp__notion"] }
+    permissions: { allow: ["mcp__notion"] },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'url = "https://mcp.notion.com/mcp"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'url = "https://mcp.notion.com/mcp"', ""].join("\n")
+  );
 
   // status should not flag drift because codex defaults already permit every tool.
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions",
-    "--json"
-  ]));
-  assert.equal(report.entries.length, 0, `expected no drift, got ${JSON.stringify(report.entries)}`);
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
+  assert.equal(
+    report.entries.length,
+    0,
+    `expected no drift, got ${JSON.stringify(report.entries)}`
+  );
 
   // Apply still succeeds and remains idempotent.
   runCli(fixture, ["sync", "--scope", "project", "--include", "permissions", "--apply"]);
@@ -3811,13 +3947,12 @@ test("sync apply maps server-level deny:mcp__<server> to enabled_tools = []", ()
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { deny: ["mcp__notion"] }
+    permissions: { deny: ["mcp__notion"] },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'url = "https://mcp.notion.com/mcp"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'url = "https://mcp.notion.com/mcp"', ""].join("\n")
+  );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "permissions", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
@@ -3831,22 +3966,16 @@ test("sync apply maps wildcard tool allow:mcp__<server>__* as a server-scope noo
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["mcp__notion__*"] }
+    permissions: { allow: ["mcp__notion__*"] },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'url = "https://mcp.notion.com/mcp"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'url = "https://mcp.notion.com/mcp"', ""].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions",
-    "--json"
-  ]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
   assert.equal(report.entries.length, 0);
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "permissions", "--apply"]);
@@ -3862,13 +3991,12 @@ test("sync apply maps allow:mcp__<server>__<tool> when codex has only the bare s
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["mcp__notion__create_page"] }
+    permissions: { allow: ["mcp__notion__create_page"] },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.notion]",
-    'url = "https://mcp.notion.com/mcp"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.notion]", 'url = "https://mcp.notion.com/mcp"', ""].join("\n")
+  );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "permissions", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
@@ -3898,21 +4026,16 @@ test("status treats allow:WebFetch and codex web_search=live as the same capabil
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["WebFetch"] }
+    permissions: { allow: ["WebFetch"] },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    'web_search = "live"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ['web_search = "live"', ""].join("\n")
+  );
 
-  const report = JSON.parse(runCli(fixture, [
-    "status",
-    "--scope",
-    "project",
-    "--include",
-    "permissions",
-    "--json"
-  ]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
 
   const permissions = report.entries.filter((entry) => entry.area === "permissions");
   for (const entry of permissions) {
@@ -3929,7 +4052,7 @@ test("sync apply removes Codex prefix_rule when matching Bash permission is drop
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   // Claude side: no Bash(claude -p:*) anymore.
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   // Codex side: has the rule the previous forward sync would have written.
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
@@ -3939,7 +4062,7 @@ test("sync apply removes Codex prefix_rule when matching Bash permission is drop
       "# BEGIN ai-config-sync permissions-rules",
       'prefix_rule(pattern=["claude","-p"], decision="allow", justification="Migrated from Claude allow permission Bash(claude -p:*).")',
       "# END ai-config-sync permissions-rules",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -3949,7 +4072,7 @@ test("sync apply removes Codex prefix_rule when matching Bash permission is drop
     "project",
     "--include",
     "permissions:Bash(claude -p:*)",
-    "--apply"
+    "--apply",
   ]);
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
 
@@ -3963,7 +4086,7 @@ test("sync apply removes Codex prefix_rule when matching Bash permission is drop
     "project",
     "--include",
     "permissions:Bash(claude -p:*)",
-    "--apply"
+    "--apply",
   ]);
   const rulesAgain = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
   assert.doesNotMatch(rulesAgain, /prefix_rule\(pattern=\["claude","-p"\]/);
@@ -3974,7 +4097,7 @@ test("sync apply removes Codex enabled_tools entry and tool subtable when MCP pe
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(
     join(fixture.project, ".codex/config.toml"),
@@ -3984,7 +4107,7 @@ test("sync apply removes Codex enabled_tools entry and tool subtable when MCP pe
       "",
       "[mcp_servers.notion.tools.create_page]",
       'approval_mode = "approve"',
-      ""
+      "",
     ].join("\n")
   );
 
@@ -3994,7 +4117,7 @@ test("sync apply removes Codex enabled_tools entry and tool subtable when MCP pe
     "project",
     "--include",
     "permissions:mcp__notion__create_page",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -4008,18 +4131,11 @@ test("sync apply preserves sandbox_mode when only one of Write/Edit/MultiEdit is
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   // Claude still keeps Edit and MultiEdit, only Write was removed.
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["Edit", "MultiEdit"] }
+    permissions: { allow: ["Edit", "MultiEdit"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), 'sandbox_mode = "workspace-write"\n');
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:Write",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "permissions:Write", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /sandbox_mode = "workspace-write"/);
@@ -4030,7 +4146,7 @@ test("sync apply removes sandbox_mode when all Write/Edit/MultiEdit are dropped 
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), 'sandbox_mode = "workspace-write"\n');
 
@@ -4040,7 +4156,7 @@ test("sync apply removes sandbox_mode when all Write/Edit/MultiEdit are dropped 
     "project",
     "--include",
     "permissions:Write,permissions:Edit,permissions:MultiEdit",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -4052,7 +4168,7 @@ test("sync apply removes web_search when WebSearch and WebFetch are dropped from
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), 'web_search = "live"\n');
 
@@ -4062,7 +4178,7 @@ test("sync apply removes web_search when WebSearch and WebFetch are dropped from
     "project",
     "--include",
     "permissions:WebSearch,permissions:WebFetch",
-    "--apply"
+    "--apply",
   ]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
@@ -4074,18 +4190,11 @@ test("sync apply preserves web_search when only WebSearch is dropped but WebFetc
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["WebFetch"] }
+    permissions: { allow: ["WebFetch"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), 'web_search = "live"\n');
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions:WebSearch",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "permissions:WebSearch", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /web_search = "live"/);
@@ -4106,17 +4215,25 @@ test("status emits each permission item exactly once after dual-form fix", () =>
       "# BEGIN ai-config-sync permissions-rules",
       'prefix_rule(pattern=["claude","-p"], decision="allow", justification="Migrated from Claude allow permission Bash(claude -p:*).")',
       "# END ai-config-sync permissions-rules",
-      ""
+      "",
     ].join("\n")
   );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
   const permissions = report.entries.filter((entry) => entry.area === "permissions");
 
   for (const entry of permissions) {
     const missing = entry.missingInClaude ?? [];
-    const matchingForms = missing.filter((item) => item === "Bash(claude -p:*)" || item === "allow:Bash(claude -p:*)");
-    assert.equal(matchingForms.length, 1, `expected exactly one form, got ${JSON.stringify(matchingForms)}`);
+    const matchingForms = missing.filter(
+      (item) => item === "Bash(claude -p:*)" || item === "allow:Bash(claude -p:*)"
+    );
+    assert.equal(
+      matchingForms.length,
+      1,
+      `expected exactly one form, got ${JSON.stringify(matchingForms)}`
+    );
   }
 });
 
@@ -4125,11 +4242,13 @@ test("status filters allow:SendMessage from missing-in-codex drift as unsupporte
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["SendMessage"] }
+    permissions: { allow: ["SendMessage"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
   const permissions = report.entries.filter((entry) => entry.area === "permissions");
 
   for (const entry of permissions) {
@@ -4145,21 +4264,16 @@ test("permission review notes carry preserved-as-metadata-only message for SendM
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: ["SendMessage", "Bash(npm run check:*)"] }
+    permissions: { allow: ["SendMessage", "Bash(npm run check:*)"] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
   // Status filters SendMessage so it never reaches the plan; cover the review-note
   // helper path directly via a synthesized include that bypasses the filter by
   // also containing a non-unsupported item — confirm SendMessage isn't planned.
-  const plan = JSON.parse(runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "permissions",
-    "--plan-json"
-  ]));
+  const plan = JSON.parse(
+    runCli(fixture, ["sync", "--scope", "project", "--include", "permissions", "--plan-json"])
+  );
 
   const planned = (plan.operations ?? []).flatMap((op) => op.itemNames ?? []);
   assert.ok(
@@ -4173,7 +4287,7 @@ test("sync apply round-trips Bash native delete with no further drift on subsequ
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4182,7 +4296,7 @@ test("sync apply round-trips Bash native delete with no further drift on subsequ
       "# BEGIN ai-config-sync permissions-rules",
       'prefix_rule(pattern=["claude","-p"], decision="allow", justification="Migrated from Claude allow permission Bash(claude -p:*).")',
       "# END ai-config-sync permissions-rules",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -4192,14 +4306,24 @@ test("sync apply round-trips Bash native delete with no further drift on subsequ
     "project",
     "--include",
     "permissions:Bash(claude -p:*)",
-    "--apply"
+    "--apply",
   ]);
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "permissions", "--json"])
+  );
   const permissions = report.entries.filter((entry) => entry.area === "permissions");
   for (const entry of permissions) {
-    assert.equal((entry.missingInClaude ?? []).length, 0, `unexpected drift: ${JSON.stringify(entry.missingInClaude)}`);
-    assert.equal((entry.missingInCodex ?? []).length, 0, `unexpected drift: ${JSON.stringify(entry.missingInCodex)}`);
+    assert.equal(
+      (entry.missingInClaude ?? []).length,
+      0,
+      `unexpected drift: ${JSON.stringify(entry.missingInClaude)}`
+    );
+    assert.equal(
+      (entry.missingInCodex ?? []).length,
+      0,
+      `unexpected drift: ${JSON.stringify(entry.missingInCodex)}`
+    );
   }
 });
 
@@ -4208,7 +4332,7 @@ test("sync apply success message names rules/default.rules when only Bash permis
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4218,7 +4342,7 @@ test("sync apply success message names rules/default.rules when only Bash permis
       'prefix_rule(pattern=["claude","-p"], decision="allow", justification="Migrated from Claude allow permission Bash(claude -p:*).")',
       'prefix_rule(pattern=["claude","plugin"], decision="allow", justification="Migrated from Claude allow permission Bash(claude plugin:*).")',
       "# END ai-config-sync permissions-rules",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -4228,11 +4352,13 @@ test("sync apply success message names rules/default.rules when only Bash permis
     "project",
     "--include",
     "permissions:Bash(claude -p:*),permissions:Bash(claude plugin:*)",
-    "--apply"
+    "--apply",
   ]);
 
   assert.match(output, /deleted permissions item\(s\) from codex \(rules\/default\.rules\):/);
-  const successLine = output.split("\n").find((line) => line.includes("deleted permissions item(s) from codex"));
+  const successLine = output
+    .split("\n")
+    .find((line) => line.includes("deleted permissions item(s) from codex"));
   assert.ok(successLine, "expected a success line for the codex permissions delete");
   assert.doesNotMatch(successLine, /config\.toml/);
 });
@@ -4242,7 +4368,7 @@ test("sync apply success message names config.toml + rules/default.rules when Ba
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(
     join(fixture.project, ".codex/config.toml"),
@@ -4252,7 +4378,7 @@ test("sync apply success message names config.toml + rules/default.rules when Ba
       "",
       "[mcp_servers.notion.tools.create_page]",
       'approval_mode = "approve"',
-      ""
+      "",
     ].join("\n")
   );
   writeFileSync(
@@ -4261,7 +4387,7 @@ test("sync apply success message names config.toml + rules/default.rules when Ba
       "# BEGIN ai-config-sync permissions-rules",
       'prefix_rule(pattern=["claude","-p"], decision="allow", justification="Migrated from Claude allow permission Bash(claude -p:*).")',
       "# END ai-config-sync permissions-rules",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -4271,10 +4397,13 @@ test("sync apply success message names config.toml + rules/default.rules when Ba
     "project",
     "--include",
     "permissions:Bash(claude -p:*),permissions:mcp__notion__create_page",
-    "--apply"
+    "--apply",
   ]);
 
-  assert.match(output, /deleted permissions item\(s\) from codex \(config\.toml \+ rules\/default\.rules\):/);
+  assert.match(
+    output,
+    /deleted permissions item\(s\) from codex \(config\.toml \+ rules\/default\.rules\):/
+  );
 });
 
 test("sync apply deletes prefix_rule with no spaces inside the JSON array (forward writer's exact format)", () => {
@@ -4282,7 +4411,7 @@ test("sync apply deletes prefix_rule with no spaces inside the JSON array (forwa
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4296,7 +4425,7 @@ test("sync apply deletes prefix_rule with no spaces inside the JSON array (forwa
     "project",
     "--include",
     "permissions:Bash(a b:*)",
-    "--apply"
+    "--apply",
   ]);
 
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
@@ -4308,7 +4437,7 @@ test("sync apply deletes prefix_rule written with spaces inside the JSON array a
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4322,7 +4451,7 @@ test("sync apply deletes prefix_rule written with spaces inside the JSON array a
     "project",
     "--include",
     "permissions:Bash(a b:*)",
-    "--apply"
+    "--apply",
   ]);
 
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
@@ -4334,7 +4463,7 @@ test("sync apply deletes the user's exact three prefix_rule lines from the bug r
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4343,7 +4472,7 @@ test("sync apply deletes the user's exact three prefix_rule lines from the bug r
       'prefix_rule(pattern=["rm", "-rf", "dist/claude-marketplace"], decision="allow")',
       'prefix_rule(pattern=["claude", "-p"], decision="allow")',
       'prefix_rule(pattern=["claude", "plugin"], decision="allow")',
-      ""
+      "",
     ].join("\n")
   );
 
@@ -4353,11 +4482,15 @@ test("sync apply deletes the user's exact three prefix_rule lines from the bug r
     "project",
     "--include",
     "permissions:Bash(rm -rf dist/claude-marketplace:*),permissions:Bash(claude -p:*),permissions:Bash(claude plugin:*)",
-    "--apply"
+    "--apply",
   ]);
 
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
-  assert.doesNotMatch(rules, /prefix_rule/, `expected all three prefix_rule lines to be removed, got:\n${rules}`);
+  assert.doesNotMatch(
+    rules,
+    /prefix_rule/,
+    `expected all three prefix_rule lines to be removed, got:\n${rules}`
+  );
 });
 
 test("sync apply prefix_rule delete is idempotent across whitespace-variant lines", () => {
@@ -4365,7 +4498,7 @@ test("sync apply prefix_rule delete is idempotent across whitespace-variant line
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4379,7 +4512,7 @@ test("sync apply prefix_rule delete is idempotent across whitespace-variant line
     "project",
     "--include",
     "permissions:Bash(claude -p:*)",
-    "--apply"
+    "--apply",
   ]);
   const afterFirst = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
 
@@ -4389,11 +4522,15 @@ test("sync apply prefix_rule delete is idempotent across whitespace-variant line
     "project",
     "--include",
     "permissions:Bash(claude -p:*)",
-    "--apply"
+    "--apply",
   ]);
   const afterSecond = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
 
-  assert.equal(afterSecond, afterFirst, "second delete should leave the file identical to the first delete");
+  assert.equal(
+    afterSecond,
+    afterFirst,
+    "second delete should leave the file identical to the first delete"
+  );
   assert.doesNotMatch(afterFirst, /prefix_rule/);
 });
 
@@ -4402,7 +4539,7 @@ test("sync apply prefix_rule delete leaves non-matching parts untouched", () => 
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex/rules"), { recursive: true });
   writeJson(join(fixture.project, ".claude/settings.json"), {
-    permissions: { allow: [] }
+    permissions: { allow: [] },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   writeFileSync(
@@ -4416,7 +4553,7 @@ test("sync apply prefix_rule delete leaves non-matching parts untouched", () => 
     "project",
     "--include",
     "permissions:Bash(claude -p:*)",
-    "--apply"
+    "--apply",
   ]);
 
   const rules = readFileSync(join(fixture.project, ".codex/rules/default.rules"), "utf8");
@@ -4434,17 +4571,14 @@ test("sync apply quotes unquoted colon-containing skill description on copy", ()
       "description: First sentence. bias warning: edge case.",
       "---",
       "body",
-      ""
+      "",
     ].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
   const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
 
-  assert.match(
-    codexManifest,
-    /^description: "First sentence\. bias warning: edge case\."$/m
-  );
+  assert.match(codexManifest, /^description: "First sentence\. bias warning: edge case\."$/m);
   assert.match(codexManifest, /^body$/m);
 });
 
@@ -4453,14 +4587,7 @@ test("sync apply preserves already-quoted skill description on copy", () => {
   writeSkillManifest(
     join(fixture.project, ".claude/skills/foo"),
     "claude",
-    [
-      "---",
-      "name: foo",
-      'description: "valid"',
-      "---",
-      "body",
-      ""
-    ].join("\n")
+    ["---", "name: foo", 'description: "valid"', "---", "body", ""].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
@@ -4497,7 +4624,7 @@ test("sync apply quotes skill description containing colon-space and tilde from 
       "description: Routes code to specialized agents. bias warning: ~ guidance for edge cases.",
       "---",
       "body",
-      ""
+      "",
     ].join("\n")
   );
 
@@ -4532,17 +4659,14 @@ test("sync apply normalizes frontmatter while still applying terminology body tr
       "description: First sentence. bias warning: keep an eye out.",
       "---",
       "Use a Claude subagent for the task.",
-      ""
+      "",
     ].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
   const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
 
-  assert.match(
-    codexManifest,
-    /^description: "First sentence\. bias warning: keep an eye out\."$/m
-  );
+  assert.match(codexManifest, /^description: "First sentence\. bias warning: keep an eye out\."$/m);
   assert.match(codexManifest, /Codex sub-agent/);
   assert.doesNotMatch(codexManifest, /Claude subagent/);
 });
@@ -4552,29 +4676,17 @@ test("status suppresses skill conflict when frontmatter differs only by quoting"
   writeSkillManifest(
     join(fixture.project, ".claude/skills/foo"),
     "claude",
-    [
-      "---",
-      "name: foo",
-      "description: bias warning: ~ guidance.",
-      "---",
-      "body",
-      ""
-    ].join("\n")
+    ["---", "name: foo", "description: bias warning: ~ guidance.", "---", "body", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/foo"),
     "codex",
-    [
-      "---",
-      "name: foo",
-      'description: "bias warning: ~ guidance."',
-      "---",
-      "body",
-      ""
-    ].join("\n")
+    ["---", "name: foo", 'description: "bias warning: ~ guidance."', "---", "body", ""].join("\n")
   );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
 
   for (const entry of report.entries) {
     assert.deepEqual(entry.conflicts ?? [], []);
@@ -4587,29 +4699,17 @@ test("status still detects skill conflict when descriptions differ semantically"
   writeSkillManifest(
     join(fixture.project, ".claude/skills/foo"),
     "claude",
-    [
-      "---",
-      "name: foo",
-      "description: foo",
-      "---",
-      "body",
-      ""
-    ].join("\n")
+    ["---", "name: foo", "description: foo", "---", "body", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/foo"),
     "codex",
-    [
-      "---",
-      "name: foo",
-      "description: bar",
-      "---",
-      "body",
-      ""
-    ].join("\n")
+    ["---", "name: foo", "description: bar", "---", "body", ""].join("\n")
   );
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
 
   assert.equal(report.entries.length, 1);
   assert.equal(report.entries[0].area, "skills");
@@ -4623,17 +4723,29 @@ test("status hashes no-frontmatter skill manifests by raw bytes (no regression)"
   writeSkillManifest(join(matchingFixture.project, ".claude/skills/foo"), "claude", sharedBody);
   writeSkillManifest(join(matchingFixture.project, ".agents/skills/foo"), "codex", sharedBody);
 
-  const matchingReport = JSON.parse(runCli(matchingFixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const matchingReport = JSON.parse(
+    runCli(matchingFixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
   for (const entry of matchingReport.entries) {
     assert.deepEqual(entry.conflicts ?? [], []);
     assert.notEqual(entry.risk, "manual");
   }
 
   const driftFixture = createFixture();
-  writeSkillManifest(join(driftFixture.project, ".claude/skills/foo"), "claude", "# Foo\nclaude side\n");
-  writeSkillManifest(join(driftFixture.project, ".agents/skills/foo"), "codex", "# Foo\ncodex side\n");
+  writeSkillManifest(
+    join(driftFixture.project, ".claude/skills/foo"),
+    "claude",
+    "# Foo\nclaude side\n"
+  );
+  writeSkillManifest(
+    join(driftFixture.project, ".agents/skills/foo"),
+    "codex",
+    "# Foo\ncodex side\n"
+  );
 
-  const driftReport = JSON.parse(runCli(driftFixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const driftReport = JSON.parse(
+    runCli(driftFixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
   assert.equal(driftReport.entries.length, 1);
   assert.deepEqual(driftReport.entries[0].conflicts, ["foo"]);
   assert.equal(driftReport.entries[0].risk, "manual");
@@ -4644,14 +4756,7 @@ test("status reports zero skill drift after a forward apply round-trip", () => {
   writeSkillManifest(
     join(fixture.project, ".claude/skills/foo"),
     "claude",
-    [
-      "---",
-      "name: foo",
-      "description: bias warning: ~ guidance.",
-      "---",
-      "body",
-      ""
-    ].join("\n")
+    ["---", "name: foo", "description: bias warning: ~ guidance.", "---", "body", ""].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
@@ -4659,7 +4764,9 @@ test("status reports zero skill drift after a forward apply round-trip", () => {
   const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
   assert.match(codexManifest, /^description: "bias warning: ~ guidance\."$/m);
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
   for (const entry of report.entries) {
     assert.deepEqual(entry.conflicts ?? [], []);
     assert.deepEqual(entry.missingInCodex ?? [], []);
@@ -4679,7 +4786,7 @@ test("status renders line-level preview for folder-grouped Claude agent conflict
     name: "agent-y",
     description: "Sample agent",
     model: "gpt-5.4",
-    developer_instructions: "Codex body for agent-y"
+    developer_instructions: "Codex body for agent-y",
   });
 
   const output = runCli(fixture, ["status", "--scope", "project", "--include", "agents:agent-y"]);
@@ -4705,14 +4812,16 @@ test("status ignores Codex bundled .system skill namespace", () => {
   );
   mkdirSync(join(fixture.project, ".claude/skills"), { recursive: true });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
 
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   assert.ok(skillEntry, "expected a skills entry");
   const allItems = [
     ...(skillEntry.missingInCodex ?? []),
     ...(skillEntry.missingInClaude ?? []),
-    ...(skillEntry.conflicts ?? [])
+    ...(skillEntry.conflicts ?? []),
   ];
   assert.ok(allItems.includes("normal-skill"), "normal-skill should appear");
   assert.ok(!allItems.includes(".system"), ".system should not be enumerated");
@@ -4728,9 +4837,9 @@ test("sync apply copies secret env keys by default", () => {
       figma: {
         command: "node",
         args: ["server.js"],
-        env: { FIGMA_API_KEY: "figd_xxx" }
-      }
-    }
+        env: { FIGMA_API_KEY: "figd_xxx" },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
@@ -4750,18 +4859,15 @@ test("sync apply strips secret env keys when AI_CONFIG_SYNC_STRIP_SECRETS is set
       figma: {
         command: "node",
         args: ["server.js"],
-        env: { FIGMA_API_KEY: "figd_xxx" }
-      }
-    }
+        env: { FIGMA_API_KEY: "figd_xxx" },
+      },
+    },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
 
-  runCli(
-    fixture,
-    ["sync", "--scope", "project", "--include", "mcp:figma", "--apply"],
-    undefined,
-    { AI_CONFIG_SYNC_STRIP_SECRETS: "1" }
-  );
+  runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:figma", "--apply"], undefined, {
+    AI_CONFIG_SYNC_STRIP_SECRETS: "1",
+  });
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /\[mcp_servers\.figma\]/);
@@ -4775,22 +4881,26 @@ test("sync apply consolidates pre-existing top-level mcp_servers entries into ma
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      bar: { command: "npx", args: ["bar-mcp"] }
-    }
+      bar: { command: "npx", args: ["bar-mcp"] },
+    },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.foo]",
-    'command = "old"',
-    "",
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.foo]", 'command = "old"', "", ""].join("\n")
+  );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:bar", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   // Managed block has both servers
-  assert.match(config, /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.bar\][\s\S]*?# END ai-config-sync mcp-servers/);
-  assert.match(config, /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.foo\][\s\S]*?# END ai-config-sync mcp-servers/);
+  assert.match(
+    config,
+    /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.bar\][\s\S]*?# END ai-config-sync mcp-servers/
+  );
+  assert.match(
+    config,
+    /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.foo\][\s\S]*?# END ai-config-sync mcp-servers/
+  );
   // No duplicate `[mcp_servers.foo]` outside the managed block — exactly one occurrence in total.
   assert.equal((config.match(/^\[mcp_servers\.foo\]/gm) ?? []).length, 1);
   assert.equal((config.match(/^\[mcp_servers\.bar\]/gm) ?? []).length, 1);
@@ -4802,14 +4912,13 @@ test("sync apply strips pre-existing top-level entry even when sync target name 
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      shared: { command: "npx", args: ["shared-mcp"] }
-    }
+      shared: { command: "npx", args: ["shared-mcp"] },
+    },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.user-only]",
-    'command = "preserved"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.user-only]", 'command = "preserved"', ""].join("\n")
+  );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:shared", "--apply"]);
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
@@ -4818,7 +4927,10 @@ test("sync apply strips pre-existing top-level entry even when sync target name 
   // block should now own it; the original top-level table should be stripped.
   assert.equal((config.match(/^\[mcp_servers\.user-only\]/gm) ?? []).length, 1);
   assert.equal((config.match(/^\[mcp_servers\.shared\]/gm) ?? []).length, 1);
-  assert.match(config, /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.user-only\][\s\S]*?# END ai-config-sync mcp-servers/);
+  assert.match(
+    config,
+    /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.user-only\][\s\S]*?# END ai-config-sync mcp-servers/
+  );
 });
 
 test("sync apply is idempotent — running twice produces identical output with no duplicates", () => {
@@ -4827,14 +4939,13 @@ test("sync apply is idempotent — running twice produces identical output with 
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
     mcpServers: {
-      bar: { command: "npx", args: ["bar-mcp"] }
-    }
+      bar: { command: "npx", args: ["bar-mcp"] },
+    },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.foo]",
-    'command = "old"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    ["[mcp_servers.foo]", 'command = "old"', ""].join("\n")
+  );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "mcp:bar", "--apply"]);
   const first = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
@@ -4858,17 +4969,20 @@ test("sync apply against the user's bug pattern produces valid TOML with no dupl
     mcpServers: {
       agentation: { command: "npx", args: ["agentation-mcp"] },
       browsermcp: { command: "npx", args: ["browsermcp"] },
-      newserver: { command: "npx", args: ["newserver-mcp"] }
-    }
+      newserver: { command: "npx", args: ["newserver-mcp"] },
+    },
   });
-  writeFileSync(join(fixture.project, ".codex/config.toml"), [
-    "[mcp_servers.agentation]",
-    'command = "old-agentation"',
-    "",
-    "[mcp_servers.browsermcp]",
-    'command = "old-browsermcp"',
-    ""
-  ].join("\n"));
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    [
+      "[mcp_servers.agentation]",
+      'command = "old-agentation"',
+      "",
+      "[mcp_servers.browsermcp]",
+      'command = "old-browsermcp"',
+      "",
+    ].join("\n")
+  );
 
   // Syncing the new server triggers a merge that captures all of Codex's existing
   // top-level entries into the managed-block render. With the fix, the originals
@@ -4883,9 +4997,18 @@ test("sync apply against the user's bug pattern produces valid TOML with no dupl
   assert.equal((config.match(/^\[mcp_servers\.newserver\]/gm) ?? []).length, 1);
 
   // All three live inside the managed block.
-  assert.match(config, /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.agentation\][\s\S]*?# END ai-config-sync mcp-servers/);
-  assert.match(config, /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.browsermcp\][\s\S]*?# END ai-config-sync mcp-servers/);
-  assert.match(config, /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.newserver\][\s\S]*?# END ai-config-sync mcp-servers/);
+  assert.match(
+    config,
+    /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.agentation\][\s\S]*?# END ai-config-sync mcp-servers/
+  );
+  assert.match(
+    config,
+    /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.browsermcp\][\s\S]*?# END ai-config-sync mcp-servers/
+  );
+  assert.match(
+    config,
+    /# BEGIN ai-config-sync mcp-servers[\s\S]*?\[mcp_servers\.newserver\][\s\S]*?# END ai-config-sync mcp-servers/
+  );
 });
 
 test("status-ignore term rule masks the matching line in conflict comparison and hides the entry when only that line differs", () => {
@@ -4893,34 +5016,28 @@ test("status-ignore term rule masks the matching line in conflict comparison and
   writeSkillManifest(
     join(fixture.project, ".claude/skills/term-only"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "common content line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "common content line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/term-only"),
     "codex",
-    [
-      "# X",
-      "common content line",
-      ""
-    ].join("\n")
+    ["# X", "common content line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".claude/docs/repo-analysis/" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-only", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-only", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   if (skillEntry) {
-    assert.ok(!(skillEntry.conflicts ?? []).includes("term-only"), "term-only should be filtered when only the term line differs");
+    assert.ok(
+      !(skillEntry.conflicts ?? []).includes("term-only"),
+      "term-only should be filtered when only the term line differs"
+    );
   }
 });
 
@@ -4929,34 +5046,28 @@ test("status-ignore term rule keeps the entry visible when other lines also diff
   writeSkillManifest(
     join(fixture.project, ".claude/skills/term-plus"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "alpha unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "alpha unique line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/term-plus"),
     "codex",
-    [
-      "# X",
-      "beta divergent line",
-      ""
-    ].join("\n")
+    ["# X", "beta divergent line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".claude/docs/repo-analysis/" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-plus", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-plus", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   assert.ok(skillEntry, "expected a skills entry");
-  assert.ok((skillEntry.conflicts ?? []).includes("term-plus"), "term-plus should remain in conflicts when non-term lines also differ");
+  assert.ok(
+    (skillEntry.conflicts ?? []).includes("term-plus"),
+    "term-plus should remain in conflicts when non-term lines also differ"
+  );
 });
 
 test("status-ignore term rule does not affect entries missing on one host", () => {
@@ -4969,15 +5080,18 @@ test("status-ignore term rule does not affect entries missing on one host", () =
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".claude/docs/repo-analysis/" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:with-term", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:with-term", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   assert.ok(skillEntry, "expected a skills entry");
-  assert.ok(skillEntry.missingInCodex.includes("with-term"), "with-term should remain in missingInCodex; term has no effect on missing-on-one-side");
+  assert.ok(
+    skillEntry.missingInCodex.includes("with-term"),
+    "with-term should remain in missingInCodex; term has no effect on missing-on-one-side"
+  );
 });
 
 test("status-ignore path-only rule still ignores the entry at entry level", () => {
@@ -4991,15 +5105,18 @@ test("status-ignore path-only rule still ignores the entry at entry level", () =
   const skillsGlob = join(realpathSync(fixture.project), ".claude/skills/path-only");
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", path: skillsGlob }
-    ]
+    exclude: [{ area: "skills", path: skillsGlob }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   if (skillEntry) {
-    assert.ok(!skillEntry.missingInCodex.includes("path-only"), "path-only should be filtered by entry-level path rule");
+    assert.ok(
+      !skillEntry.missingInCodex.includes("path-only"),
+      "path-only should be filtered by entry-level path rule"
+    );
   }
 });
 
@@ -5009,13 +5126,9 @@ test("status-ignore term + path AND restricts the line-mask to entries whose pat
     "# Header",
     "refs .claude/docs/repo-analysis/ here",
     "common content line",
-    ""
+    "",
   ].join("\n");
-  const sharedCleanBody = [
-    "# Header",
-    "common content line",
-    ""
-  ].join("\n");
+  const sharedCleanBody = ["# Header", "common content line", ""].join("\n");
   writeSkillManifest(join(fixture.project, ".claude/skills/in-scope"), "claude", sharedTermBody);
   writeSkillManifest(join(fixture.project, ".agents/skills/in-scope"), "codex", sharedCleanBody);
   writeSkillManifest(join(fixture.project, ".claude/skills/out-scope"), "claude", sharedTermBody);
@@ -5025,17 +5138,20 @@ test("status-ignore term + path AND restricts the line-mask to entries whose pat
   const inScopeGlob = join(realpathSync(fixture.project), ".claude/skills/in-scope");
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", path: inScopeGlob, term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", path: inScopeGlob, term: ".claude/docs/repo-analysis/" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   assert.ok(skillEntry, "expected a skills entry");
   const conflicts = skillEntry.conflicts ?? [];
   assert.ok(!conflicts.includes("in-scope"), "in-scope should be masked away (path + term match)");
-  assert.ok(conflicts.includes("out-scope"), "out-scope should remain in conflicts (path miss → no mask applied)");
+  assert.ok(
+    conflicts.includes("out-scope"),
+    "out-scope should remain in conflicts (path miss → no mask applied)"
+  );
 });
 
 test("status-ignore term that matches no file leaves entry visible", () => {
@@ -5048,15 +5164,18 @@ test("status-ignore term that matches no file leaves entry visible", () => {
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: "NEVER_PRESENT" }
-    ]
+    exclude: [{ area: "skills", term: "NEVER_PRESENT" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   assert.ok(skillEntry, "expected a skills entry");
-  assert.ok(skillEntry.missingInCodex.includes("lonely"), "lonely should remain when term is absent");
+  assert.ok(
+    skillEntry.missingInCodex.includes("lonely"),
+    "lonely should remain when term is absent"
+  );
 });
 
 test("status-ignore string-form selector still hides matching skill after term field addition", () => {
@@ -5069,13 +5188,18 @@ test("status-ignore string-form selector still hides matching skill after term f
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: ["skills:legacy-skill"]
+    exclude: ["skills:legacy-skill"],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   if (skillEntry) {
-    assert.ok(!skillEntry.missingInCodex.includes("legacy-skill"), "legacy-skill should be hidden by string selector");
+    assert.ok(
+      !skillEntry.missingInCodex.includes("legacy-skill"),
+      "legacy-skill should be hidden by string selector"
+    );
   }
 });
 
@@ -5084,35 +5208,28 @@ test("status-ignore term expands through terminology mapping so .claude/docs/...
   writeSkillManifest(
     join(fixture.project, ".claude/skills/term-expand"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "common content line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "common content line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/term-expand"),
     "codex",
-    [
-      "# X",
-      "refs .codex/docs/repo-analysis/ here",
-      "common content line",
-      ""
-    ].join("\n")
+    ["# X", "refs .codex/docs/repo-analysis/ here", "common content line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".claude/docs/repo-analysis/" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-expand", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-expand", "--json"])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   if (skillEntry) {
-    assert.ok(!(skillEntry.conflicts ?? []).includes("term-expand"), "term-expand should be filtered when claude-side rule expands to mask the codex-side line via terminology mapping");
+    assert.ok(
+      !(skillEntry.conflicts ?? []).includes("term-expand"),
+      "term-expand should be filtered when claude-side rule expands to mask the codex-side line via terminology mapping"
+    );
   }
 });
 
@@ -5121,35 +5238,35 @@ test("status-ignore term expands codex-side mention to mask matching claude-side
   writeSkillManifest(
     join(fixture.project, ".claude/skills/term-expand-reverse"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "common content line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "common content line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/term-expand-reverse"),
     "codex",
-    [
-      "# X",
-      "refs .codex/docs/repo-analysis/ here",
-      "common content line",
-      ""
-    ].join("\n")
+    ["# X", "refs .codex/docs/repo-analysis/ here", "common content line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".codex/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".codex/docs/repo-analysis/" }],
   });
 
-  const report = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--include", "skills:term-expand-reverse", "--json"]));
+  const report = JSON.parse(
+    runCli(fixture, [
+      "status",
+      "--scope",
+      "project",
+      "--include",
+      "skills:term-expand-reverse",
+      "--json",
+    ])
+  );
   const skillEntry = report.entries.find((entry) => entry.area === "skills");
   if (skillEntry) {
-    assert.ok(!(skillEntry.conflicts ?? []).includes("term-expand-reverse"), "term-expand-reverse should be filtered when codex-side rule expands to mask the claude-side line via reverse terminology mapping");
+    assert.ok(
+      !(skillEntry.conflicts ?? []).includes("term-expand-reverse"),
+      "term-expand-reverse should be filtered when codex-side rule expands to mask the claude-side line via reverse terminology mapping"
+    );
   }
 });
 
@@ -5158,32 +5275,26 @@ test("status-ignore term hides matching line from status detail diff while keepi
   writeSkillManifest(
     join(fixture.project, ".claude/skills/detail-mask"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "alpha unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "alpha unique line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/detail-mask"),
     "codex",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "beta unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "beta unique line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".claude/docs/repo-analysis/" }],
   });
 
-  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:detail-mask"]);
+  const output = runCli(fixture, [
+    "status",
+    "--scope",
+    "project",
+    "--include",
+    "skills:detail-mask",
+  ]);
 
   const diffSection = output.slice(output.indexOf("Diff status:"), output.indexOf("Detail file:"));
   assert.match(diffSection, /alpha unique line/);
@@ -5204,32 +5315,26 @@ test("sync dry-run preview masks term lines in skill change preview", () => {
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview-mask"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "alpha unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "alpha unique line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/preview-mask"),
     "codex",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "beta unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "beta unique line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "skills", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "skills", term: ".claude/docs/repo-analysis/" }],
   });
 
-  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview-mask"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:preview-mask",
+  ]);
 
   assert.match(output, /Change preview:/);
   const preview = output.slice(output.indexOf("Change preview:"));
@@ -5244,27 +5349,20 @@ test("sync dry-run preview masks term lines in agent change preview", () => {
   writeClaudeAgent(
     join(fixture.project, ".claude/agents/sample.md"),
     { name: "sample", description: "Sample", model: "opus" },
-    [
-      "refs .claude/docs/repo-analysis/ here",
-      "alpha unique line"
-    ].join("\n")
+    ["refs .claude/docs/repo-analysis/ here", "alpha unique line"].join("\n")
   );
   writeCodexAgent(join(fixture.project, ".codex/agents/sample.toml"), {
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: [
-      "",
-      "refs .claude/docs/repo-analysis/ here",
-      "beta unique line"
-    ].join("\n")
+    developer_instructions: ["", "refs .claude/docs/repo-analysis/ here", "beta unique line"].join(
+      "\n"
+    ),
   });
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
     version: 1,
-    exclude: [
-      { area: "agents", term: ".claude/docs/repo-analysis/" }
-    ]
+    exclude: [{ area: "agents", term: ".claude/docs/repo-analysis/" }],
   });
 
   const output = runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample"]);
@@ -5282,22 +5380,12 @@ test("status detail diff without ignore term keeps every differing line visible 
   writeSkillManifest(
     join(fixture.project, ".claude/skills/no-mask"),
     "claude",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "alpha unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "alpha unique line", ""].join("\n")
   );
   writeSkillManifest(
     join(fixture.project, ".agents/skills/no-mask"),
     "codex",
-    [
-      "# X",
-      "refs .claude/docs/repo-analysis/ here",
-      "beta unique line",
-      ""
-    ].join("\n")
+    ["# X", "refs .claude/docs/repo-analysis/ here", "beta unique line", ""].join("\n")
   );
 
   const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:no-mask"]);
@@ -5319,11 +5407,11 @@ test("sync applies layered partial merge to terminology-map: rule.id override ke
           {
             id: "agent-team",
             claude: ["custom team variant"],
-            codex: ["custom-codex-equivalent"]
-          }
-        ]
-      }
-    ]
+            codex: ["custom-codex-equivalent"],
+          },
+        ],
+      },
+    ],
   });
   writeFileSync(
     join(fixture.project, "CLAUDE.md"),
@@ -5331,14 +5419,7 @@ test("sync applies layered partial merge to terminology-map: rule.id override ke
   );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.equal(
@@ -5357,10 +5438,10 @@ test("sync applies layered partial merge to host-target-templates: template.id o
         id: "command-surface",
         target: {
           claude: "Custom Claude command surface",
-          codex: "Custom Codex command surface"
-        }
-      }
-    ]
+          codex: "Custom Codex command surface",
+        },
+      },
+    ],
   });
   writeFileSync(
     join(fixture.project, "CLAUDE.md"),
@@ -5368,20 +5449,10 @@ test("sync applies layered partial merge to host-target-templates: template.id o
   );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
-  assert.equal(
-    agents,
-    "Trigger via Custom Codex command surface and Codex native hook.\n"
-  );
+  assert.equal(agents, "Trigger via Custom Codex command surface and Codex native hook.\n");
 });
 
 test("sync applies layered partial merge to call-templates: unsupported id override leaves supported entries intact", () => {
@@ -5394,9 +5465,9 @@ test("sync applies layered partial merge to call-templates: unsupported id overr
         id: "custom-call",
         claude_call: "CustomCall",
         codex_marker: "ai-config-sync:stripped",
-        reason: "user-defined custom unsupported call"
-      }
-    ]
+        reason: "user-defined custom unsupported call",
+      },
+    ],
   });
   writeFileSync(
     join(fixture.project, "CLAUDE.md"),
@@ -5404,18 +5475,17 @@ test("sync applies layered partial merge to call-templates: unsupported id overr
   );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
-  assert.match(agents, /<!--\s*ai-config-sync:stripped\s+\{[\s\S]*?"call":"CustomCall"[\s\S]*?\}\s*-->/);
-  assert.match(agents, /<!--\s*ai-config-sync:agent-call\s+\{[\s\S]*?"call":"Agent"[\s\S]*?\}\s*-->/);
+  assert.match(
+    agents,
+    /<!--\s*ai-config-sync:stripped\s+\{[\s\S]*?"call":"CustomCall"[\s\S]*?\}\s*-->/
+  );
+  assert.match(
+    agents,
+    /<!--\s*ai-config-sync:agent-call\s+\{[\s\S]*?"call":"Agent"[\s\S]*?\}\s*-->/
+  );
   assert.match(agents, /Use `spawn_agent` with agent_type: "qa"/);
   assert.doesNotMatch(agents, /CustomCall\(\{ x: 1 \}\)/);
 });
@@ -5431,15 +5501,15 @@ test("sync applies layered partial merge to agents-map: model tier id override e
           id: "latest-frontier-model",
           claude: {
             alias: "opus",
-            terms: ["my-custom-opus-alias", "opus4.7(latest)", "Opus"]
+            terms: ["my-custom-opus-alias", "opus4.7(latest)", "Opus"],
           },
           codex: {
             alias: "gpt-5.5",
-            terms: ["GPT-5.5"]
-          }
-        }
-      ]
-    }
+            terms: ["GPT-5.5"],
+          },
+        },
+      ],
+    },
   });
   writeFileSync(
     join(fixture.project, "CLAUDE.md"),
@@ -5447,14 +5517,7 @@ test("sync applies layered partial merge to agents-map: model tier id override e
   );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
-  runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "instructions",
-    "--apply"
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
   const agents = readFileSync(join(fixture.project, "AGENTS.md"), "utf8");
 
   assert.equal(agents, "Use gpt-5.5 today and gpt-5.4 for chat.\n");
@@ -5476,7 +5539,7 @@ test("build-dist emits thin host plugin trees with pinned launchers", () => {
   // Run the real build-dist (skip cache sync; never touches network or ~/.claude).
   execFileSync(process.execPath, [join(repoRoot, "scripts/build-dist.mjs"), "--skip-sync"], {
     cwd: repoRoot,
-    encoding: "utf8"
+    encoding: "utf8",
   });
 
   const claudeBin = join(repoRoot, "dist/claude-marketplace/plugins/config-manager/bin");
@@ -5523,7 +5586,12 @@ function readModeBits(path) {
   return statSync(path).mode & 0o777;
 }
 
-async function writeLauncherFixture(tmpHost, host, pinnedVersion = "0.1.0", packageName = "ai-config-sync-manager") {
+async function writeLauncherFixture(
+  tmpHost,
+  host,
+  pinnedVersion = "0.1.0",
+  packageName = "ai-config-sync-manager"
+) {
   const { writeHostLauncher } = await import(
     fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
   );
@@ -5539,11 +5607,14 @@ test("host-launcher uses AI_CONFIG_SYNC_ROOT runtime when present", async () => 
   // Create a fake runtime root with bin/ai-config-sync.mjs that prints a marker
   const rootDir = join(fixture.root, "fake-runtime");
   mkdirSync(join(rootDir, "bin"), { recursive: true });
-  writeFileSync(join(rootDir, "bin/ai-config-sync.mjs"), 'console.log("RUNTIME_OK:" + process.argv.slice(2).join(","));\n');
+  writeFileSync(
+    join(rootDir, "bin/ai-config-sync.mjs"),
+    'console.log("RUNTIME_OK:" + process.argv.slice(2).join(","));\n'
+  );
 
   const out = execFileSync("bash", [launcher, "alpha", "beta"], {
     encoding: "utf8",
-    env: { PATH: process.env.PATH, AI_CONFIG_SYNC_ROOT: rootDir }
+    env: { PATH: process.env.PATH, AI_CONFIG_SYNC_ROOT: rootDir },
   });
   assert.match(out, /^RUNTIME_OK:alpha,beta$/m);
 });
@@ -5556,7 +5627,7 @@ test("host-launcher aborts when AI_CONFIG_SYNC_ROOT is set but runtime is missin
   try {
     execFileSync("bash", [launcher], {
       encoding: "utf8",
-      env: { PATH: process.env.PATH, AI_CONFIG_SYNC_ROOT: join(fixture.root, "missing") }
+      env: { PATH: process.env.PATH, AI_CONFIG_SYNC_ROOT: join(fixture.root, "missing") },
     });
   } catch (caught) {
     error = caught;
@@ -5575,7 +5646,10 @@ test("host-launcher self-excludes its own path during PATH lookup", async () => 
     fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
   );
   const launcher = join(launcherDir, "ai-config-sync");
-  writeHostLauncher(launcher, "claude", { pinnedVersion: "0.1.0", packageName: "ai-config-sync-manager" });
+  writeHostLauncher(launcher, "claude", {
+    pinnedVersion: "0.1.0",
+    packageName: "ai-config-sync-manager",
+  });
 
   // Strip npm from PATH so step 3 also fails fast and reaches step 4.
   // Use a minimal PATH containing only the launcher's own dir + /usr/bin (for `command`, `node`, `head`, `tr`).
@@ -5585,7 +5659,7 @@ test("host-launcher self-excludes its own path during PATH lookup", async () => 
   try {
     execFileSync("bash", [launcher], {
       encoding: "utf8",
-      env: { PATH: minimalPath, HOME: fixture.home }
+      env: { PATH: minimalPath, HOME: fixture.home },
     });
   } catch (caught) {
     error = caught;
@@ -5628,7 +5702,10 @@ test("host-launcher delegates to PATH binary discovered after self-exclude", asy
     fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
   );
   const launcher = join(launcherDir, "launcher.sh");
-  writeHostLauncher(launcher, "claude", { pinnedVersion: "0.1.0", packageName: "ai-config-sync-manager" });
+  writeHostLauncher(launcher, "claude", {
+    pinnedVersion: "0.1.0",
+    packageName: "ai-config-sync-manager",
+  });
 
   const env = { PATH: `${stubDir}:/usr/bin:/bin`, HOME: fixture.home };
   const run = spawnSync("bash", [launcher, "hello"], { encoding: "utf8", env });
@@ -5660,12 +5737,24 @@ test("connect cleans stale managed Claude plugin tree before reinstalling", () =
 
   runCli(fixture, ["connect"]);
 
-  assert.ok(!existsSync(join(claudeTarget, "bin/old-stale-binary")), "stale Claude binary should be removed");
-  assert.ok(!existsSync(join(claudeTarget, "packages/junk/leftover.txt")), "stale Claude junk should be removed");
-  assert.ok(!existsSync(join(claudeTarget, "packages")), "stale Claude packages dir should be swept");
+  assert.ok(
+    !existsSync(join(claudeTarget, "bin/old-stale-binary")),
+    "stale Claude binary should be removed"
+  );
+  assert.ok(
+    !existsSync(join(claudeTarget, "packages/junk/leftover.txt")),
+    "stale Claude junk should be removed"
+  );
+  assert.ok(
+    !existsSync(join(claudeTarget, "packages")),
+    "stale Claude packages dir should be swept"
+  );
 
   // Fresh thin install present
-  assert.ok(existsSync(join(claudeTarget, "bin/ai-config-sync")), "claude launcher should be reinstalled");
+  assert.ok(
+    existsSync(join(claudeTarget, "bin/ai-config-sync")),
+    "claude launcher should be reinstalled"
+  );
   assert.ok(
     existsSync(join(claudeTarget, "skills/config-manager/SKILL.md")),
     "claude integration shim should be installed"
@@ -5695,7 +5784,7 @@ function setupBaselineFixture() {
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });
   mkdirSync(join(fixture.project, ".codex"), { recursive: true });
   writeJson(join(fixture.project, ".mcp.json"), {
-    mcpServers: { notion: { command: "npx", args: ["notion-mcp"] } }
+    mcpServers: { notion: { command: "npx", args: ["notion-mcp"] } },
   });
   writeFileSync(join(fixture.project, ".codex/config.toml"), "");
   return fixture;
@@ -5722,8 +5811,8 @@ test("sync backfills schemaVersion when state file lacks it", () => {
       mcp: { claude: [], codex: [] },
       permissions: { claude: [], codex: [] },
       hooks: { claude: [], codex: [] },
-      agents: { claude: [], codex: [] }
-    }
+      agents: { claude: [], codex: [] },
+    },
   });
 
   // Plain dry-run reads the state via createOperations. Capture stderr.
@@ -5733,7 +5822,7 @@ test("sync backfills schemaVersion when state file lacks it", () => {
     {
       cwd: fixture.project,
       encoding: "utf8",
-      env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home }
+      env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home },
     }
   );
 
@@ -5756,15 +5845,11 @@ test("sync proceeds normally when state has schemaVersion 1", () => {
   assert.equal(seeded.schemaVersion, 1);
 
   // Second sync should not error and should not emit the schemaVersion notice
-  const result = spawnSync(
-    process.execPath,
-    [cliPath, "sync", "--scope", "project"],
-    {
-      cwd: fixture.project,
-      encoding: "utf8",
-      env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home }
-    }
-  );
+  const result = spawnSync(process.execPath, [cliPath, "sync", "--scope", "project"], {
+    cwd: fixture.project,
+    encoding: "utf8",
+    env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home },
+  });
   assert.equal(result.status, 0, `unexpected exit: ${result.stderr}`);
   assert.match(result.stdout, /AI Config Sync Manager sync/);
   assert.doesNotMatch(result.stderr, /missing schemaVersion/);
@@ -5785,8 +5870,8 @@ test("sync aborts when state schemaVersion is unknown", () => {
       mcp: { claude: [], codex: [] },
       permissions: { claude: [], codex: [] },
       hooks: { claude: [], codex: [] },
-      agents: { claude: [], codex: [] }
-    }
+      agents: { claude: [], codex: [] },
+    },
   });
 
   let error;
@@ -5817,7 +5902,7 @@ test("sync apply rewrites exec_command in codex agent body to Bash on claude sid
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: "Use exec_command to run shell commands."
+    developer_instructions: "Use exec_command to run shell commands.",
   });
 
   runCli(
@@ -5843,7 +5928,7 @@ test("sync apply paraphrases wait_agent on claude side via tool-paraphrase rule"
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: "Then wait_agent for completion."
+    developer_instructions: "Then wait_agent for completion.",
   });
 
   runCli(
@@ -5869,16 +5954,21 @@ test("sync apply records vocab-mismatch when claude agent body uses Read", () =>
   );
   mkdirSync(join(fixture.project, ".codex/agents"), { recursive: true });
 
-  const output = runCli(
-    fixture,
-    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]
-  );
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "agents:sample",
+    "--apply",
+  ]);
   const archive = readUnsupportedCallsArchive(output);
 
   const finding = archive.find(
-    (entry) => entry.action === "vocab-mismatch"
-      && entry.call === "Read"
-      && entry.direction === "claude->codex"
+    (entry) =>
+      entry.action === "vocab-mismatch" &&
+      entry.call === "Read" &&
+      entry.direction === "claude->codex"
   );
   assert.ok(finding, `expected vocab-mismatch entry for Read, got: ${JSON.stringify(archive)}`);
 });
@@ -5895,7 +5985,7 @@ test("sync apply strips codex-only tokens from preserved claude agent.tools fiel
       name: "sample",
       description: "Sample",
       model: "opus",
-      tools: "Agent, Bash, wait_agent, apply_patch"
+      tools: "Agent, Bash, wait_agent, apply_patch",
     },
     "Older claude body"
   );
@@ -5903,7 +5993,7 @@ test("sync apply strips codex-only tokens from preserved claude agent.tools fiel
     name: "sample",
     description: "Sample",
     model: "gpt-5.4",
-    developer_instructions: "Codex side body"
+    developer_instructions: "Codex side body",
   });
 
   const output = runCli(
@@ -5923,10 +6013,7 @@ test("sync apply strips codex-only tokens from preserved claude agent.tools fiel
     (entry) => entry.action === "vocab-mismatch-sanitized" && entry.call === "agent.tools"
   );
   assert.ok(finding, `expected vocab-mismatch-sanitized entry, got: ${JSON.stringify(archive)}`);
-  assert.deepEqual(
-    [...finding.fields.removed].sort(),
-    ["apply_patch", "wait_agent"]
-  );
+  assert.deepEqual([...finding.fields.removed].sort(), ["apply_patch", "wait_agent"]);
 });
 
 test("sync apply paraphrases wait_agent inside a skill body via tool-paraphrase rule", () => {
@@ -5938,19 +6025,12 @@ test("sync apply paraphrases wait_agent inside a skill body via tool-paraphrase 
   writeSkillManifest(
     join(fixture.project, ".agents/skills/foo"),
     "codex",
-    [
-      "# Foo",
-      "Use wait_agent to coordinate.",
-      ""
-    ].join("\n")
+    ["# Foo", "Use wait_agent to coordinate.", ""].join("\n")
   );
 
-  runCli(
-    fixture,
-    ["sync", "--scope", "project", "--include", "skills:foo", "--apply"],
-    undefined,
-    { AI_CONFIG_SYNC_HOST: "codex" }
-  );
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
 
   const claudeManifest = readFileSync(join(fixture.project, ".claude/skills/foo/SKILL.md"), "utf8");
   assert.match(claudeManifest, /wait for the spawned agent/);
@@ -5970,7 +6050,7 @@ test("status surfaces vocab-mismatch when claude agent body uses spawn_agent", (
     name: "sample",
     description: "demo agent",
     model: "gpt-5.5",
-    developer_instructions: "spawn_agent를 호출한다.\n"
+    developer_instructions: "spawn_agent를 호출한다.\n",
   });
 
   const output = runCli(fixture, ["status", "--scope", "global"]);
@@ -6005,7 +6085,7 @@ test("sync dry-run skill change preview normalizes YAML frontmatter quotes", () 
       "---",
       "",
       "Claude body line.",
-      ""
+      "",
     ].join("\n")
   );
   writeSkillManifest(
@@ -6018,11 +6098,18 @@ test("sync dry-run skill change preview normalizes YAML frontmatter quotes", () 
       "---",
       "",
       "Codex body line.",
-      ""
+      "",
     ].join("\n")
   );
 
-  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "skills:quote-demo", "--dry-run"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:quote-demo",
+    "--dry-run",
+  ]);
   assert.match(output, /Change preview:/);
   assert.match(output, /\+ After apply from Claude L\d+: description: "어쩌고: 콜론 포함"/);
 });
@@ -6058,7 +6145,7 @@ test("sync apply auto-fixes Grep tool reference in codex source agent file", () 
     name: "sample",
     description: "demo",
     model: "gpt-5.4",
-    developer_instructions: "Use Grep to scan files."
+    developer_instructions: "Use Grep to scan files.",
   });
 
   runCli(
@@ -6085,11 +6172,21 @@ test("sync apply auto-fix backs up source file before rewriting", () => {
     "Then wait_agent for completion.\n"
   );
 
-  const output = runCli(fixture, ["sync", "--scope", "project", "--include", "agents:sample", "--apply"]);
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "agents:sample",
+    "--apply",
+  ]);
   const backupRootDir = backupRoot(output);
 
   const backupCandidates = collectBackupFiles(backupRootDir).filter((p) => p.endsWith("sample.md"));
-  assert.ok(backupCandidates.length > 0, `expected backup of sample.md, got: ${JSON.stringify(collectBackupFiles(backupRootDir))}`);
+  assert.ok(
+    backupCandidates.length > 0,
+    `expected backup of sample.md, got: ${JSON.stringify(collectBackupFiles(backupRootDir))}`
+  );
 
   const backedUp = readFileSync(backupCandidates[0], "utf8");
   assert.match(backedUp, /\bwait_agent\b/);
@@ -6106,7 +6203,7 @@ test("sync apply leaves manual review tokens (Read/Write/Edit) untouched in sour
     name: "sample",
     description: "demo",
     model: "gpt-5.4",
-    developer_instructions: "Use Read tool to inspect files."
+    developer_instructions: "Use Read tool to inspect files.",
   });
 
   runCli(
@@ -6208,7 +6305,15 @@ test("paraphrase --apply registers an active override that masks the conflict in
   assert.equal(before.vocabFindings[0].token, "Read");
   assert.equal(before.paraphraseOverrides.active.length, 0);
 
-  runCli(fixture, ["paraphrase", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"]);
+  runCli(fixture, [
+    "paraphrase",
+    "--scope",
+    "project",
+    "--map",
+    "Read=Inspection",
+    "--apply",
+    "--json",
+  ]);
 
   // Codex source rewritten in place.
   const codexAfter = readFileSync(codexPath, "utf8");
@@ -6216,7 +6321,10 @@ test("paraphrase --apply registers an active override that masks the conflict in
   assert.doesNotMatch(codexAfter, /\bRead\b/);
 
   // Override file written under AI_CONFIG_SYNC_HOME.
-  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  const overridesPath = join(
+    fixture.home,
+    ".ai-config-sync-manager/rules/paraphrase-overrides.json"
+  );
   assert.equal(existsSync(overridesPath), true);
   const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
   assert.equal(overrides.overrides.length, 1);
@@ -6243,7 +6351,15 @@ test("paraphrase override is auto-invalidated as stale when the codex line drift
     "Use Read tool to inspect."
   );
 
-  runCli(fixture, ["paraphrase", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"]);
+  runCli(fixture, [
+    "paraphrase",
+    "--scope",
+    "project",
+    "--map",
+    "Read=Inspection",
+    "--apply",
+    "--json",
+  ]);
 
   // Confirm baseline active override after apply.
   const masked = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
@@ -6290,9 +6406,20 @@ test("paraphrase --apply at global scope registers an override for a second manu
 
   const before = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--json"]));
   const writeFinding = before.vocabFindings.find((f) => f.token === "Write");
-  assert.ok(writeFinding, `expected Write vocab finding, got: ${JSON.stringify(before.vocabFindings)}`);
+  assert.ok(
+    writeFinding,
+    `expected Write vocab finding, got: ${JSON.stringify(before.vocabFindings)}`
+  );
 
-  runCli(fixture, ["paraphrase", "--scope", "global", "--map", "Write=Author", "--apply", "--json"]);
+  runCli(fixture, [
+    "paraphrase",
+    "--scope",
+    "global",
+    "--map",
+    "Write=Author",
+    "--apply",
+    "--json",
+  ]);
 
   const codexAfter = readFileSync(codexPath, "utf8");
   assert.match(codexAfter, /Author/);
@@ -6331,7 +6458,15 @@ test("paraphrase --register registers override for pre-paraphrased codex line", 
   // claude has Read but Read is a claude_only token so it's allowed in claude
   // files. The standard --apply path therefore registers nothing.
   const lintResult = JSON.parse(
-    runCli(fixture, ["paraphrase", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"])
+    runCli(fixture, [
+      "paraphrase",
+      "--scope",
+      "project",
+      "--map",
+      "Read=Inspection",
+      "--apply",
+      "--json",
+    ])
   );
   assert.equal(lintResult.applied.length, 0);
   assert.equal(
@@ -6346,7 +6481,15 @@ test("paraphrase --register registers override for pre-paraphrased codex line", 
 
   // --register dry-run: matches without writing anything.
   const dryRun = JSON.parse(
-    runCli(fixture, ["paraphrase", "--register", "--scope", "project", "--map", "Read=Inspection", "--json"])
+    runCli(fixture, [
+      "paraphrase",
+      "--register",
+      "--scope",
+      "project",
+      "--map",
+      "Read=Inspection",
+      "--json",
+    ])
   );
   assert.equal(dryRun.mode, "register-dry-run");
   assert.equal(dryRun.matched.length, 1);
@@ -6360,13 +6503,25 @@ test("paraphrase --register registers override for pre-paraphrased codex line", 
 
   // --register --apply: persists override but still leaves source files alone.
   const applied = JSON.parse(
-    runCli(fixture, ["paraphrase", "--register", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"])
+    runCli(fixture, [
+      "paraphrase",
+      "--register",
+      "--scope",
+      "project",
+      "--map",
+      "Read=Inspection",
+      "--apply",
+      "--json",
+    ])
   );
   assert.equal(applied.mode, "register-apply");
   assert.equal(applied.matched.length, 1);
   assert.equal(readFileSync(codexPath, "utf8"), codexBefore);
 
-  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  const overridesPath = join(
+    fixture.home,
+    ".ai-config-sync-manager/rules/paraphrase-overrides.json"
+  );
   assert.equal(existsSync(overridesPath), true);
   const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
   assert.equal(overrides.overrides.length, 1);
@@ -6397,7 +6552,16 @@ test("paraphrase --register skips line when map does not equate the diff", () =>
   );
 
   const result = JSON.parse(
-    runCli(fixture, ["paraphrase", "--register", "--scope", "project", "--map", "Read=Inspection", "--apply", "--json"])
+    runCli(fixture, [
+      "paraphrase",
+      "--register",
+      "--scope",
+      "project",
+      "--map",
+      "Read=Inspection",
+      "--apply",
+      "--json",
+    ])
   );
   assert.equal(result.matched.length, 0);
   assert.ok(result.skipped.length > 0);
@@ -6446,7 +6610,7 @@ test("paraphrase --apply rewrites codex_only manual token (update_plan) on claud
       "--map",
       "update_plan=update the plan",
       "--apply",
-      "--json"
+      "--json",
     ])
   );
 
@@ -6464,7 +6628,10 @@ test("paraphrase --apply rewrites codex_only manual token (update_plan) on claud
   assert.doesNotMatch(claudeAfter, /\bupdate_plan\b/);
 
   // paraphrase-overrides.json registers the entry.
-  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  const overridesPath = join(
+    fixture.home,
+    ".ai-config-sync-manager/rules/paraphrase-overrides.json"
+  );
   assert.equal(existsSync(overridesPath), true);
   const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
   assert.equal(overrides.overrides.length, 1);
@@ -6513,7 +6680,7 @@ test("paraphrase --apply uses text-search fallback when counterpart line offset 
       "--map",
       "Read=Inspection",
       "--apply",
-      "--json"
+      "--json",
     ])
   );
 
@@ -6535,7 +6702,10 @@ test("paraphrase --apply uses text-search fallback when counterpart line offset 
   assert.match(claudeAfter, /Read-only/);
 
   // Override file records each host's own line number.
-  const overridesPath = join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json");
+  const overridesPath = join(
+    fixture.home,
+    ".ai-config-sync-manager/rules/paraphrase-overrides.json"
+  );
   const overrides = JSON.parse(readFileSync(overridesPath, "utf8"));
   assert.equal(overrides.overrides.length, 1);
   const entry = overrides.overrides[0];
