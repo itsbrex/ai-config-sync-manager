@@ -1,6 +1,6 @@
 {
   "mcpServers": {
-    "notion": {
+    "manual_notion": {
       "type": "stdio",
       "command": "npx",
       "args": [
@@ -8,7 +8,7 @@
         "@notionhq/notion-mcp-server"
       ]
     },
-    "exa": {
+    "manual_exa": {
       "type": "http",
       "url": "https://mcp.exa.ai/mcp"
     }

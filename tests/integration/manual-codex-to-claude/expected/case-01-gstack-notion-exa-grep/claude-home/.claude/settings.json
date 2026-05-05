@@ -6,10 +6,10 @@
       "MultiEdit",
       "WebSearch",
       "Write",
-      "mcp__notion__search"
+      "mcp__manual_notion__search"
     ],
     "ask": [
-      "mcp__exa__web_search_exa"
+      "mcp__manual_exa__web_search_exa"
     ]
   }
 }

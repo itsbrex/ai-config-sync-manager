@@ -11,10 +11,28 @@ LAB="$BASE/lab"
 EXP="$BASE/expected"
 LOGS=/tmp/manual-cases-out
 RESULTS=/tmp/manual-cases-results.tsv
+CODEX_CONFLICT_HOME=/tmp/manual-cases-codex-conflict-home
 
 rm -rf "$LOGS"; mkdir -p "$LOGS"
+rm -rf "$CODEX_CONFLICT_HOME"; mkdir -p "$CODEX_CONFLICT_HOME/.codex"
 : > "$RESULTS"
 overall_rc=0
+
+cat > "$CODEX_CONFLICT_HOME/.codex/config.toml" <<EOF
+[projects."$REPO"]
+trust_level = "trusted"
+
+[mcp_servers.github]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-github"]
+
+[mcp_servers.exa]
+command = "npx"
+args = ["-y", "exa-mcp-server"]
+
+[mcp_servers.notion]
+url = "https://mcp.notion.com/mcp"
+EOF
 
 canonical_mcp_json() {
   node -e '
@@ -124,19 +142,29 @@ for c in "${cases[@]}"; do
     done
   fi
 
-  printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n" \
+  (cd "$HOME_DIR" && HOME="$CODEX_CONFLICT_HOME" codex mcp list) > "$LOGS/$c.codex-project-cli.out" 2> "$LOGS/$c.codex-project-cli.err"
+  codex_project_cli_rc=$?
+  if [ -f "$HOME_DIR/.codex/config.toml" ]; then
+    for name in $(sed -n 's/^\[mcp_servers\.\([^].]\{1,\}\)\]$/\1/p' "$HOME_DIR/.codex/config.toml"); do
+      if ! grep -q "^${name}[[:space:]]" "$LOGS/$c.codex-project-cli.out"; then
+        [ "$codex_project_cli_rc" -eq 0 ] && codex_project_cli_rc=1
+      fi
+    done
+  fi
+
+  printf "%s\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n" \
     "$c" "$status_rc" "$dry_rc" "$apply_rc" \
     "$claude_diff_rc" "$claude_json_rc" "$mcp_json_rc" "$codex_rc" "$agents_rc" \
-    "$claude_cli_rc" "$codex_cli_rc" \
+    "$claude_cli_rc" "$codex_cli_rc" "$codex_project_cli_rc" \
     >> "$RESULTS"
   if [ "$status_rc" -ne 0 ] || [ "$dry_rc" -ne 0 ] || [ "$apply_rc" -ne 0 ] \
     || [ "$claude_diff_rc" -ne 0 ] || [ "$claude_json_rc" -ne 0 ] || [ "$mcp_json_rc" -ne 0 ] \
     || [ "$codex_rc" -ne 0 ] || [ "$agents_rc" -ne 0 ] \
-    || [ "$claude_cli_rc" -ne 0 ] || [ "$codex_cli_rc" -ne 0 ]; then
+    || [ "$claude_cli_rc" -ne 0 ] || [ "$codex_cli_rc" -ne 0 ] || [ "$codex_project_cli_rc" -ne 0 ]; then
     overall_rc=1
   fi
 done
 
-echo "----- RESULTS (case status dry apply claude claude_json mcp_json codex agents claude_cli codex_cli) -----"
+echo "----- RESULTS (case status dry apply claude claude_json mcp_json codex agents claude_cli codex_cli codex_project_cli) -----"
 cat "$RESULTS"
 exit "$overall_rc"

@@ -58,3 +58,8 @@ tests/integration/manual-codex-to-claude/**/.DS_Store
 tests/integration/manual-codex-to-claude/**/.ai-config-sync-manager/
 tests/integration/manual-codex-to-claude/**/.claude/backups/
 tests/integration/manual-codex-to-claude/**/.claude/telemetry/
+tests/integration/manual-codex-to-claude/expected/*/.claude/
+tests/integration/manual-codex-to-claude/expected/*/.claude.json
+tests/integration/manual-codex-to-claude/expected/*/.local/
+tests/integration/manual-codex-to-claude/expected/*/Applications/
+tests/integration/manual-codex-to-claude/expected/*/Library/

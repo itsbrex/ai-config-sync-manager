@@ -50,8 +50,9 @@ scripts/run-cases.sh
 ```
 
 `run-cases.sh` writes per-case logs and diffs to `/tmp/manual-cases-out/` and a
-TSV summary to `/tmp/manual-cases-results.tsv` (11 columns: case, status_rc,
+TSV summary to `/tmp/manual-cases-results.tsv` (12 columns: case, status_rc,
 dry_rc, apply_rc, claude_diff_rc, claude_json_rc, mcp_json_rc, codex_rc,
-agents_rc, claude_cli_rc, codex_cli_rc — all `0` = PASS).
+agents_rc, claude_cli_rc, codex_cli_rc, codex_project_cli_rc — all `0` = PASS).
 
 No real secrets are stored here. Placeholder values are intentionally synthetic.
+Remote MCP server ids use `manual_*` names where needed to avoid Codex project config merging with a developer's real global MCP entries.

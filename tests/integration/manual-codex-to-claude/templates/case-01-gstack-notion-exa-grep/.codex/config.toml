@@ -1,16 +1,16 @@
 sandbox_mode = "workspace-write"
 web_search = "live"
 
-[mcp_servers.notion]
+[mcp_servers.manual_notion]
 command = "npx"
 args = ["-y", "@notionhq/notion-mcp-server"]
 
-[mcp_servers.exa]
+[mcp_servers.manual_exa]
 transport = "streamable_http"
 url = "https://mcp.exa.ai/mcp"
 
-[mcp_servers.notion.tools.search]
+[mcp_servers.manual_notion.tools.search]
 approval_mode = "approve"
 
-[mcp_servers.exa.tools.web_search_exa]
+[mcp_servers.manual_exa.tools.web_search_exa]
 approval_mode = "prompt"

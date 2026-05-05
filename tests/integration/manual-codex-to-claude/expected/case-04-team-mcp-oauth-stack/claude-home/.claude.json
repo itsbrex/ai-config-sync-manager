@@ -1,21 +1,21 @@
 {
   "mcpServers": {
-    "github": {
+    "manual_github": {
       "type": "http",
       "url": "https://mcp.github.com"
     },
-    "linear": {
+    "manual_linear": {
       "type": "http",
       "url": "https://mcp.linear.app"
     },
-    "sentry": {
+    "manual_sentry": {
       "type": "http",
       "url": "https://mcp.sentry.io",
       "headers": {
         "Authorization": "Bearer ${SENTRY_AUTH_TOKEN}"
       }
     },
-    "postgres": {
+    "manual_postgres": {
       "type": "stdio",
       "command": "docker",
       "args": [
