@@ -159,9 +159,11 @@ Drift 가드: version pin 자동 주입 / PATH binary 일치 검사 / state `sch
 - [x] state `schemaVersion: 1` 도입 (`STATE_SCHEMA_VERSION`). missing 시 backfill 경고, mismatch 시 abort + 안내 메시지.
 - [x] `tests/cli-fixtures.test.mjs` 보강: thin dist 산출물, host-launcher resolution 분기, connect stale cleanup, version injection 시나리오 커버.
 
-### 8.2 모노레포 전환 — 옵션 B (단일 진실원 못박기) 적용 완료
+### 8.2 모노레포 전환 — 옵션 B (CLI-only pre-publish 최적화) 적용 완료
 
-레퍼런스 검토 결과 (semantic-release #4072 미실행 / oclif Core 통합 / symflow·Turborepo retrospective 회귀 / pkgpulse·dbashkatov 가이드 "단일 앱은 monorepo 오버헤드만") + 현재 상황 (개발자 1명, 외부 contributor 0, 사실상 단일 패키지, 8,608 LOC, publish 전)을 종합해 **옵션 B 채택**. `packages/{cli,core}`는 어떤 코드도 import하지 않는 dead scaffold로 확인됨 (정적 grep + `mv packages /tmp/...` 격리 후 `npm test 259/259 pass` + `npm run build:dist` 정상 + CLI 명령 모두 정상 동작). `bin/ai-config-sync.mjs`가 동일 이름의 함수를 자체 구현으로 보유.
+이건 "단일 파일 철학" 결정이 아니라 **CLI-only pre-publish 단계의 최적화 결정**이다 (Codex second-opinion 반영). 향후 외부 import 요구가 생기면 Tier 1/2 트리거에 따라 분리. 현재는 *이 단계에 가장 적합한 형태*를 선택한 것이지, 영구 단일 파일 철학을 채택한 것이 아님.
+
+레퍼런스 (semantic-release #4072 미실행 / oclif Core 통합 / symflow·Turborepo retrospective 회귀 / pkgpulse·dbashkatov 가이드)는 *맥락 비교용*이지 핵심 근거가 아니다. 핵심 근거는 현재 상황 (개발자 1명, 외부 contributor 0, 사실상 단일 패키지, 8,608 LOC, publish 전, library import 0건)이다. `packages/{cli,core}`는 어떤 코드도 import하지 않는 dead scaffold로 확인됨 (정적 grep + `mv packages /tmp/...` 격리 후 `npm test 259/259 pass` + `npm run build:dist` 정상 + CLI 명령 모두 정상 동작). `bin/ai-config-sync.mjs`가 동일 이름의 함수를 자체 구현으로 보유.
 
 - [x] `packages/cli` / `packages/core` 디렉터리 제거 (dead scaffold, 어디서도 import 안 됨).
 - [x] `package.json`에서 `workspaces` 필드 + `build` / `check` script 삭제.
@@ -233,6 +235,8 @@ CLI entry는 argv 파싱·exit code만 담고, 로직은 `lib/`로 분리. publi
 - [ ] **schemas 런타임 검증**: 사용자 편집 가능한 `paraphrase-overrides.json` / `paraphrase-map.json` / `status-ignore.json` 손상 시 친절한 에러 메시지가 필요하면 AJV 도입 검토. 현재는 try/catch + 수동 가드로 충분.
 - [x] **mjs type-check 인프라 (opt-in JSDoc + `// @ts-check`)**: `tsconfig.check.json` 재생성 (`allowJs: true, checkJs: false`, `types: ["node"]`), `@types/node` devDependency 추가, `npm run check` script 부활. 새 모듈 / 추출되는 파일에 `// @ts-check` + JSDoc 정책. 8,608 LOC mjs 본체는 점진 적용 (한 번에 enable 시 type 에러 폭탄). PoC: `scripts/lib/host-launcher.mjs` JSDoc 적용 + `npm run check` 0 errors.
 - [ ] **JSDoc 정책 점진 확장**: 새 함수 작성 / 기존 함수 큰 수정 시 JSDoc + `// @ts-check` 추가. Strangler Fig 패턴 (추출되는 lib 모듈)에 우선 적용. 본체 mjs는 영역별로 점진 enable.
+  - **다음 우선순위 (Codex second-opinion 반영)**: `host-launcher` 같은 안전 영역이 아니라 **실제 위험 영역인 parser / plan / apply boundary의 typedef부터** 잡는다. 이 레포의 위험은 "수작업 parser, config shape drift, command option contracts"이며 PoC의 0 errors는 infra smoke test이지 8,608 LOC core의 type risk 감소 증거가 아님.
+  - **타깃 함수 (시그니처 명확, 도메인 boundary)**: `parseStatus` (122), `parseSync` (7445), `parseParaphrase` (7626), `createStatusReport` (158), `createSyncPlan` (1185), `createOperation` (1311), `applySyncPlan` (3615). 파일 상단 typedef block + 함수별 `@param`/`@returns`. 전체 파일 `// @ts-check` 활성화는 LOC 폭탄이라 *함수 위에 inline JSDoc만* 우선 적용.
 - [ ] **TS 풀 도입 결정 트리거**: 다음 중 하나 발생 시 `bin/ai-config-sync.mjs`를 `bin/ai-config-sync.ts`로 전환 검토 (build step + dist 도입을 감수할 가치가 생긴 시점). (1) 외부에서 `import { ... } from "ai-config-sync-manager"`로 함수 사용 요청 → `.d.ts` 발행 의무 발생. (2) 도메인 모델이 폭발 (10+ entity, 복잡한 discriminated union). (3) 외부 contributor 다수 합류 (협업 안전망 가치 증가). (4) 리팩토링 빈도 급증. JSDoc + `// @ts-check`가 95%의 type 안전 이익을 0% 빌드 비용으로 제공하므로, 위 신호 없이는 TS 전환을 보류한다.
 - [x] **backups / status-details retention**: `BACKUP_RETENTION = 30` / `STATUS_DETAILS_RETENTION = 100` 상수 + `pruneRetention(dir, keep)` FIFO 헬퍼 도입. `applySyncPlan` 시작 시점과 `writeStatusDetailFile`의 mkdir 직후에 호출. ISO timestamp 이름이라 `readdirSync.sort()` 결과가 chronological과 일치, 별도 mtime 비교 불필요. (kubectl rollout 10 / Time Machine 30일 / logrotate 7-30일 관행 참고).
 

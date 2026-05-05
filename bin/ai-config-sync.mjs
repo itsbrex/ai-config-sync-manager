@@ -25,6 +25,31 @@ const STATE_SCHEMA_VERSION = 1;
 const BACKUP_RETENTION = 30;
 const STATUS_DETAILS_RETENTION = 100;
 const runtimePackage = readRuntimePackage();
+
+/**
+ * Domain typedef block — applied incrementally to parser / plan / apply
+ * boundary functions. See workflow.md §8.4 for the rollout policy.
+ *
+ * @typedef {"claude" | "codex"} Host
+ * @typedef {"global" | "project"} ConfigScope
+ * @typedef {"dry-run" | "apply"} SyncMode
+ * @typedef {"safe" | "partial" | "manual"} RiskLevel
+ * @typedef {"instructions" | "skills" | "agents" | "mcp" | "permissions" | "hooks" | "commands"} ConfigArea
+ *
+ * @typedef {Object} Selectors
+ * @property {Array<{ area: ConfigArea, item?: string }>} include
+ * @property {Array<{ area: ConfigArea, item?: string }>} exclude
+ *
+ * @typedef {Object} SyncOptions
+ * @property {Host} from
+ * @property {Host} to
+ * @property {boolean} routeExplicit
+ * @property {boolean} apply
+ * @property {boolean} planJson
+ * @property {ConfigScope} scope - First scope in `scopes` (back-compat)
+ * @property {ConfigScope[]} scopes
+ * @property {Selectors} selectors
+ */
 const runtimeVersion = runtimePackage.version;
 const runtimePackageName = runtimePackage.name;
 const CLAUDE_PLUGIN_TARGET_PATTERN = /\/\.claude\/plugins\/config-manager@ai-config-sync-manager$/;
@@ -7442,6 +7467,11 @@ function formatPathState(path) {
   return `${path}${stat.isSymbolicLink() ? " (symlink)" : ""}`;
 }
 
+/**
+ * Parse `sync` subcommand argv into a SyncOptions object.
+ * @param {string[]} argv
+ * @returns {SyncOptions}
+ */
 function parseSync(argv) {
   const direction = defaultSyncDirection();
   let from = direction.from;

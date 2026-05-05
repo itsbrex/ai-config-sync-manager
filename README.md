@@ -7,7 +7,11 @@ Install it from either host, run `/config-manager:connect` in Claude or `config-
 - Claude: `/config-manager:connect`, `/config-manager:status`, `/config-manager:sync`
 - Codex: `config-manager-connect`, `config-manager-status`, `config-manager-sync`
 
-The shared engine lives in `packages/core`. Host-specific plugins are thin wrappers around the bundled `bin/ai-config-sync.mjs` CLI.
+The shared engine lives in `bin/ai-config-sync.mjs` (single ESM file, zero runtime deps). Host-specific plugins are thin wrappers around the bundled CLI.
+
+## API Surface
+
+This is a **CLI tool**, not a library. There is no programmatic API — `import`-ing this package from another Node module is not supported and the bundled `bin/ai-config-sync.mjs` is not designed to be loaded as a library (it executes the command on import). All functionality is exposed through the `ai-config-sync` command and the host plugins. If you need programmatic access to a specific function (e.g. mapping rules, plan generation, or status diff), open an issue describing the use case so the surface can be designed deliberately.
 
 ## Current Status
 
