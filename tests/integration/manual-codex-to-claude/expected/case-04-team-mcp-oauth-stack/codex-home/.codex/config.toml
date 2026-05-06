@@ -1,0 +1,23 @@
+[mcp_servers.manual_github]
+transport = "streamable_http"
+url = "https://mcp.github.com"
+
+[mcp_servers.manual_linear]
+transport = "streamable_http"
+url = "https://mcp.linear.app"
+
+[mcp_servers.manual_sentry]
+transport = "streamable_http"
+url = "https://mcp.sentry.io"
+bearer_token_env_var = "SENTRY_AUTH_TOKEN"
+
+[mcp_servers.manual_postgres]
+command = "docker"
+args = ["run", "-i", "--rm", "mcp/postgres"]
+env = { POSTGRES_CONNECTION_STRING = "${POSTGRES_CONNECTION_STRING}" }
+
+[mcp_servers.manual_github.tools.create_pull_request]
+approval_mode = "approve"
+
+[mcp_servers.manual_postgres.tools.execute_query]
+approval_mode = "prompt"

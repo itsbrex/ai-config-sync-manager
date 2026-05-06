@@ -1,0 +1,3 @@
+prefix_rule(pattern=["codex","exec"], decision="prompt", justification="Prompt before nested Codex execution.")
+prefix_rule(pattern=["claude","-p"], decision="prompt", justification="Prompt before nested Claude execution.")
+prefix_rule(pattern=["rm","-rf"], decision="forbidden", justification="Block destructive recursive cleanup.")
