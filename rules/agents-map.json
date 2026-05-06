@@ -12,7 +12,7 @@
   ],
   "sandbox_modes": {
     "read-only": {
-      "claude": { "tools": ["Bash", "Read", "Grep", "Glob"] }
+      "claude": { "tools": ["Read", "Grep", "Glob"] }
     },
     "workspace-write": {
       "claude": { "tools": ["Bash", "Edit", "MultiEdit", "Read", "Grep", "Glob", "Write"] }
