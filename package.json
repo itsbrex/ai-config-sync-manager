@@ -41,6 +41,7 @@
     "test": "node --test tests/*.test.mjs tests/integration/codex-to-claude/*.test.mjs",
     "test:manual:reset": "tests/integration/manual-codex-to-claude/scripts/reset.sh",
     "test:manual:run": "tests/integration/manual-codex-to-claude/scripts/run-cases.sh",
+    "test:set-home": "tests/integration/manual-codex-to-claude/scripts/set-home-to-test-lab.sh",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

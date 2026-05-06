@@ -3,6 +3,7 @@
 # Usage:
 #   source scripts/set-home-to-test-lab.sh                # paths only
 #   source scripts/set-home-to-test-lab.sh case-name      # + per-case home
+#   source scripts/set-home-to-test-lab.sh                # from lab/<case> infers case
 
 script_path="${BASH_SOURCE[0]:-$0}"
 base="$(cd "$(dirname "$script_path")/.." && pwd)"
@@ -32,6 +33,16 @@ export MANUAL_TEST_TEMPLATES_DIR="$templates"
 export MANUAL_TEST_REPO_DIR="$repo"
 
 case_name="${1:-}"
+if [ -z "$case_name" ]; then
+  current_dir="${INIT_CWD:-$(pwd)}"
+  case "$current_dir" in
+    "$lab"/*)
+      lab_relative="${current_dir#"$lab"/}"
+      case_name="${lab_relative%%/*}"
+      ;;
+  esac
+fi
+
 if [ -z "$case_name" ]; then
   return 0
 fi
