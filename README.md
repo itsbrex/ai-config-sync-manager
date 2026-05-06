@@ -30,9 +30,9 @@
 - **Diff-first workflow** — `status` to compare → `sync --dry-run` to preview → `--apply` to write.
 - **Risk-tagged operations** — `permissions`, `hooks`, custom commands labeled `safe` / `partial` / `manual`.
 - **Backup-on-write** — every overwrite snapshotted under `.backups/`, FIFO retention (30).
-- **Selector mini-DSL** — `--include skills:assignment-test,instructions --exclude mcp` style filtering.
+- **Selector syntax** — `--include skills:code-writer,instructions --exclude mcp` style filtering.
 - **Native semantic mapping** — Claude `Write` → Codex `sandbox_mode = "workspace-write"`, etc.
-- **Zero runtime dependencies** — single ESM file (`bin/ai-config-sync.mjs`), Node built-ins only.
+- **Zero runtime dependencies** — single ESM file, Node built-ins only.
 - **Thin host plugins** — `/config-manager:*` for Claude, `config-manager-*` for Codex.
 
 ## Why this exists
@@ -52,25 +52,27 @@ Hand-rolling the sync invites **drift, semantic loss, and accidental secret leak
 
 ```bash
 npm install -g ai-config-sync-manager
-ai-config-sync connect           # register the plugin in Claude + Codex
+ai-config-sync connect           # register the plugin for any detected host (Claude / Codex)
 ai-config-sync status            # show drift across global + project scopes
-ai-config-sync sync --dry-run    # preview changes (default mode)
+ai-config-sync sync              # preview changes (--dry-run by default)
 ai-config-sync sync --apply      # apply with automatic backups
 ```
+
+`connect` only registers plugins for hosts it actually finds (`~/.claude` for Claude, `~/.codex` or `~/.agents` for Codex). Hosts that are missing are reported as `skipped` and no directories are created — install the host first, then rerun `connect`.
 
 ## Requirements
 
 - Node.js **≥ 20**
-- Claude Code and/or Codex CLI installed (host plugins are auto-registered by `connect`)
+- Claude Code and/or Codex CLI installed (host plugins are auto-registered by `connect` when the matching host directory exists)
 
 ## Table of Contents
 
 | Category | Sections |
 | --- | --- |
 | **Commands** | [Bundled CLI](#bundled-cli) · [Host plugin commands](#host-plugin-commands) |
-| **Workflow** | [Selector mini-DSL](#selector-mini-dsl) · [Sync direction](#sync-direction) · [Scopes](#scopes) |
+| **Workflow** | [Selector syntax](#selector-syntax) · [Ignore rules](#ignore-rules) · [Sync direction](#sync-direction) · [Scopes](#scopes) |
 | **Safety** | [Safety defaults](#safety-defaults) · [Risk levels](#risk-levels) · [Retention](#retention) |
-| **Mapping** | [Native mapping](#native-mapping-claude--codex) · [Areas](#areas) |
+| **Mapping** | [Native mapping](#native-mapping-claude--codex) · [Areas](#areas) · [Agent call compiler](#agent-call-compiler) · [Paraphrase](#paraphrase) · [Hidden markers](#hidden-markers) · [Unsupported](#unsupported) |
 | **Architecture** | [Architecture](#architecture) · [Install resolution](#install-resolution) |
 | **Reference** | [Documentation](#documentation) · [Local dev](#local-dev-from-this-repo) · [Gotchas](#gotchas) · [API surface](#api-surface) |
 
@@ -78,21 +80,23 @@ ai-config-sync sync --apply      # apply with automatic backups
 
 ### Bundled CLI
 
+After `npm install -g`, the same binary is on PATH as `ai-config-sync` — equivalent to `./bin/ai-config-sync.mjs` from a source clone.
+
 ```bash
-./bin/ai-config-sync.mjs connect
-./bin/ai-config-sync.mjs status
-./bin/ai-config-sync.mjs status --json
-./bin/ai-config-sync.mjs status --scope global
-./bin/ai-config-sync.mjs status --scope project
-./bin/ai-config-sync.mjs status --include skills:assignment-test,instructions --exclude mcp
-./bin/ai-config-sync.mjs sync --dry-run
-./bin/ai-config-sync.mjs sync --scope project --dry-run
-./bin/ai-config-sync.mjs sync --scope global --apply
-./bin/ai-config-sync.mjs sync --include instructions,skills:assignment-test --exclude mcp --dry-run
-./bin/ai-config-sync.mjs sync --from claude --to codex
-./bin/ai-config-sync.mjs sync --from codex --to claude
-./bin/ai-config-sync.mjs reference
-./bin/ai-config-sync.mjs paraphrase
+ai-config-sync connect
+ai-config-sync status
+ai-config-sync status --json
+ai-config-sync status --scope global
+ai-config-sync status --scope project
+ai-config-sync status --include skills:code-writer,instructions --exclude mcp
+ai-config-sync sync --dry-run
+ai-config-sync sync --scope project --dry-run
+ai-config-sync sync --scope global --apply
+ai-config-sync sync --include instructions,skills:code-writer --exclude mcp --dry-run
+ai-config-sync sync --from claude --to codex
+ai-config-sync sync --from codex --to claude
+ai-config-sync reference
+ai-config-sync paraphrase
 ```
 
 | Command | Purpose |
@@ -112,12 +116,12 @@ ai-config-sync sync --apply      # apply with automatic backups
 | **Claude** | `/config-manager:connect` | `/config-manager:status` | `/config-manager:sync` |
 | **Codex** | `config-manager-connect` | `config-manager-status` | `config-manager-sync` |
 
-## Selector mini-DSL
+## Selector syntax
 
 `--include` narrows the plan first, then `--exclude` removes matches. Both accept `area` or `area:item` syntax; itemized areas (`skills`, `permissions`, `hooks`, `agents`, `mcp`, `commands`) accept glob items.
 
 ```bash
-ai-config-sync sync --include skills:assignment-test,instructions --exclude mcp --dry-run
+ai-config-sync sync --include skills:code-writer,instructions --exclude mcp --dry-run
 ai-config-sync sync --include "permissions:Write*" --exclude "permissions:Bash(rm:*)" --dry-run
 ```
 
@@ -132,6 +136,32 @@ ai-config-sync sync --include "permissions:Write*" --exclude "permissions:Bash(r
 | `permissions` | yes | item-by-item patch |
 | `hooks` | yes | item-by-item patch |
 | `commands` | yes | per command |
+
+## Ignore rules
+
+Persistent ignore lives at one of:
+
+- `<project>/.ai-config-sync-manager/status-ignore.json` (project scope, checked first)
+- `~/.ai-config-sync-manager/rules/status-ignore.json` (global)
+
+Each `exclude` entry is a string selector (`area:item` or path glob) **or** an object whose fields combine with AND. `term` is a line-level mask — lines containing the substring are removed from both sides before the diff, so the conflict can disappear without hiding unrelated changes.
+
+```json
+{
+  "version": 1,
+  "exclude": [
+    "skills:legacy-skill",
+    "permissions:Bash",
+    "~/.codex/agents/archive-*.toml",
+    { "scope": "global", "area": "agents", "item": "refactor-*" },
+    { "area": "skills", "host": "claude", "path": "~/.claude/skills/coderabbit-review" },
+    { "area": "skills", "term": ".claude/docs/repo-analysis/" },
+    { "area": "agents", "host": "claude", "path": "~/.claude/agents/*.md", "term": "TODO: do not sync" }
+  ]
+}
+```
+
+Full template: [`docs/status-ignore.example.json`](./docs/status-ignore.example.json). The active path and rule count are echoed in `status` output as `Status ignore: <path> rules: [...] (N hidden)`.
 
 ## Sync direction
 
@@ -185,27 +215,96 @@ ai-config-sync sync --include "permissions:Write*" --exclude "permissions:Bash(r
 
 Full mapping reference: [`maximal-one-to-one-mapping.md`](./.claude/docs/maximal-one-to-one-mapping.md).
 
-## Architecture
+## Agent call compiler
 
+Skill / agent / instruction bodies often embed Claude SDK calls (`Agent({...})`) that have no syntactic equivalent on the Codex side. The compiler — driven by [`rules/call-templates.json`](./rules/call-templates.json) — round-trips the supported pair:
+
+| Direction | Source form | Target form |
+| --- | --- | --- |
+| `claude → codex` | `Agent({ description, prompt, subagent_type })` | Prose `spawn_agent` block (`agent_type: "<description>"` + `Task: <prompt>`) |
+| `codex → claude` | Prose block reconstructed from the hidden marker | `Agent({...})` call |
+
+The scanner is **tolerant by design**: it only recognizes a single-level object literal where every value is a string, number, boolean, null, or array of those. Anything more complex (template strings, variable references, nested expressions) is left intact and tagged with an `ai-config-sync:manual-review` marker carrying the parse reason. Reverse syncs round-trip the marker so manual edits survive.
+
+## Paraphrase
+
+Some tokens are **mutually exclusive** between hosts — `Read`, `Write`, `Edit`, `Glob`, `mcp__*` only exist on Claude; `update_plan`, `spawn_agent`, `apply_patch` only exist on Codex (full list: [`rules/host-strict-vocab.json`](./rules/host-strict-vocab.json)). When such a token leaks into the wrong host's file, the terminology map cannot translate it, so `status` keeps reporting the line as a `manual-review` mismatch forever.
+
+`paraphrase` resolves these by rewriting **both sides** to a shared word and registering a per-line override so future status runs treat the pair as in sync.
+
+```bash
+ai-config-sync paraphrase                                            # dry-run preview
+ai-config-sync paraphrase --apply                                    # rewrite + register
+ai-config-sync paraphrase --map "Read=Inspect,Write=Author" --apply  # inline mapping
+ai-config-sync paraphrase --register --include skills:foo --apply    # register only (no rewrite)
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│  bin/ai-config-sync.mjs    single ESM · zero runtime deps · ~8.6k LOC  │
-│                                                                        │
-│   parser  ──▶  planner  ──▶  applier  ──▶  archiver                    │
-│   status/      diff +        atomic         backup +                   │
-│   sync/...     risk-tag      patch/copy     status-detail              │
-└────────────────────────────────────────────────────────────────────────┘
-            ▲                                                ▼
-   ┌────────┴────────┐                              ┌────────┴────────┐
-   │ Claude          │  ◀── bidirectional sync ──▶  │ Codex           │
-   │ ~/.claude/*     │                              │ ~/.codex/*      │
-   │ /config-manager │                              │ config-manager- │
-   └─────────────────┘                              └─────────────────┘
+
+| Flag | Purpose |
+| --- | --- |
+| `--apply` | Rewrite files, append to `paraphrase-overrides.json`, persist new entries to `paraphrase-map.json` (default: dry-run) |
+| `--map token=paraphrase[,...]` | Inline token-to-paraphrase pairs; layered on top of the file map |
+| `--register` | Skip rewriting; only register an override when the effective map already makes both sides byte-equal |
+| `--non-interactive` | Skip TTY prompts for tokens missing from the map |
+| `--scope global\|project\|all` | Limit paraphrase scope (default: both) |
+| `--include` / `--exclude` | Same selector syntax as `status` / `sync` |
+| `--json` | Machine-readable result |
+
+### `--map` syntax
+
+- `Token=Paraphrase` for unambiguous tokens listed in `host-strict-vocab.json`.
+- Prefix with `claude_only:` or `codex_only:` to disambiguate (e.g. `claude_only:Read=Inspect`).
+- Comma-separated to chain entries: `--map "Read=Inspect,codex_only:update_plan=Plan refresh"`.
+- Tokens not present in `host-strict-vocab.json` are rejected unless prefixed.
+
+### Map files (layered: project → home → repo)
+
+| File | Role |
+| --- | --- |
+| `rules/paraphrase-map.json` | Token → paraphrase entries grouped under `claude_only` / `codex_only` |
+| `rules/paraphrase-overrides.json` | Per-line override archive (host paths, line numbers, anchor texts) |
+
+Both files follow the same precedence as terminology rules: `<project>/rules/<file>.json` → `~/.ai-config-sync-manager/rules/<file>.json` → `<repo>/rules/<file>.json`.
+
+### Examples
+
+```bash
+# Preview rewrites for every drifted host-only token
+ai-config-sync paraphrase
+
+# Apply with an inline map for two common offenders
+ai-config-sync paraphrase --map "Read=Inspect,Write=Author" --apply
+
+# Scope to a single agent file in global config
+ai-config-sync paraphrase --scope global --include agents:code-structure-analyst --apply
+
+# Side already pre-paraphrased outside the CLI — just record the override
+ai-config-sync paraphrase --register --include skills:commit-insight-pipeline \
+  --map "Read=Inspect,Write=Emit" --apply
 ```
 
-The shared engine lives in `bin/ai-config-sync.mjs` (single ESM file, zero runtime deps). Host-specific plugins are thin wrappers around the bundled CLI.
+### Stale overrides
 
-Detailed analysis: [`.claude/docs/repo-analysis/`](./.claude/docs/repo-analysis/).
+Overrides are auto-invalidated when the pinned anchor text on either host drifts, so manual edits cleanly retire the recorded pairing without leaving stale entries. The active / stale counts are echoed in `status` output.
+
+## Hidden markers
+
+HTML comment markers the call compiler emits inside transformed text. They are reverse-direction-stable and ignored by humans during normal use.
+
+| Marker | Meaning |
+| --- | --- |
+| `<!-- ai-config-sync:agent-call ... -->` | Supported call transformed (see [Agent call compiler](#agent-call-compiler)). |
+| `<!-- ai-config-sync:stripped ... -->` | Unsupported call removed; original archived under `~/.ai-config-sync-manager/backups/<timestamp>/unsupported-calls.json`. |
+| `<!-- ai-config-sync:manual-review reason="..." -->` | Call left intact because the tolerant scanner could not parse it; needs manual translation. |
+
+## Unsupported
+
+Items the engine deliberately does not sync, with the reason and the surface where they remain visible:
+
+| Surface | Behavior | Why |
+| --- | --- | --- |
+| `TaskCreate` / `TaskUpdate` / `TeamCreate` SDK calls | Stripped with `ai-config-sync:stripped` marker; original payload archived under the backup root (`unsupported-calls.json`) | Codex has no native todo/task tracker tool nor an atomic agent-team primitive |
+| Symlinked skills (`~/.claude/skills/<name>` is a symlink) | Reported by `status` as `unsupported` (action: `manual review`); excluded from `sync --apply` | Whether to copy the link or materialize target content is an unresolved policy — see [`workflow.md` §8.4](./.claude/docs/workflow.md). Resolve manually by either rewriting as a real directory on the source host, or applying via `--include skills:<name>` after the policy lands |
+| `memory` / implicit context / agent runtime state | Out of scope for now (no read, no write) | Storage layout, redaction rules, and conflict policy not yet settled. Tracked in the [Roadmap](#roadmap) — first phase will be read-only `status` |
 
 ## Install resolution
 
@@ -231,22 +330,12 @@ npm run lint
 npm run format:check
 ```
 
-## Documentation
-
-| Topic | File |
-| --- | --- |
-| Architecture overview | [`architecture.md`](./.claude/docs/architecture.md) |
-| Install / connect flow | [`install-flow.md`](./.claude/docs/install-flow.md) |
-| Distribution policy | [`distribution-workflow.md`](./.claude/docs/distribution-workflow.md) |
-| Maximal 1-to-1 mapping | [`maximal-one-to-one-mapping.md`](./.claude/docs/maximal-one-to-one-mapping.md) |
-| Integration test guide | [`integration-test-workflow.md`](./.claude/docs/integration-test-workflow.md) |
-| Repo analysis bundle | [`repo-analysis/`](./.claude/docs/repo-analysis/) |
-| Customizing rules | [`docs/customizing-rules.md`](./docs/customizing-rules.md) |
+Inside a clone, invoke the CLI as `./bin/ai-config-sync.mjs <command>` (the published `ai-config-sync` shim only exists after `npm install -g` or `npm link`).
 
 ## Gotchas
 
 - **No programmatic API.** `bin/ai-config-sync.mjs` executes on import. Do not `import` it from another module — see [API surface](#api-surface).
-- **Symlink skills are status-only.** They appear in `status` but are excluded from `sync`; link vs target-content policy is deferred (see workflow §8.4).
+- **Symlink skills, `TaskCreate` / `TaskUpdate` / `TeamCreate`, and memory/runtime state are not synced** — see [Unsupported](#unsupported) for the per-surface behavior.
 - **Permissions and hooks are patched item-by-item**, not whole-file copied. `--include permissions:Write` is the supported way to scope a single item.
 - **Codex host inversion** — when invoked through the Codex plugin, `AI_CONFIG_SYNC_HOST=codex` flips the default direction to `codex → claude`. Use `--from`/`--to` for an explicit override.
 - **MCP env values are copied verbatim by default** — opt in to redaction with `AI_CONFIG_SYNC_STRIP_SECRETS=1`.
@@ -262,7 +351,7 @@ Tracked in [`workflow.md` §8.4](./.claude/docs/workflow.md). Highlights of upco
 
 | Item | Status | Notes |
 | --- | --- | --- |
-| **Additional host integrations** (Cursor, Windsurf, …) | Planned | The launcher pattern is reusable. Each new host gets its own `integrations/<host>-plugin/` after a survey of its plugin/extension spec and config storage layout. |
+| **Additional host integrations** (Gemini CLI,Cursor, …) | Planned | The launcher pattern is reusable. Each new host gets its own `integrations/<host>-plugin/` after a survey of its plugin/extension spec and config storage layout. |
 | **Memory / context sync** | Deferred (RFC-first) | `memory`, implicit context, and agent runtime state currently sit outside the sync surface. The first phase will be **read-only discovery / status**; `--apply` is reserved for opt-in selectors (e.g. `--include memories:<name>`) once storage location, schema, redaction, and conflict policy are settled. |
 | Skill symlink full support | Deferred | Symlinked skills appear in `status` only. `sync` will engage once the link-preserve vs target-materialize policy is finalized. |
 | Extra mappings (`rules/*.json` import, TOML parser swap) | Tracked | Mechanical refactors with no user-visible API change. |
