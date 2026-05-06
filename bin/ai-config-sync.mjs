@@ -3475,7 +3475,7 @@ function copyFileWithMappings(source, target, from, to, options = {}) {
     recordVocabFindings(options?.callArchive, lintHostVocab(text, to), from, to);
     const sourceBasename = source.split("/").pop();
     if (isSkillManifestBasename(sourceBasename)) {
-      text = normalizeYamlFrontmatter(text);
+      text = normalizeSkillManifestFrontmatter(text, from, to);
     }
     writeFileSync(target, text);
   } else {
@@ -3532,12 +3532,21 @@ function applyOverrideParaphrasesAtTargetLines(
 // YAML 1.2 strict parsers (Codex's loader) reject those. Reusing the existing helpers
 // guarantees the destination's frontmatter is 1.2-compliant without changing parse or
 // serialize behavior — only their application site.
-function normalizeYamlFrontmatter(text) {
+function normalizeSkillManifestFrontmatter(text, from, to) {
   if (!text.startsWith("---")) return text;
   const closing = text.indexOf("\n---", 3);
   if (closing === -1) return text;
   const { frontmatter, body } = parseClaudeAgentText(text);
+  if (from === "codex" && to === "claude") {
+    for (const key of ["model_reasoning_effort", "model_thinking budget", "sandbox_mode"]) {
+      delete frontmatter[key];
+    }
+  }
   return serializeClaudeAgentFile(frontmatter, body);
+}
+
+function normalizeYamlFrontmatter(text) {
+  return normalizeSkillManifestFrontmatter(text, "", "");
 }
 
 function isTextMappingFile(path) {
@@ -5512,7 +5521,7 @@ function mergeAgentsMap(base, overlay) {
   if (!overlay || typeof overlay !== "object") return base;
   const merged = { ...base };
   for (const [key, value] of Object.entries(overlay)) {
-    if (key === "fields" || key === "models") continue;
+    if (key === "fields" || key === "models" || key === "sandbox_modes") continue;
     merged[key] = value;
   }
   const baseFields = Array.isArray(base.fields) ? base.fields : [];
@@ -5550,6 +5559,18 @@ function mergeAgentsMap(base, overlay) {
     merged.models = mergedModels;
   } else if (Object.keys(baseModels).length > 0) {
     merged.models = { ...baseModels };
+  }
+
+  const baseSandboxModes =
+    base.sandbox_modes && typeof base.sandbox_modes === "object" ? base.sandbox_modes : {};
+  const overlaySandboxModes =
+    overlay.sandbox_modes && typeof overlay.sandbox_modes === "object"
+      ? overlay.sandbox_modes
+      : null;
+  if (overlaySandboxModes) {
+    merged.sandbox_modes = { ...baseSandboxModes, ...overlaySandboxModes };
+  } else if (Object.keys(baseSandboxModes).length > 0) {
+    merged.sandbox_modes = { ...baseSandboxModes };
   }
   return merged;
 }
@@ -6191,6 +6212,7 @@ function parseCodexAgentText(text) {
     description: fields.description ?? "",
     model: fields.model ?? "",
     model_reasoning_effort: fields.model_reasoning_effort,
+    sandbox_mode: fields.sandbox_mode,
     developer_instructions: fields.developer_instructions ?? "",
   };
 }
@@ -6202,6 +6224,7 @@ function serializeCodexAgentFile(fields) {
     "description",
     "model",
     "model_reasoning_effort",
+    "sandbox_mode",
     "developer_instructions",
   ]) {
     const value = fields[key];
@@ -6231,6 +6254,8 @@ function mapAgentToCodex(claude, options = {}) {
     model: aliases[fm.model] ?? fm.model ?? "",
     developer_instructions: body,
   };
+  const sandboxMode = codexSandboxModeForClaudeTools(fm.tools);
+  if (sandboxMode) codexFields.sandbox_mode = sandboxMode;
   if (options.preserveCodex?.model_reasoning_effort) {
     codexFields.model_reasoning_effort = options.preserveCodex.model_reasoning_effort;
   }
@@ -6267,10 +6292,13 @@ function mapAgentToClaude(codex, options = {}) {
     description: codex.description ?? "",
     model: aliases[codex.model] ?? codex.model ?? "",
   };
+  const sandboxTools = claudeToolsForCodexSandboxMode(codex.sandbox_mode);
+  if (sandboxTools) frontmatter.tools = sandboxTools;
   const preserved = options.preserveClaude ?? {};
   for (const key of ["tools", "color", "memory"]) {
     if (preserved[key] === undefined || preserved[key] === "") continue;
     if (key === "tools") {
+      if (sandboxTools) continue;
       const { sanitized, removed } = sanitizeAgentToolsField(preserved.tools, "claude");
       if (sanitized) frontmatter.tools = sanitized;
       if (removed.length && Array.isArray(options.callArchive)) {
@@ -6289,6 +6317,44 @@ function mapAgentToClaude(codex, options = {}) {
     }
   }
   return { frontmatter, body };
+}
+
+function claudeToolsForCodexSandboxMode(mode) {
+  if (!agentFieldMapping("tools", "sandbox_mode")) return "";
+  const tools = agentsMapData().sandbox_modes?.[mode]?.claude?.tools;
+  if (Array.isArray(tools)) return tools.filter(Boolean).join(", ");
+  return typeof tools === "string" ? tools : "";
+}
+
+function codexSandboxModeForClaudeTools(toolsValue) {
+  if (!agentFieldMapping("tools", "sandbox_mode")) return "";
+  const tools = splitAgentTools(toolsValue);
+  if (tools.length === 0) return "";
+  if (tools.some((tool) => ["Edit", "MultiEdit", "Write"].includes(tool)))
+    return "workspace-write";
+  const modes = agentsMapData().sandbox_modes ?? {};
+  for (const [mode, spec] of Object.entries(modes)) {
+    const mapped = splitAgentTools(spec?.claude?.tools);
+    if (mapped.length === 0) continue;
+    if (tools.every((tool) => mapped.includes(tool))) return mode;
+  }
+  return "";
+}
+
+function splitAgentTools(value) {
+  if (Array.isArray(value)) return value.map((tool) => String(tool).trim()).filter(Boolean);
+  return String(value ?? "")
+    .split(/\s*,\s*/)
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+}
+
+function agentFieldMapping(claude, codex) {
+  const fields = agentsMapData().fields;
+  if (!Array.isArray(fields)) return null;
+  return (
+    fields.find((field) => field?.claude === claude && field?.codex === codex) ?? null
+  );
 }
 
 function modelTiers() {

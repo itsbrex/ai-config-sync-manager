@@ -5,11 +5,22 @@
     { "claude": "description", "codex": "description", "level": "exact" },
     { "claude": "body", "codex": "developer_instructions", "level": "equivalent" },
     { "claude": "model", "codex": "model", "level": "approximate", "alias_table": "models.tiers" },
-    { "claude": "tools", "codex": null, "level": "metadata-only" },
+    { "claude": "tools", "codex": "sandbox_mode", "level": "approximate", "map": "sandbox_modes" },
     { "claude": "color", "codex": null, "level": "metadata-only" },
     { "claude": "memory", "codex": null, "level": "metadata-only" },
     { "claude": null, "codex": "model_reasoning_effort", "level": "metadata-only" }
   ],
+  "sandbox_modes": {
+    "read-only": {
+      "claude": { "tools": ["Bash", "Read", "Grep", "Glob"] }
+    },
+    "workspace-write": {
+      "claude": { "tools": ["Bash", "Edit", "MultiEdit", "Read", "Grep", "Glob", "Write"] }
+    },
+    "danger-full-access": {
+      "claude": { "tools": ["Bash", "Edit", "MultiEdit", "Read", "Grep", "Glob", "Write"] }
+    }
+  },
   "models": {
     "description": "Single source of truth for model mapping. `alias` is the bare frontmatter token used by agent-frontmatter mapping. `terms` is the ordered synonym list for free-text terminology mapping (first term is the canonical replacement target).",
     "tiers": [

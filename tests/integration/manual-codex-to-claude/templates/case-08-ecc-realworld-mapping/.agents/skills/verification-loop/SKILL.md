@@ -1,6 +1,9 @@
 ---
 name: verification-loop
 description: "A comprehensive verification system for Claude Code sessions."
+model: gpt-5.4
+model_reasoning_effort: medium
+sandbox_mode: workspace-write
 ---
 
 # Verification Loop Skill

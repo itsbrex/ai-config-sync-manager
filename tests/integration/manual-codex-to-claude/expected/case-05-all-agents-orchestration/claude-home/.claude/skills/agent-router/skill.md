@@ -1,6 +1,7 @@
 ---
 name: agent-router
 description: Choose one external agent for bounded comparison work.
+model: opus
 ---
 
 # Agent Router

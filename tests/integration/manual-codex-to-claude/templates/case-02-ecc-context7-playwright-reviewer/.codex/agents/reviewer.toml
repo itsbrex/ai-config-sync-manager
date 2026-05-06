@@ -1,3 +1,6 @@
 name = "reviewer"
 description = "Review code for correctness, security, and missing tests."
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+sandbox_mode = "workspace-write"
 developer_instructions = "Lead with findings and include file references."

@@ -1,6 +1,7 @@
 ---
 name: gstack
 description: Triage stack traces and map them to likely source files.
+model: haiku
 ---
 
 # GStack

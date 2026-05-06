@@ -10,7 +10,7 @@ HOME_DIR="${AI_CONFIG_SYNC_HOME}"
 REPO="${1:?repo root path required as \$1}"
 
 # 1) Run paraphrase --apply: rewrites the Skill token on the codex side
-#    (skills/verification-loop/SKILL.md L6) and registers the override.
+#    (skills/verification-loop/SKILL.md L9) and registers the override.
 node "$REPO/bin/ai-config-sync.mjs" paraphrase \
   --scope global \
   --apply \

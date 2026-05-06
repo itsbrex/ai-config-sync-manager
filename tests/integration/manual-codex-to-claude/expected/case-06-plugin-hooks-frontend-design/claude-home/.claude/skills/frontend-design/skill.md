@@ -1,6 +1,7 @@
 ---
 name: frontend-design
 description: Review and adjust production UI with existing design conventions.
+model: sonnet
 ---
 
 # Frontend Design

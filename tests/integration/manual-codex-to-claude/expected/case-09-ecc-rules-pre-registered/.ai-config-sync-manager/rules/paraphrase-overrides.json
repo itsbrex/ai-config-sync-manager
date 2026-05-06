@@ -2,14 +2,14 @@
   "version": 1,
   "overrides": [
     {
-      "id": "global-skills-verification-loop-codex-L6",
+      "id": "global-skills-verification-loop-codex-L9",
       "scope": "global",
       "area": "skills",
       "item": "verification-loop",
       "claude_path": "__LAB_HOME__/.claude/skills/verification-loop/SKILL.md",
       "codex_path": "__LAB_HOME__/.agents/skills/verification-loop/SKILL.md",
-      "claude_line": 6,
-      "codex_line": 6,
+      "claude_line": 7,
+      "codex_line": 9,
       "claude_text": "# Verification Loop Skill",
       "codex_text": "# Verification Loop verification routine",
       "tokens": [
