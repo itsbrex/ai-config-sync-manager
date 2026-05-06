@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Source this file to point manual ai-config-sync commands at lab/<case>.
+# Point manual ai-config-sync commands at lab/<case>.
 # Usage:
 #   source scripts/set-home-to-test-lab.sh                # paths only
 #   source scripts/set-home-to-test-lab.sh case-name      # + per-case home
 #   source scripts/set-home-to-test-lab.sh                # from lab/<case> infers case
+#   scripts/set-home-to-test-lab.sh case-name             # opens a configured shell
 
 script_path="${BASH_SOURCE[0]:-$0}"
 base="$(cd "$(dirname "$script_path")/.." && pwd)"
@@ -18,12 +19,6 @@ if [ -n "${ZSH_EVAL_CONTEXT:-}" ]; then
   esac
 elif [ -n "${BASH_SOURCE:-}" ] && [ "${BASH_SOURCE[0]}" != "$0" ]; then
   is_sourced=1
-fi
-
-if [ "$is_sourced" -ne 1 ]; then
-  echo "source this script so it can update the current shell:" >&2
-  echo "  source $script_path [case-name]" >&2
-  exit 2
 fi
 
 # Always exported base paths so reset.sh / run-cases.sh can reuse them.
@@ -44,13 +39,20 @@ if [ -z "$case_name" ]; then
 fi
 
 if [ -z "$case_name" ]; then
-  return 0
+  if [ "$is_sourced" -eq 1 ]; then
+    return 0
+  fi
+  echo "missing case name; run from lab/<case> or pass [case-name]" >&2
+  exit 2
 fi
 
 if [ ! -d "$lab/$case_name" ]; then
   echo "missing lab case: $lab/$case_name" >&2
   echo "run scripts/reset.sh $case_name first if you need to create it" >&2
-  return 1
+  if [ "$is_sourced" -eq 1 ]; then
+    return 1
+  fi
+  exit 1
 fi
 
 export AI_CONFIG_SYNC_HOME="$lab/$case_name"
@@ -66,3 +68,8 @@ echo "AI_CONFIG_SYNC_HOME=$AI_CONFIG_SYNC_HOME"
 echo "AI_CONFIG_SYNC_REPO_ROOT=$AI_CONFIG_SYNC_REPO_ROOT"
 echo "AI_CONFIG_SYNC_MANAGER_ROOT=$AI_CONFIG_SYNC_MANAGER_ROOT"
 echo "AI_CONFIG_SYNC_MANUAL_MCP_SCOPE=$AI_CONFIG_SYNC_MANUAL_MCP_SCOPE"
+
+if [ "$is_sourced" -ne 1 ]; then
+  cd "$AI_CONFIG_SYNC_HOME" || exit 1
+  exec "${SHELL:-/bin/zsh}" -l
+fi
