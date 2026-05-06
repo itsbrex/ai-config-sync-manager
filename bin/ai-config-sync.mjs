@@ -3532,21 +3532,31 @@ function applyOverrideParaphrasesAtTargetLines(
 // YAML 1.2 strict parsers (Codex's loader) reject those. Reusing the existing helpers
 // guarantees the destination's frontmatter is 1.2-compliant without changing parse or
 // serialize behavior — only their application site.
-function normalizeSkillManifestFrontmatter(text, from, to) {
+function normalizeSkillManifestFrontmatter(text, from, to, options = {}) {
   if (!text.startsWith("---")) return text;
   const closing = text.indexOf("\n---", 3);
   if (closing === -1) return text;
   const { frontmatter, body } = parseClaudeAgentText(text);
-  if (from === "codex" && to === "claude") {
+  const stripHostOnly = options.stripHostOnly === true;
+  if (stripHostOnly || (from === "codex" && to === "claude")) {
     for (const key of ["model_reasoning_effort", "model_thinking budget", "sandbox_mode"]) {
       delete frontmatter[key];
+    }
+  }
+  if (options.normalizeModelAlias === true && typeof frontmatter.model === "string") {
+    const aliases = modelAliasMap("codex", "claude");
+    if (aliases[frontmatter.model]) {
+      frontmatter.model = aliases[frontmatter.model];
     }
   }
   return serializeClaudeAgentFile(frontmatter, body);
 }
 
 function normalizeYamlFrontmatter(text) {
-  return normalizeSkillManifestFrontmatter(text, "", "");
+  return normalizeSkillManifestFrontmatter(text, "", "", {
+    stripHostOnly: true,
+    normalizeModelAlias: true,
+  });
 }
 
 function isTextMappingFile(path) {
@@ -6093,8 +6103,8 @@ function agentsEquivalent(claudeAgent, codexAgent, entry, item, rules) {
 }
 
 function agentBodiesEqual(claudeBody, codexBody, terms) {
-  const left = stripAgentMigrationPreamble(claudeBody ?? "");
-  const right = stripAgentMigrationPreamble(codexBody ?? "");
+  const left = stripAgentMigrationPreamble(claudeBody ?? "").replace(/\n+$/, "");
+  const right = stripAgentMigrationPreamble(codexBody ?? "").replace(/\n+$/, "");
   if (left === right) return true;
   if (transformTextForHost(left, "claude", "codex") === right) return true;
   if (transformTextForHost(right, "codex", "claude") === left) return true;
