@@ -3263,24 +3263,17 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
 
     const targetAbs = join(targetDir, targetEntry.raw);
     const sourceAbs = join(sourceDir, sourceEntry.raw);
-    const targetCanonical = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
-    const sourceCanonical = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
-
-    let targetContent = targetCanonical;
-    let sourceContent = sourceCanonical;
-
     const overrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost);
-    if (overrides.length > 0) {
-      const masked = maskBodiesForHosts(
-        targetContent,
-        sourceContent,
-        targetHost,
-        sourceHost,
-        overrides
-      );
-      targetContent = masked.target;
-      sourceContent = masked.source;
-    }
+    const targetContent = (
+      overrides.length > 0
+        ? readSkillFileMaskedForHash(targetDir, targetEntry.raw, targetHost, overrides)
+        : readSkillFileForHash(targetDir, targetEntry.raw)
+    ).toString("utf8");
+    let sourceContent = (
+      overrides.length > 0
+        ? readSkillFileMaskedForHash(sourceDir, sourceEntry.raw, sourceHost, overrides)
+        : readSkillFileForHash(sourceDir, sourceEntry.raw)
+    ).toString("utf8");
     if (isTextMappingFile(sourceAbs) && isTextMappingFile(targetAbs)) {
       sourceContent = transformTextForHost(sourceContent, sourceHost, targetHost);
     }
@@ -6992,13 +6985,42 @@ function sortedSkillFiles(path) {
 function readSkillFileForHash(path, raw) {
   const absolute = join(path, raw);
   const content = readFileSync(absolute);
+  if (!isTextMappingFile(absolute)) return content;
+  return Buffer.from(normalizeSkillFileText(content.toString("utf8"), raw, absolute), "utf8");
+}
+
+function normalizeSkillFileText(text, raw, absolute) {
+  if (!isTextMappingFile(absolute)) return text;
   const basename = raw.split("/").pop();
-  const text = isSkillManifestBasename(basename)
-    ? normalizeYamlFrontmatter(content.toString("utf8"))
-    : content.toString("utf8");
-  return isTextMappingFile(absolute)
-    ? Buffer.from(normalizeComparableAgentPaths(text), "utf8")
-    : content;
+  const normalized = isSkillManifestBasename(basename) ? normalizeYamlFrontmatter(text) : text;
+  return normalizeComparableAgentPaths(normalized);
+}
+
+// Apply override masks to RAW skill-file text using the override's raw-file
+// line numbers, then normalize. Status comparison relies on normalized
+// frontmatter for equivalence, but override line numbers are recorded
+// against raw file lines (paraphrase --apply writes raw lines). Masking
+// after normalize would silently miss the target line because frontmatter
+// normalization can shift body line numbers (e.g. codex SKILL.md heading
+// L9 -> L7 once host-only fields like model_reasoning_effort and
+// sandbox_mode are stripped).
+function readSkillFileMaskedForHash(path, raw, host, overrides) {
+  const absolute = join(path, raw);
+  const content = readFileSync(absolute);
+  if (!isTextMappingFile(absolute)) return content;
+  const root = expandHome(path);
+  const pathKey = host === "claude" ? "claude_path" : "codex_path";
+  const lineKey = host === "claude" ? "claude_line" : "codex_line";
+  const textKey = host === "claude" ? "claude_text" : "codex_text";
+  const fileOverrides = (overrides ?? []).filter((entry) =>
+    overrideMatchesSkillFile(entry[pathKey], root, raw)
+  );
+  let text = content.toString("utf8");
+  for (const entry of fileOverrides) {
+    const sentinel = ` PO:${entry.id} `;
+    text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
+  }
+  return Buffer.from(normalizeSkillFileText(text, raw, absolute), "utf8");
 }
 
 function normalizeComparableAgentPaths(text) {
@@ -7229,32 +7251,10 @@ function activeSkillOverridesForDirPair(claudeDir, codexDir) {
 function overriddenSkillContentHash(path, host, overrides) {
   if (!existsSync(path)) return "missing";
   const hash = createHash("sha256");
-  const root = expandHome(path);
-  const pathKey = host === "claude" ? "claude_path" : "codex_path";
-  const lineKey = host === "claude" ? "claude_line" : "codex_line";
-  const textKey = host === "claude" ? "claude_text" : "codex_text";
-
   for (const { raw, normalized } of sortedSkillFiles(path)) {
-    const absolute = join(path, raw);
-    const canonical = readSkillFileForHash(path, raw);
-    let content;
-    if (isTextMappingFile(absolute)) {
-      let text = canonical.toString("utf8");
-      const fileOverrides = overrides.filter((entry) =>
-        overrideMatchesSkillFile(entry[pathKey], root, raw)
-      );
-      for (const entry of fileOverrides) {
-        const sentinel = ` PO:${entry.id} `;
-        text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
-      }
-      content = Buffer.from(text, "utf8");
-    } else {
-      content = canonical;
-    }
     hash.update(normalized);
-    hash.update(content);
+    hash.update(readSkillFileMaskedForHash(path, raw, host, overrides));
   }
-
   return hash.digest("hex").slice(0, 12);
 }
 
@@ -7266,32 +7266,15 @@ function overriddenSkillContentHash(path, host, overrides) {
 function overriddenTransformedSkillContentHash(path, sourceHost, targetHost, overrides) {
   if (!existsSync(path)) return "missing";
   const hash = createHash("sha256");
-  const root = expandHome(path);
-  const pathKey = sourceHost === "claude" ? "claude_path" : "codex_path";
-  const lineKey = sourceHost === "claude" ? "claude_line" : "codex_line";
-  const textKey = sourceHost === "claude" ? "claude_text" : "codex_text";
-
   for (const { raw, normalized } of sortedSkillFiles(path)) {
     const absolute = join(path, raw);
-    const canonical = readSkillFileForHash(path, raw);
-    let content;
-    if (isTextMappingFile(absolute)) {
-      let text = canonical.toString("utf8");
-      const fileOverrides = overrides.filter((entry) =>
-        overrideMatchesSkillFile(entry[pathKey], root, raw)
-      );
-      for (const entry of fileOverrides) {
-        const sentinel = ` PO:${entry.id} `;
-        text = maskBodyAtLine(text, entry[lineKey], entry[textKey], sentinel);
-      }
-      content = Buffer.from(transformTextForHost(text, sourceHost, targetHost), "utf8");
-    } else {
-      content = canonical;
-    }
+    const masked = readSkillFileMaskedForHash(path, raw, sourceHost, overrides);
+    const content = isTextMappingFile(absolute)
+      ? Buffer.from(transformTextForHost(masked.toString("utf8"), sourceHost, targetHost), "utf8")
+      : masked;
     hash.update(normalized);
     hash.update(content);
   }
-
   return hash.digest("hex").slice(0, 12);
 }
 
