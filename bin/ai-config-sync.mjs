@@ -7354,13 +7354,16 @@ async function runConnect() {
     console.log(`${result.status}: ${result.message}`);
   }
 
-  if (!nextState.claudePlugin) {
+  if (claudeHostInstalled() && !nextState.claudePlugin) {
     console.log(
       "Action needed: install Claude plugin with /plugin install config-manager@ai-config-sync-manager"
     );
   }
 
-  if (!existsSync(nextState.codexPlugin) || !codexMarketplaceIncludes(nextState.codexMarketplace)) {
+  if (
+    codexHostInstalled() &&
+    (!existsSync(nextState.codexPlugin) || !codexMarketplaceIncludes(nextState.codexMarketplace))
+  ) {
     console.log("Action needed: register Codex plugin in ~/.agents/plugins/marketplace.json");
   }
 }
@@ -7389,16 +7392,38 @@ async function registerMissingIntegrations(state) {
     writeDefaultStatusIgnore(state.statusIgnore);
   });
 
-  await tryConnectActionAsync(results, "registered Claude plugin", async () => {
-    await installClaudePlugin(state.claudePluginTarget);
-  });
+  if (claudeHostInstalled()) {
+    await tryConnectActionAsync(results, "registered Claude plugin", async () => {
+      await installClaudePlugin(state.claudePluginTarget);
+    });
+  } else {
+    results.push({
+      status: "skipped",
+      message: "Claude host not detected (~/.claude missing); rerun connect after installing Claude Code",
+    });
+  }
 
-  await tryConnectActionAsync(results, "registered Codex plugin", async () => {
-    await installCodexPlugin(state.codexPlugin);
-    updateCodexMarketplace(state.codexMarketplace, state.codexPlugin);
-  });
+  if (codexHostInstalled()) {
+    await tryConnectActionAsync(results, "registered Codex plugin", async () => {
+      await installCodexPlugin(state.codexPlugin);
+      updateCodexMarketplace(state.codexMarketplace, state.codexPlugin);
+    });
+  } else {
+    results.push({
+      status: "skipped",
+      message: "Codex host not detected (~/.codex and ~/.agents both missing); rerun connect after installing Codex",
+    });
+  }
 
   return results;
+}
+
+function claudeHostInstalled() {
+  return existsSync(`${home}/.claude`);
+}
+
+function codexHostInstalled() {
+  return existsSync(`${home}/.codex`) || existsSync(`${home}/.agents`);
 }
 
 function ensureDirectoryRoot(path) {

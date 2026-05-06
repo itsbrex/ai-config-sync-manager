@@ -716,6 +716,8 @@ test("commands support command-specific help", () => {
 
 test("connect registers missing host integrations in an isolated home", () => {
   const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
 
   const output = runCli(fixture, ["connect"]);
   const installed = JSON.parse(
@@ -745,6 +747,34 @@ test("connect registers missing host integrations in an isolated home", () => {
     join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager")
   );
   assert.equal(marketplace.plugins[0].name, "ai-config-sync-manager");
+});
+
+test("connect skips host registration when host directory is missing", () => {
+  const fixture = createFixture();
+
+  const output = runCli(fixture, ["connect"]);
+
+  assert.match(output, /skipped: Claude host not detected/);
+  assert.match(output, /skipped: Codex host not detected/);
+  assert.equal(existsSync(join(fixture.home, ".claude/plugins")), false);
+  assert.equal(existsSync(join(fixture.home, "plugins/ai-config-sync-manager")), false);
+  assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
+});
+
+test("connect registers only the detected host when one is missing", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+
+  const output = runCli(fixture, ["connect"]);
+
+  assert.match(output, /ok: registered Claude plugin/);
+  assert.match(output, /skipped: Codex host not detected/);
+  assert.ok(
+    existsSync(
+      join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager/bin/ai-config-sync")
+    )
+  );
+  assert.equal(existsSync(join(fixture.home, "plugins/ai-config-sync-manager")), false);
 });
 
 test("status reports same-name skill content drift as a manual conflict", () => {
@@ -5763,6 +5793,8 @@ test("connect cleans stale managed Claude plugin tree before reinstalling", () =
 
 test("connect injects root package version into installed_plugins.json and codex marketplace", () => {
   const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
   runCli(fixture, ["connect"]);
 
   const installed = JSON.parse(
