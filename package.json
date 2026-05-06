@@ -32,6 +32,7 @@
     "ai-config-sync": "./bin/ai-config-sync.mjs"
   },
   "scripts": {
+    "prepare": "node scripts/build-dist.mjs --skip-sync",
     "build:dist": "node scripts/build-dist.mjs",
     "build:dist:no-sync": "node scripts/build-dist.mjs --skip-sync",
     "check": "tsc -p tsconfig.check.json",

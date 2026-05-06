@@ -219,8 +219,11 @@ After `npm install -g`, every host calls the same npm package, so two hosts cann
 
 ## Local dev from this repo
 
+`npm install` runs the `prepare` script, which builds `dist/` (without touching active plugin caches) so the launcher and host plugin trees are ready to inspect immediately after clone.
+
 ```bash
-npm run dev:setup     # = npm link + npm run build:dist
+npm install           # also runs `prepare` -> build:dist:no-sync
+npm run dev:setup     # = npm link + npm run build:dist (with active cache sync)
 npm run dev:teardown  # revert
 npm test              # node:test integration suite
 npm run check         # opt-in JSDoc / @ts-check
