@@ -10,11 +10,11 @@ manually:
    `.agents/skills/verification-loop/SKILL.md` (line 6) and registers the
    override under `paraphrase-overrides.json`. Also seeds
    `paraphrase-map.json` with `Skill -> verification routine`.
-2. Extra dictionary entry appended to `paraphrase-map.json` —
-   `Hooks -> event handlers`. This token has no matching line in the
-   fixture, so it never produces an override; it only lives in the map.
-   This split (override = matched-line registry, map = lookup library)
-   keeps the two files distinct rather than redundant copies.
+2. `paraphrase --apply --map "claude_only:Hooks=event handlers"` —
+   registers an extra dictionary entry through the CLI map path. This token
+   has no matching line in the fixture, so it never produces an override; it
+   only lives in the map. This split (override = matched-line registry, map =
+   lookup library) keeps the two files distinct rather than redundant copies.
 3. Hand-authored `.ai-config-sync-manager/rules/status-ignore.json` —
    masks the over-translated `Codex CLI` / `AGENTS.md` table cells in the
    instructions area.

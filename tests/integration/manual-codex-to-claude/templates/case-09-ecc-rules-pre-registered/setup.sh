@@ -17,21 +17,14 @@ node "$REPO/bin/ai-config-sync.mjs" paraphrase \
   --map "Skill=verification routine" \
   --non-interactive
 
-# 2) Extend paraphrase-map.json with an extra dictionary entry that the
-#    override does NOT use yet — exercises the "map = library, override =
-#    matched-line registry" split. The Hooks token has no matching line in
-#    this fixture so no override is registered, but the mapping persists
-#    for future paraphrase --apply runs.
-node -e '
-const fs = require("fs");
-const path = process.argv[1];
-const data = fs.existsSync(path)
-  ? JSON.parse(fs.readFileSync(path, "utf8"))
-  : { version: 1, claude_only: {}, codex_only: {} };
-data.claude_only = data.claude_only || {};
-data.claude_only.Hooks = "event handlers";
-fs.writeFileSync(path, JSON.stringify(data, null, 2) + "\n");
-' "$HOME_DIR/.ai-config-sync-manager/rules/paraphrase-map.json"
+# 2) Register an extra dictionary entry through --map. The Hooks token has
+#    no matching line in this fixture so no override is registered, but the
+#    mapping persists for future paraphrase --apply runs.
+node "$REPO/bin/ai-config-sync.mjs" paraphrase \
+  --scope global \
+  --apply \
+  --map "claude_only:Hooks=event handlers" \
+  --non-interactive
 
 # 3) Hand-author status-ignore.json to mask over-translated table cells in
 #    the instructions area.
