@@ -255,6 +255,7 @@ ai-config-sync paraphrase --register --include skills:foo --apply    # register 
 - Prefix with `claude_only:` or `codex_only:` to disambiguate (e.g. `claude_only:Read=Inspect`).
 - Comma-separated to chain entries: `--map "Read=Inspect,codex_only:update_plan=Plan refresh"`.
 - Tokens not present in `host-strict-vocab.json` are rejected unless prefixed.
+- **Paraphrase can be free-form prose, not just a single word.** Pick wording that reads naturally on the *opposite* host so the rewritten line still makes sense in context — e.g. when masking a Claude-only token, choose phrasing a Codex prompt would actually use (`Read=read the file`, `Write=write to the file`, `Glob=glob for files`). Quote the value when it contains spaces.
 
 ### Map files (layered: project → home → repo)
 
@@ -280,6 +281,12 @@ ai-config-sync paraphrase --scope global --include agents:code-structure-analyst
 # Side already pre-paraphrased outside the CLI — just record the override
 ai-config-sync paraphrase --register --include skills:commit-insight-pipeline \
   --map "Read=Inspect,Write=Emit" --apply
+
+# Natural-language paraphrase — substitute Claude-only tokens with wording a
+# Codex prompt would actually use, so the masked line still reads naturally
+ai-config-sync paraphrase \
+  --map "Read=read the file,Write=write to the file,Glob=glob for files" \
+  --apply
 ```
 
 ### Stale overrides
