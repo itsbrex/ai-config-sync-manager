@@ -111,10 +111,10 @@ ai-config-sync paraphrase
 
 ### Host plugin commands
 
-| Host | Connect | Status | Sync |
-| --- | --- | --- | --- |
-| **Claude** | `/config-manager:connect` | `/config-manager:status` | `/config-manager:sync` |
-| **Codex** | `config-manager-connect` | `config-manager-status` | `config-manager-sync` |
+| Host | Connect | Status | Sync | Paraphrase |
+| --- | --- | --- | --- | --- |
+| **Claude** | `/config-manager:connect` | `/config-manager:status` | `/config-manager:sync` | `/config-manager:paraphrase` |
+| **Codex** | `config-manager-connect` | `config-manager-status` | `config-manager-sync` | `config-manager-paraphrase` |
 
 ## Selector syntax
 

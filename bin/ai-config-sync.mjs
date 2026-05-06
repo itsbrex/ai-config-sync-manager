@@ -217,7 +217,8 @@ function createStatusReport(scopes, selectors = emptySelectors()) {
       vocabFindings.length,
       scopes,
       paraphraseOverrides.active.length,
-      paraphraseOverrides.stale.length
+      paraphraseOverrides.stale.length,
+      vocabFindings.filter((f) => !f.recommended).length
     ),
   };
 }
@@ -227,7 +228,8 @@ function buildStatusSummary(
   vocabCount,
   scopes,
   overrideActiveCount = 0,
-  overrideStaleCount = 0
+  overrideStaleCount = 0,
+  vocabManualCount = 0
 ) {
   const scopeLabel = scopes.join("+");
   const parts = [];
@@ -236,7 +238,17 @@ function buildStatusSummary(
       ? `No diff detected for ${scopeLabel} scope.`
       : `${diffCount} diff(s) detected for ${scopeLabel} scope.`
   );
-  if (vocabCount > 0) parts.push(`${vocabCount} vocab mismatch(es) detected.`);
+  if (vocabCount > 0) {
+    const autoCount = vocabCount - vocabManualCount;
+    const segments = [];
+    if (autoCount > 0) segments.push(`${autoCount} auto-fix on \`sync --apply\``);
+    if (vocabManualCount > 0) {
+      segments.push(
+        `${vocabManualCount} manual — run \`ai-config-sync paraphrase\` (not \`sync\`) to mask host-only tokens`
+      );
+    }
+    parts.push(`${vocabCount} vocab mismatch(es) detected (${segments.join("; ")}).`);
+  }
   if (overrideActiveCount > 0 || overrideStaleCount > 0) {
     parts.push(
       `${overrideActiveCount} paraphrase override(s) active, ${overrideStaleCount} stale.`
@@ -317,7 +329,7 @@ function renderVocabFindings(findings) {
 
   if (manual.length > 0) {
     lines.push("");
-    lines.push("Manual review (no auto-equivalent):");
+    lines.push("Manual review — run `ai-config-sync paraphrase` to rewrite both sides and register an override:");
     for (const f of [...manual].sort(sortFn)) {
       const hostLabel = f.host === "claude" ? "Claude" : "Codex";
       const sideLabel = f.side.replace("_only", "-only");
