@@ -37,7 +37,15 @@ node ../../../bin/ai-config-sync.mjs sync \
 node ../../../bin/ai-config-sync.mjs sync \
   --scope global --from codex --to claude --apply
 
+# MCP-only manual run. case-10 exports global; other cases export project.
+(
+  cd "$AI_CONFIG_SYNC_HOME" &&
+  node "$AI_CONFIG_SYNC_REPO_ROOT/bin/ai-config-sync.mjs" sync \
+    --scope "$AI_CONFIG_SYNC_MANUAL_MCP_SCOPE" --include mcp --from codex --to claude --dry-run
+)
+
 # Prompt-driven/manual commands now use lab/${case} as AI_CONFIG_SYNC_HOME.
+# Cases with templates/<case>/mcp.scope also export AI_CONFIG_SYNC_MANUAL_MCP_SCOPE.
 ai-config-sync status --scope global
 ai-config-sync paraphrase --map "Skill=verification routine" --apply
 

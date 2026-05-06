@@ -1,0 +1,10 @@
+[mcp_servers.global_stdio]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-everything"]
+env = { GLOBAL_STDIO_ENV = "enabled", GLOBAL_STDIO_TOKEN = "test-token" }
+startup_timeout_sec = 30
+
+[mcp_servers.global_http]
+transport = "streamable_http"
+url = "https://mcp.example.com/mcp"
+bearer_token_env_var = "GLOBAL_HTTP_TOKEN"

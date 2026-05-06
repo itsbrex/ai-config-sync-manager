@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "global_stdio": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-everything"
+      ],
+      "env": {
+        "GLOBAL_STDIO_ENV": "enabled",
+        "GLOBAL_STDIO_TOKEN": "test-token"
+      }
+    },
+    "global_http": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GLOBAL_HTTP_TOKEN}"
+      }
+    }
+  }
+}

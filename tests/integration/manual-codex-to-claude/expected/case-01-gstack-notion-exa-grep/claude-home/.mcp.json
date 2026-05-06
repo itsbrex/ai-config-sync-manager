@@ -12,10 +12,5 @@
       "type": "http",
       "url": "https://mcp.exa.ai/mcp"
     }
-  },
-  "firstStartTime": "2026-05-05T04:14:15.402Z",
-  "opusProMigrationComplete": true,
-  "sonnet1m45MigrationComplete": true,
-  "seenNotifications": {},
-  "migrationVersion": 13
+  }
 }
