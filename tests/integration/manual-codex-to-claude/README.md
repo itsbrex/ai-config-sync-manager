@@ -12,6 +12,8 @@ manual-codex-to-claude/
   lab/<case>/              # Working copy — sync mutates this in-place
   expected/<case>/         # Expected post-sync Claude tree (claude-home/.claude{,.json})
   scripts/reset.sh         # Restore lab/<case> from templates/<case>
+  scripts/set-home-to-test-lab.sh
+                           # Source in a manual shell to export AI_CONFIG_SYNC_HOME for lab/<case>
   scripts/run-cases.sh     # Reset all → run status/dry-run/apply → diff vs expected
   templates/case-template/ # Generic skeleton for new cases (legacy split layout)
 ```
@@ -25,16 +27,19 @@ scripts/reset.sh all
 
 # Manual single-case run
 case=case-01-gstack-notion-exa-grep
-AI_CONFIG_SYNC_HOME="$(pwd)/lab/${case}" \
-  node ../../../bin/ai-config-sync.mjs status --scope global
+source scripts/set-home-to-test-lab.sh "${case}"
 
-AI_CONFIG_SYNC_HOME="$(pwd)/lab/${case}" \
-  node ../../../bin/ai-config-sync.mjs sync \
-    --scope global --from codex --to claude --dry-run
+node ../../../bin/ai-config-sync.mjs status --scope global
 
-AI_CONFIG_SYNC_HOME="$(pwd)/lab/${case}" \
-  node ../../../bin/ai-config-sync.mjs sync \
-    --scope global --from codex --to claude --apply
+node ../../../bin/ai-config-sync.mjs sync \
+  --scope global --from codex --to claude --dry-run
+
+node ../../../bin/ai-config-sync.mjs sync \
+  --scope global --from codex --to claude --apply
+
+# Prompt-driven/manual commands now use lab/${case} as AI_CONFIG_SYNC_HOME.
+ai-config-sync status --scope global
+ai-config-sync paraphrase --map "Skill=verification routine" --apply
 
 # Compare
 diff -ruN --exclude='.ai-config-sync-manager' \
