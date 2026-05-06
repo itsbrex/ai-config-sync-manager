@@ -1,0 +1,22 @@
+{
+  "plugins": [
+    {
+      "name": "frontend-design",
+      "path": "/tmp/p/frontend-design",
+      "source": "/tmp/p/frontend-design",
+      "version": "0.1.0"
+    },
+    {
+      "name": "review-tools",
+      "path": "/tmp/p/review-tools",
+      "source": "/tmp/p/review-tools",
+      "version": "0.1.0"
+    },
+    {
+      "name": "ai-config-sync-manager",
+      "path": "/tmp/p/ai-config-sync-manager",
+      "source": "/tmp/p/ai-config-sync-manager",
+      "version": "0.1.0"
+    }
+  ]
+}

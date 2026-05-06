@@ -1193,6 +1193,117 @@ test("status ignore file also removes entries from sync plans", () => {
   assert.equal(plan.operations.length, 0);
 });
 
+test("status surfaces global plugins area as unsupported and skips self-managed", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude/plugins/installed_plugins.json"), {
+    plugins: {
+      "foo@user": [{ installPath: "/tmp/p/foo" }],
+      "config-manager@ai-config-sync-manager": [{ installPath: "/tmp/p/cm" }],
+    },
+  });
+  writeJson(join(fixture.home, ".agents/plugins/marketplace.json"), {
+    plugins: [
+      { name: "bar", path: "/tmp/p/bar", source: "/tmp/p/bar", version: "0.1.0" },
+      { name: "ai-config-sync-manager", path: "/tmp/p/cm", source: "/tmp/p/cm", version: "0.1.0" },
+    ],
+  });
+
+  const report = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--json"]));
+  const pluginEntry = report.entries.find((entry) => entry.area === "plugins");
+  assert.ok(pluginEntry, "plugins entry should be present");
+  assert.equal(pluginEntry.scope, "global");
+  assert.equal(pluginEntry.risk, "manual");
+  assert.equal(pluginEntry.statusOnly, true);
+  assert.deepEqual(pluginEntry.unsupported, ["bar", "foo@user"]);
+  assert.equal(pluginEntry.itemQualities["foo@user"], "unsupported");
+  assert.equal(pluginEntry.itemQualities.bar, "unsupported");
+  assert.equal(pluginEntry.claude, "1 plugin(s)");
+  assert.equal(pluginEntry.codex, "1 plugin(s)");
+});
+
+test("status omits plugins entry when manifests are empty or self-managed only", () => {
+  const fixtureA = createFixture();
+  const reportA = JSON.parse(runCli(fixtureA, ["status", "--scope", "global", "--json"]));
+  assert.equal(
+    reportA.entries.some((entry) => entry.area === "plugins"),
+    false
+  );
+
+  const fixtureB = createFixture();
+  writeJson(join(fixtureB.home, ".claude/plugins/installed_plugins.json"), {
+    plugins: {
+      "config-manager@ai-config-sync-manager": [{ installPath: "/tmp/p/cm" }],
+    },
+  });
+  const reportB = JSON.parse(runCli(fixtureB, ["status", "--scope", "global", "--json"]));
+  assert.equal(
+    reportB.entries.some((entry) => entry.area === "plugins"),
+    false
+  );
+});
+
+test("status human-readable output includes plugin install hints", () => {
+  const fixture = createFixture();
+  writeJson(join(fixture.home, ".claude/plugins/installed_plugins.json"), {
+    plugins: {
+      "foo@user": [{ installPath: "/tmp/p/foo" }],
+    },
+  });
+  writeJson(join(fixture.home, ".agents/plugins/marketplace.json"), {
+    plugins: [{ name: "bar", path: "/tmp/p/bar", source: "/tmp/p/bar", version: "0.1.0" }],
+  });
+
+  const output = runCli(fixture, [
+    "status",
+    "--scope",
+    "global",
+    "--include",
+    "plugins",
+  ]);
+  assert.match(output, /Plugin sync is unsupported/);
+  assert.match(output, /\/plugin install/);
+  assert.match(output, /\.agents\/plugins\/marketplace\.json/);
+  assert.match(output, /global\/plugins: !foo@user \[unsupported\] \(unsupported, manual\)/);
+});
+
+test("status ignore hides plugins entry and supports item-level filtering", () => {
+  const fixture = createFixture();
+  writeJson(join(fixture.home, ".claude/plugins/installed_plugins.json"), {
+    plugins: {
+      "foo@user": [{ installPath: "/tmp/p/foo" }],
+      "baz@user": [{ installPath: "/tmp/p/baz" }],
+    },
+  });
+  writeJson(join(fixture.home, ".agents/plugins/marketplace.json"), {
+    plugins: [{ name: "bar", path: "/tmp/p/bar", source: "/tmp/p/bar", version: "0.1.0" }],
+  });
+
+  writeJson(join(fixture.home, ".ai-config-sync-manager/rules/status-ignore.json"), {
+    version: 1,
+    exclude: [{ scope: "global", area: "plugins" }],
+  });
+  const ignoredArea = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--json"]));
+  assert.ok(ignoredArea.statusIgnored >= 1);
+  assert.equal(
+    ignoredArea.entries.some((entry) => entry.area === "plugins"),
+    false
+  );
+
+  writeJson(join(fixture.home, ".ai-config-sync-manager/rules/status-ignore.json"), {
+    version: 1,
+    exclude: [{ scope: "global", area: "plugins", item: "foo@user" }],
+  });
+  const ignoredItem = JSON.parse(runCli(fixture, ["status", "--scope", "global", "--json"]));
+  const remaining = ignoredItem.entries.find((entry) => entry.area === "plugins");
+  assert.ok(remaining, "plugins entry should remain after item-level ignore");
+  assert.equal(remaining.unsupported.includes("foo@user"), false);
+  assert.ok(remaining.unsupported.includes("bar"));
+  assert.ok(remaining.unsupported.includes("baz@user"));
+  assert.ok(ignoredItem.statusIgnored >= 1);
+});
+
 test("sync apply maps Bash permissions, MCP tool approvals, and creates backups", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude"), { recursive: true });

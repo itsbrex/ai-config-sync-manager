@@ -34,7 +34,7 @@ const runtimePackage = readRuntimePackage();
  * @typedef {"global" | "project"} ConfigScope
  * @typedef {"dry-run" | "apply"} SyncMode
  * @typedef {"safe" | "partial" | "manual"} RiskLevel
- * @typedef {"instructions" | "skills" | "agents" | "mcp" | "permissions" | "hooks" | "commands"} ConfigArea
+ * @typedef {"instructions" | "skills" | "agents" | "mcp" | "permissions" | "hooks" | "commands" | "plugins"} ConfigArea
  *
  * @typedef {Object} Selectors
  * @property {Array<{ area: ConfigArea, item?: string }>} include
@@ -604,6 +604,14 @@ function statusDetails(entry, change) {
   const { from, to } = defaultSyncDirection();
   const fromLabel = from === "claude" ? "Claude" : "Codex";
   const toLabel = to === "claude" ? "Claude" : "Codex";
+  if (change === "unsupported" && entry.area === "plugins") {
+    return [
+      `Plugin sync is unsupported.`,
+      `Install Claude plugins: '/plugin install <name>@<source>' inside Claude Code.`,
+      `Register Codex plugins: edit ${statusPathSummary(entry, "codex")} (~/.agents/plugins/marketplace.json) or use the Codex CLI.`,
+      `Claude manifest: ${statusPathSummary(entry, "claude")}; Codex manifest: ${statusPathSummary(entry, "codex")}`,
+    ].join(" ");
+  }
   if (change === "unsupported")
     return `Skill symlink is unsupported and excluded from sync. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
   if (change === "missing in Codex")
@@ -5644,6 +5652,10 @@ function diffScope(scope, ignoreRules = []) {
     compareSettingsItems(entries, scope, "hooks", paths.claude.settings, paths.codex.settings);
   }
 
+  if (scope === "global") {
+    comparePlugins(entries, scope, paths.claude.plugins, paths.codex.pluginMarketplace);
+  }
+
   return entries;
 }
 
@@ -5743,6 +5755,7 @@ function globalPaths() {
       mcp: `${home}/.claude.json`,
       mcpPaths: [`${home}/.claude.json`],
       settings: `${home}/.claude/settings.json`,
+      plugins: `${home}/.claude/plugins/installed_plugins.json`,
     },
     codex: {
       instructions: `${home}/.codex/AGENTS.md`,
@@ -5757,6 +5770,7 @@ function globalPaths() {
         `${home}/.codex/settings.json`,
       ],
       settings: `${home}/.codex/config.toml`,
+      pluginMarketplace: `${home}/.agents/plugins/marketplace.json`,
     },
   };
 }
@@ -6038,6 +6052,61 @@ function compareAgents(entries, scope, claudeDir, codexDir, ignoreRules = []) {
       conflicts,
       itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"])),
     });
+  }
+}
+
+function comparePlugins(entries, scope, claudePluginsManifest, codexMarketplacePath) {
+  if (scope !== "global") return;
+
+  const claudePlugins = readClaudeInstalledPlugins(claudePluginsManifest);
+  const codexPlugins = readCodexMarketplacePlugins(codexMarketplacePath);
+
+  const SELF_MANAGED = new Set([
+    "config-manager@ai-config-sync-manager",
+    "ai-config-sync-manager",
+  ]);
+  const claudeFiltered = claudePlugins.filter((name) => !SELF_MANAGED.has(name));
+  const codexFiltered = codexPlugins.filter((name) => !SELF_MANAGED.has(name));
+
+  if (claudeFiltered.length === 0 && codexFiltered.length === 0) return;
+
+  const allNames = uniqueStrings([...claudeFiltered, ...codexFiltered]).sort();
+  entries.push({
+    scope,
+    area: "plugins",
+    risk: "manual",
+    summary: "plugin sync unsupported",
+    statusOnly: true,
+    claudePath: claudePluginsManifest,
+    codexPath: codexMarketplacePath,
+    claude: `${claudeFiltered.length} plugin(s)`,
+    codex: `${codexFiltered.length} plugin(s)`,
+    unsupported: allNames,
+    itemQualities: Object.fromEntries(allNames.map((name) => [name, "unsupported"])),
+  });
+}
+
+function readClaudeInstalledPlugins(manifestPath) {
+  if (!existsSync(manifestPath)) return [];
+  try {
+    const data = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (!data?.plugins || typeof data.plugins !== "object") return [];
+    return Object.keys(data.plugins);
+  } catch {
+    return [];
+  }
+}
+
+function readCodexMarketplacePlugins(marketplacePath) {
+  if (!existsSync(marketplacePath)) return [];
+  try {
+    const data = JSON.parse(readFileSync(marketplacePath, "utf8"));
+    if (!Array.isArray(data?.plugins)) return [];
+    return data.plugins
+      .map((p) => p?.name)
+      .filter((n) => typeof n === "string" && n.length > 0);
+  } catch {
+    return [];
   }
 }
 

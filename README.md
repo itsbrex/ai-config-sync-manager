@@ -136,6 +136,7 @@ ai-config-sync sync --include "permissions:Write*" --exclude "permissions:Bash(r
 | `permissions` | yes | item-by-item patch |
 | `hooks` | yes | item-by-item patch |
 | `commands` | yes | per command |
+| `plugins` | yes | **status only** (read-only diff; `sync` skips this area) |
 
 ## Ignore rules
 
@@ -312,6 +313,7 @@ Items the engine deliberately does not sync, with the reason and the surface whe
 | `TaskCreate` / `TaskUpdate` / `TeamCreate` SDK calls | Stripped with `ai-config-sync:stripped` marker; original payload archived under the backup root (`unsupported-calls.json`) | Codex has no native todo/task tracker tool nor an atomic agent-team primitive |
 | Symlinked skills (`~/.claude/skills/<name>` is a symlink) | Reported by `status` as `unsupported` (action: `manual review`); excluded from `sync --apply` | Whether to copy the link or materialize target content is an unresolved policy — see [`workflow.md` §8.4](./.claude/docs/workflow.md). Resolve manually by either rewriting as a real directory on the source host, or applying via `--include skills:<name>` after the policy lands |
 | `memory` / implicit context / agent runtime state | Out of scope for now (no read, no write) | Storage layout, redaction rules, and conflict policy not yet settled. Tracked in the [Roadmap](#roadmap) — first phase will be read-only `status` |
+| Host plugin installations (`~/.claude/plugins/installed_plugins.json`, `~/.agents/plugins/marketplace.json`) | Reported by `status --scope global` as `unsupported` (action: `manual review`); excluded from `sync --apply`. Self-managed `config-manager@ai-config-sync-manager` / `ai-config-sync-manager` are filtered out so they never surface as drift | Plugin install/remove crosses package-manager-like boundaries (marketplace metadata + tree copy + per-host install commands). Status surfaces install hints — `/plugin install <name>@<source>` for Claude, edit `~/.agents/plugins/marketplace.json` for Codex. Bidirectional sync tracked in [`workflow.md` §8.4](./.claude/docs/workflow.md) |
 
 ## Install resolution
 
@@ -361,6 +363,7 @@ Tracked in [`workflow.md` §8.4](./.claude/docs/workflow.md). Highlights of upco
 | **Additional host integrations** (Gemini CLI,Cursor, …) | Planned | The launcher pattern is reusable. Each new host gets its own `integrations/<host>-plugin/` after a survey of its plugin/extension spec and config storage layout. |
 | **Memory / context sync** | Deferred (RFC-first) | `memory`, implicit context, and agent runtime state currently sit outside the sync surface. The first phase will be **read-only discovery / status**; `--apply` is reserved for opt-in selectors (e.g. `--include memories:<name>`) once storage location, schema, redaction, and conflict policy are settled. |
 | Skill symlink full support | Deferred | Symlinked skills appear in `status` only. `sync` will engage once the link-preserve vs target-materialize policy is finalized. |
+| Plugin sync (`plugins` area) | Status-only today | `status --scope global` lists user-installed plugins from both hosts as `unsupported` with install hints. Bidirectional sync requires designing the cross-host mapping for marketplace metadata, install commands, and plugin tree copy semantics. |
 | Extra mappings (`rules/*.json` import, TOML parser swap) | Tracked | Mechanical refactors with no user-visible API change. |
 
 If any of these unblocks your workflow, an issue with the concrete use case helps prioritize the order.
