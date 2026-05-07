@@ -293,7 +293,7 @@ Full template: [`docs/status-ignore.example.json`](./docs/status-ignore.example.
 | `hooks.PreToolUse` / `PostToolUse` | mapped where a Codex equivalent exists, else `manual` |
 | `~/.claude/skills/<name>/SKILL.md` | `~/.codex/skills/<name>/SKILL.md` |
 
-Full mapping reference: [`maximal-one-to-one-mapping.md`](./.claude/docs/maximal-one-to-one-mapping.md).
+Full mapping reference: [`rules/`](./rules/).
 
 ## Agent call compiler
 
