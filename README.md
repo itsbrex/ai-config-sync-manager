@@ -1,17 +1,9 @@
 <!-- markdownlint-disable MD033 MD041 MD028 -->
 
-<p align="center">
-  <img width="12%" src="./assets/icon.png" alt="ai-config-sync-manager" />
-</p>
-
 <h1 align="center">AI Config Sync Manager</h1>
 
 <p align="center">
   <b>Keep Claude Code and Codex agent config in lockstep — one CLI, both hosts.</b>
-</p>
-
-<p align="center">
-  <sub><b>zero dep · zero build · zero config</b></sub>
 </p>
 
 <p align="center">
@@ -25,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/diagram.png" alt="ai-config-sync-manager — data flow at a glance" width="100%" />
+  <img src="./assets/ai_config_sync_hero_v4.png" alt="ai-config-sync-manager — data flow at a glance" width="100%" />
 </p>
 
 ## Highlights
