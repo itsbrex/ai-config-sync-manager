@@ -26,7 +26,7 @@ const STATE_SCHEMA_VERSION = 1;
 const BACKUP_RETENTION = 30;
 const STATUS_DETAILS_RETENTION = 100;
 const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
-const CODEX_MARKETPLACE_NAME = "ai-config-sync-manager";
+const CODEX_MARKETPLACE_NAME = "local-plugins";
 const runtimePackage = readRuntimePackage();
 
 /**
@@ -7536,9 +7536,10 @@ async function installCodexPlugin() {
   if (!existsSync(sourceBundle)) {
     throw new Error(`Codex plugin bundle missing at ${sourceBundle}`);
   }
-  const managedRoot = `${home}/.ai-config-sync-manager/codex-marketplace`;
-  stageManagedCodexMarketplace(sourceBundle, managedRoot);
-  execIdempotent(`codex plugin marketplace add "${managedRoot}"`);
+  const pluginPath = `${home}/.ai-config-sync-manager/codex-plugin`;
+  rmSync(pluginPath, { recursive: true, force: true });
+  cpSync(sourceBundle, pluginPath, { recursive: true, dereference: false });
+  upsertCodexUserMarketplace(pluginPath);
   enableCodexPluginConfig();
 }
 
@@ -7557,34 +7558,38 @@ function execIdempotent(command) {
   }
 }
 
-function stageManagedCodexMarketplace(sourceBundle, managedRoot) {
-  const pluginDir = join(managedRoot, "plugins", CODEX_PLUGIN_NAME);
-  rmSync(pluginDir, { recursive: true, force: true });
-  cpSync(sourceBundle, pluginDir, { recursive: true, dereference: false });
-  const marketplacePath = join(managedRoot, ".agents", "plugins", "marketplace.json");
+function upsertCodexUserMarketplace(pluginPath) {
+  const marketplacePath = `${home}/.agents/plugins/marketplace.json`;
+  let data = {};
+  if (existsSync(marketplacePath)) {
+    try {
+      data = JSON.parse(readFileSync(marketplacePath, "utf8"));
+    } catch {
+      data = {};
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    data = {};
+  }
+
+  data.name ??= CODEX_MARKETPLACE_NAME;
+  data.interface ??= { displayName: "Local Plugins" };
+  const existingPlugins = Array.isArray(data.plugins) ? data.plugins : [];
+
+  const entry = {
+    name: CODEX_PLUGIN_NAME,
+    source: { source: "local", path: pluginPath },
+    policy: {
+      installation: "INSTALLED_BY_DEFAULT",
+      authentication: "ON_INSTALL",
+    },
+    category: "Productivity",
+  };
+
+  data.plugins = [...existingPlugins.filter((p) => p?.name !== CODEX_PLUGIN_NAME), entry];
+
   mkdirSync(dirname(marketplacePath), { recursive: true });
-  writeFileSync(
-    marketplacePath,
-    `${JSON.stringify(
-      {
-        name: CODEX_MARKETPLACE_NAME,
-        interface: { displayName: "AI Config Sync Manager" },
-        plugins: [
-          {
-            name: CODEX_PLUGIN_NAME,
-            source: { source: "local", path: `./plugins/${CODEX_PLUGIN_NAME}` },
-            policy: {
-              installation: "INSTALLED_BY_DEFAULT",
-              authentication: "ON_INSTALL",
-            },
-            category: "Productivity",
-          },
-        ],
-      },
-      null,
-      2
-    )}\n`
-  );
+  writeFileSync(marketplacePath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 function enableCodexPluginConfig() {

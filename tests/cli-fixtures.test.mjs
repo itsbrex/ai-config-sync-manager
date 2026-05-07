@@ -716,9 +716,10 @@ test("commands support command-specific help", () => {
 
 test("connect initializes config root and status ignore in an isolated home", () => {
   const fixture = createFixture();
-  // Empty PATH so that any `claude`/`codex` CLI invocation fails predictably,
-  // letting the test verify the blocked-status branch instead of touching the
-  // user's real ~/.claude or ~/.codex.
+  // Empty PATH so that any `claude` CLI invocation fails predictably, letting
+  // the test verify the blocked-status branch instead of touching the user's
+  // real ~/.claude. Codex install no longer shells out to the host CLI — it
+  // writes ~/.agents/plugins/marketplace.json directly.
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
 
@@ -730,8 +731,22 @@ test("connect initializes config root and status ignore in an isolated home", ()
   assert.match(output, /ok: initialized config root/);
   assert.match(output, /ok: initialized status ignore/);
   assert.match(output, /blocked: registered Claude plugin/);
-  assert.match(output, /blocked: registered Codex plugin/);
+  assert.match(output, /ok: registered Codex plugin/);
   assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
+  assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager/codex-plugin")));
+  assert.ok(existsSync(join(fixture.home, ".agents/plugins/marketplace.json")));
+  const marketplace = JSON.parse(
+    readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8")
+  );
+  assert.equal(marketplace.name, "local-plugins");
+  const entry = marketplace.plugins.find((p) => p.name === "ai-config-sync-manager");
+  assert.ok(entry, "marketplace entry must be present");
+  assert.equal(entry.source.source, "local");
+  assert.equal(entry.source.path, join(fixture.home, ".ai-config-sync-manager/codex-plugin"));
+  assert.equal(entry.policy.installation, "INSTALLED_BY_DEFAULT");
+  const configToml = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+  assert.match(configToml, /\[plugins\."ai-config-sync-manager@local-plugins"\]/);
+  assert.match(configToml, /^enabled = true$/m);
   assert.deepEqual(statusIgnore, { version: 1, exclude: [] });
 });
 
@@ -5840,11 +5855,11 @@ test("host-launcher script body documents npm exec fallback", async () => {
   assert.equal(readModeBits(launcher), 0o755);
 });
 
-test("connect surfaces a blocked status when the host CLI is unavailable", () => {
-  // After delegating plugin install to the Claude/Codex CLIs, connect can no
-  // longer manage the on-disk plugin tree itself. With an empty PATH the host
-  // CLI invocation must fail and bubble up as a blocked: result instead of
-  // mutating the fixture.
+test("connect surfaces a blocked status when the Claude host CLI is unavailable", () => {
+  // Claude plugin install still delegates to the `claude` CLI, so an empty
+  // PATH must surface as blocked without writing installed_plugins.json. The
+  // Codex side now writes ~/.agents/plugins/marketplace.json directly (no host
+  // CLI dependency), so it succeeds independently.
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
@@ -5852,16 +5867,15 @@ test("connect surfaces a blocked status when the host CLI is unavailable", () =>
   const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
 
   assert.match(output, /blocked: registered Claude plugin/);
-  assert.match(output, /blocked: registered Codex plugin/);
+  assert.match(output, /ok: registered Codex plugin/);
   assert.equal(
     existsSync(join(fixture.home, ".claude/plugins/installed_plugins.json")),
     false,
     "connect must not write installed_plugins.json directly"
   );
-  assert.equal(
+  assert.ok(
     existsSync(join(fixture.home, ".agents/plugins/marketplace.json")),
-    false,
-    "connect must not write Codex marketplace.json directly"
+    "connect must write Codex marketplace.json directly"
   );
 });
 
