@@ -73,6 +73,8 @@ tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/project
 tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/sessions/
 tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/cache/
 tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/plugins/
+!tests/integration/manual-codex-to-claude/expected/case-11-plugins-installed/claude-home/.claude/plugins/
+!tests/integration/manual-codex-to-claude/expected/case-11-plugins-installed/claude-home/.claude/plugins/**
 tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/.credentials.json
 tests/integration/manual-codex-to-claude/expected/**/claude-home/.claude/history.jsonl
 tests/integration/manual-codex-to-claude/expected/**/claude-home/.local/
