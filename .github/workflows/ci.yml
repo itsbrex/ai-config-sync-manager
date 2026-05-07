@@ -29,3 +29,11 @@ jobs:
 
       - name: Run manual integration cases
         run: npm run test:manual:run
+
+      - name: Upload manual integration logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-integration-logs
+          path: /tmp/manual-cases-out
+          retention-days: 7
