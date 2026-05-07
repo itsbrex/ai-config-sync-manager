@@ -9,6 +9,7 @@ Use this skill when the user asks to sync Codex and Claude configuration with AI
 
 ## Behavior
 
+- If the user passes `-h` / `--help` (or asks for usage/help), run `... sync --help` and print the CLI output as-is — do not run a dry-run or apply.
 - Resolve the bundled CLI from the Codex plugin root: `"$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync"`.
   The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
 - Always export `AI_CONFIG_SYNC_HOST=codex` before invoking the CLI from this skill so the default sync direction is `codex -> claude`.

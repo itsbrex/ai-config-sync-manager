@@ -9,6 +9,7 @@ Use this skill when the user asks to paraphrase host-strict vocabulary mismatche
 
 ## Behavior
 
+- If the user passes `-h` / `--help` (or asks for usage/help), run `... paraphrase --help` and print the CLI output as-is — do not run a dry-run, register, or apply.
 - Resolve the bundled CLI from the Codex plugin root:
   `AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase`.
   The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
