@@ -11,7 +11,7 @@ Use this skill when the user asks to paraphrase host-strict vocabulary mismatche
 
 - If the user passes `-h` / `--help` (or asks for usage/help), run `... paraphrase --help` and print the CLI output as-is — do not run a dry-run, register, or apply.
 - Resolve the bundled CLI from the Codex plugin root:
-  `AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase`.
+  `AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase`.
   The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
 - Always export `AI_CONFIG_SYNC_HOST=codex` before invoking the CLI from this skill so the default sync direction is `codex -> claude`. Paraphrase processes both directions regardless: claude-only tokens in codex files become codex-side paraphrases, and codex-only tokens in claude files become claude-side paraphrases.
 - Default mode is dry-run preview. Apply only after the user explicitly confirms in chat.
@@ -43,16 +43,16 @@ When the user passes ambiguous tokens (e.g. `Read`, `Write`), prefix the map ent
 Example apply call after the user confirms:
 
 ```bash
-AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase $ARGS --apply
+AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase $ARGS --apply
 ```
 
 ## Commands
 
 ```bash
-AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase
-AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase --map "Read=Inspect,Write=Emit"
-AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase --scope global --include agents:repo-code-analyst
-AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase --register --include skills:commit-insight-pipeline --map "Read=Inspect,Write=Emit" --apply
+AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase
+AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase --map "Read=Inspect,Write=Emit"
+AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase --scope global --include agents:repo-code-analyst
+AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" paraphrase --register --include skills:commit-insight-pipeline --map "Read=Inspect,Write=Emit" --apply
 ```
 
 ## Safety

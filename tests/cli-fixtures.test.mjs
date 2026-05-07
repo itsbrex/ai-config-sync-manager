@@ -733,7 +733,7 @@ test("connect initializes config root and status ignore in an isolated home", ()
   assert.match(output, /blocked: registered Claude plugin/);
   assert.match(output, /ok: registered Codex plugin/);
   assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
-  assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager/codex-plugin")));
+  assert.ok(existsSync(join(fixture.home, ".agents/plugins/ai-config-sync-manager")));
   assert.ok(existsSync(join(fixture.home, ".agents/plugins/marketplace.json")));
   const marketplace = JSON.parse(
     readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8")
@@ -742,7 +742,7 @@ test("connect initializes config root and status ignore in an isolated home", ()
   const entry = marketplace.plugins.find((p) => p.name === "ai-config-sync-manager");
   assert.ok(entry, "marketplace entry must be present");
   assert.equal(entry.source.source, "local");
-  assert.equal(entry.source.path, join(fixture.home, ".ai-config-sync-manager/codex-plugin"));
+  assert.equal(entry.source.path, "./ai-config-sync-manager");
   assert.equal(entry.policy.installation, "INSTALLED_BY_DEFAULT");
   const configToml = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
   assert.match(configToml, /\[plugins\."ai-config-sync-manager@local-plugins"\]/);

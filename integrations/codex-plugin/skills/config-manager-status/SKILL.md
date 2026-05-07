@@ -11,7 +11,7 @@ Use this skill when the user asks for config sync status, host detection, or Cla
 
 - If the user passes `-h` / `--help` (or asks for usage/help), run `... status --help` and print the CLI output as-is — do not execute the status report.
 - Resolve the bundled CLI from the Codex plugin root:
-  `AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" status`.
+  `AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" status`.
   The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
 - Always export `AI_CONFIG_SYNC_HOST=codex` before invoking the CLI from this skill so the default sync direction is `codex -> claude`.
 - Default status checks both global and current project scopes.

@@ -10,13 +10,13 @@ Use this skill when the user asks to sync Codex and Claude configuration with AI
 ## Behavior
 
 - If the user passes `-h` / `--help` (or asks for usage/help), run `... sync --help` and print the CLI output as-is — do not run a dry-run or apply.
-- Resolve the bundled CLI from the Codex plugin root: `"$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync"`.
+- Resolve the bundled CLI from the Codex plugin root: `"$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync"`.
   The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
 - Always export `AI_CONFIG_SYNC_HOST=codex` before invoking the CLI from this skill so the default sync direction is `codex -> claude`.
-- Default to dry-run: `AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" sync --dry-run`.
+- Default to dry-run: `AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" sync --dry-run`.
 - Default sync scope is global and project when `--scope` is omitted.
 - Use `--scope global`, `--scope project`, or `--scope all` to narrow or make the sync scope explicit.
-- For explicit direction, pass the requested hosts, for example `AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" sync --from claude --to codex --dry-run`. Explicit `--from`/`--to` overrides the env-based default.
+- For explicit direction, pass the requested hosts, for example `AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" sync --from claude --to codex --dry-run`. Explicit `--from`/`--to` overrides the env-based default.
 - For partial sync, pass selectors with `--include area[,area:item]` and `--exclude area[,area:item]`. Include is applied first, exclude is applied last. Item selectors are supported for itemized areas such as `skills`, `permissions`, and `hooks`.
 - Text sync for `instructions` and `skills` uses `rules/terminology-map.json` for layered terms/model names and `rules/host-target-templates.json` for generic host surfaces. Product/workflow-specific vocabularies should be supplied through project-level overrides under `rules/`.
 - Manual-risk entries are still sync plan candidates. Treat `partial` and `manual` entries as higher-risk entries that must be clearly shown in the dry-run.
@@ -31,7 +31,7 @@ Use this skill when the user asks to sync Codex and Claude configuration with AI
 Example apply call after the user confirms:
 
 ```bash
-AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" sync $ARGS --apply
+AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" sync $ARGS --apply
 ```
 
 ## Safety

@@ -16,7 +16,7 @@ const claudeKnownMarketplacesPath = join(home, ".claude/plugins/known_marketplac
 const claudePluginCacheDir = join(home, ".claude/plugins/cache/ai-config-sync-manager");
 const claudeMarketplaceCacheDir = join(home, ".claude/plugins/marketplaces/ai-config-sync-manager");
 const codexMarketplacePath = join(home, ".agents/plugins/marketplace.json");
-const codexPluginDir = join(home, "plugins/ai-config-sync-manager");
+const codexPluginDir = join(home, ".agents/plugins/ai-config-sync-manager");
 const codexLocalPluginCacheDir = join(
   home,
   ".codex/plugins/cache/local-plugins/ai-config-sync-manager"

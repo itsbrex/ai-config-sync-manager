@@ -7536,10 +7536,10 @@ async function installCodexPlugin() {
   if (!existsSync(sourceBundle)) {
     throw new Error(`Codex plugin bundle missing at ${sourceBundle}`);
   }
-  const pluginPath = `${home}/.ai-config-sync-manager/codex-plugin`;
+  const pluginPath = `${home}/.agents/plugins/${CODEX_PLUGIN_NAME}`;
   rmSync(pluginPath, { recursive: true, force: true });
   cpSync(sourceBundle, pluginPath, { recursive: true, dereference: false });
-  upsertCodexUserMarketplace(pluginPath);
+  upsertCodexUserMarketplace(`./${CODEX_PLUGIN_NAME}`);
   enableCodexPluginConfig();
 }
 

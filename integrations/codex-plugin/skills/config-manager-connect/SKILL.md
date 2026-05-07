@@ -11,7 +11,7 @@ Use this skill when the user asks to connect Codex, Claude, or another supported
 
 - If the user passes `-h` / `--help` (or asks for usage/help), run `... connect --help` and print the CLI output as-is — do not execute the connect flow.
 - Resolve the bundled CLI from the Codex plugin root:
-  `AI_CONFIG_SYNC_HOST=codex "$HOME/plugins/ai-config-sync-manager/bin/ai-config-sync" connect`.
+  `AI_CONFIG_SYNC_HOST=codex "$HOME/.agents/plugins/ai-config-sync-manager/bin/ai-config-sync" connect`.
   The launcher resolves the runtime via `AI_CONFIG_SYNC_ROOT` (dev override) → PATH `ai-config-sync` → `npm exec` fallback.
 - Always export `AI_CONFIG_SYNC_HOST=codex` before invoking the CLI from this skill so the default sync direction is `codex -> claude`.
 - The connect command initializes the user config root at `$HOME/.ai-config-sync-manager` and creates `$HOME/.ai-config-sync-manager/status-ignore.json` when missing.
