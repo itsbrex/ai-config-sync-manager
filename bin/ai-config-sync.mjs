@@ -11,6 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -24,6 +25,8 @@ const home = process.env.AI_CONFIG_SYNC_HOME ?? homedir();
 const STATE_SCHEMA_VERSION = 1;
 const BACKUP_RETENTION = 30;
 const STATUS_DETAILS_RETENTION = 100;
+const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
+const CODEX_MARKETPLACE_NAME = "ai-config-sync-manager";
 const runtimePackage = readRuntimePackage();
 
 /**
@@ -52,8 +55,6 @@ const runtimePackage = readRuntimePackage();
  */
 const runtimeVersion = runtimePackage.version;
 const runtimePackageName = runtimePackage.name;
-const CLAUDE_PLUGIN_TARGET_PATTERN = /\/\.claude\/plugins\/config-manager@ai-config-sync-manager$/;
-const CODEX_PLUGIN_TARGET_PATTERN = /\/plugins\/ai-config-sync-manager$/;
 
 if (command === "--version" || command === "-v") {
   console.log(runtimeVersion);
@@ -7419,40 +7420,16 @@ async function runConnect() {
   console.log(`Runtime root: ${runtimeRoot}`);
   console.log(`Config root: ${formatPathState(nextState.configRoot)}`);
   console.log(`Status ignore: ${formatPathState(nextState.statusIgnore)}`);
-  console.log(
-    `Claude plugin: ${nextState.claudePlugin ? formatPathState(nextState.claudePlugin) : "missing"}`
-  );
-  console.log(`Codex plugin: ${formatPathState(nextState.codexPlugin)}`);
-  console.log(`Codex marketplace: ${formatPathState(nextState.codexMarketplace)}`);
 
   for (const result of results) {
     console.log(`${result.status}: ${result.message}`);
   }
-
-  if (claudeHostInstalled() && !nextState.claudePlugin) {
-    console.log(
-      "Action needed: install Claude plugin with /plugin install config-manager@ai-config-sync-manager"
-    );
-  }
-
-  if (
-    codexHostInstalled() &&
-    (!existsSync(nextState.codexPlugin) || !codexMarketplaceIncludes(nextState.codexMarketplace))
-  ) {
-    console.log("Action needed: register Codex plugin in ~/.agents/plugins/marketplace.json");
-  }
 }
 
 function connectState() {
-  const codexPlugin = `${home}/plugins/ai-config-sync-manager`;
-
   return {
     configRoot: `${home}/.ai-config-sync-manager`,
     statusIgnore: `${home}/.ai-config-sync-manager/rules/status-ignore.json`,
-    claudePlugin: findClaudePlugin(),
-    claudePluginTarget: `${home}/.claude/plugins/config-manager@ai-config-sync-manager`,
-    codexPlugin,
-    codexMarketplace: `${home}/.agents/plugins/marketplace.json`,
   };
 }
 
@@ -7469,7 +7446,7 @@ async function registerMissingIntegrations(state) {
 
   if (claudeHostInstalled()) {
     await tryConnectActionAsync(results, "registered Claude plugin", async () => {
-      await installClaudePlugin(state.claudePluginTarget);
+      await installClaudePlugin();
     });
   } else {
     results.push({
@@ -7481,8 +7458,7 @@ async function registerMissingIntegrations(state) {
 
   if (codexHostInstalled()) {
     await tryConnectActionAsync(results, "registered Codex plugin", async () => {
-      await installCodexPlugin(state.codexPlugin);
-      updateCodexMarketplace(state.codexMarketplace, state.codexPlugin);
+      await installCodexPlugin();
     });
   } else {
     results.push({
@@ -7546,129 +7522,85 @@ async function tryConnectActionAsync(results, message, action) {
   }
 }
 
-async function installClaudePlugin(targetPath) {
-  ensureManagedPluginTarget(targetPath, CLAUDE_PLUGIN_TARGET_PATTERN, "Claude");
-  rmSync(targetPath, { recursive: true, force: true });
-
-  copyPluginRoot("integrations/claude-plugin", targetPath);
-  await writeLauncher(join(targetPath, "bin/ai-config-sync"), "claude");
-
-  const installedPath = `${home}/.claude/plugins/installed_plugins.json`;
-  const data = readJsonFile(installedPath, {});
-
-  data.plugins ??= {};
-  data.plugins["config-manager@ai-config-sync-manager"] = [
-    {
-      installPath: targetPath,
-      source: "ai-config-sync-manager",
-      version: runtimeVersion,
-    },
-  ];
-
-  mkdirSync(dirname(installedPath), { recursive: true });
-  writeFileSync(installedPath, `${JSON.stringify(data, null, 2)}\n`);
-
-  registerClaudeMarketplace();
-}
-
-function registerClaudeMarketplace() {
-  const knownPath = `${home}/.claude/plugins/known_marketplaces.json`;
+async function installClaudePlugin() {
   const marketplaceSource = join(runtimeRoot, "dist/claude-marketplace");
+  if (!existsSync(marketplaceSource)) {
+    throw new Error(`Claude marketplace bundle missing at ${marketplaceSource}`);
+  }
+  execIdempotent(`claude plugin marketplace add "${marketplaceSource}"`);
+  execIdempotent("claude plugin install config-manager@ai-config-sync-manager");
+}
 
-  if (!existsSync(marketplaceSource)) return;
-  if (!existsSync(knownPath)) return;
+async function installCodexPlugin() {
+  const sourceBundle = join(runtimeRoot, "dist/codex-plugin");
+  if (!existsSync(sourceBundle)) {
+    throw new Error(`Codex plugin bundle missing at ${sourceBundle}`);
+  }
+  const managedRoot = `${home}/.ai-config-sync-manager/codex-marketplace`;
+  stageManagedCodexMarketplace(sourceBundle, managedRoot);
+  execIdempotent(`codex plugin marketplace add "${managedRoot}"`);
+  enableCodexPluginConfig();
+}
 
-  let data;
+function execIdempotent(command) {
   try {
-    data = JSON.parse(readFileSync(knownPath, "utf8"));
-  } catch {
-    return;
-  }
-  if (!data || typeof data !== "object" || Array.isArray(data)) return;
-
-  data["ai-config-sync-manager"] = {
-    source: { source: "directory", path: marketplaceSource },
-    installLocation: marketplaceSource,
-    lastUpdated: new Date().toISOString(),
-  };
-
-  writeFileSync(knownPath, `${JSON.stringify(data, null, 2)}\n`);
-}
-
-async function installCodexPlugin(targetPath) {
-  ensureManagedPluginTarget(targetPath, CODEX_PLUGIN_TARGET_PATTERN, "Codex");
-  rmSync(targetPath, { recursive: true, force: true });
-
-  copyPluginRoot("integrations/codex-plugin", targetPath);
-  await writeLauncher(join(targetPath, "bin/ai-config-sync"), "codex");
-}
-
-function ensureManagedPluginTarget(targetPath, pattern, hostLabel) {
-  if (!pattern.test(targetPath)) {
-    throw new Error(
-      `${hostLabel} plugin target ${targetPath} does not match expected pattern ${pattern}; refusing to clean. Remove it manually if you intend to reinstall.`
-    );
+    execSync(command, { stdio: "inherit" });
+  } catch (error) {
+    // Host CLI missing (ENOENT) or shell-reported "command not found" (status 127):
+    // surface so connect reports blocked. Other non-zero exits are treated as
+    // already-registered / already-installed so re-running connect is idempotent.
+    if (error?.code === "ENOENT" || error?.status === 127) {
+      throw error;
+    }
+    // Real failures still print to stderr via stdio: inherit and are detected
+    // by the next step or status command.
   }
 }
 
-function copyPluginRoot(integrationDir, targetPath) {
-  mkdirSync(dirname(targetPath), { recursive: true });
-  cpSync(join(runtimeRoot, integrationDir), targetPath, { recursive: true, dereference: false });
-}
-
-async function writeLauncher(launcherPath, host) {
-  const { writeHostLauncher } = await import(join(runtimeRoot, "scripts/lib/host-launcher.mjs"));
-  writeHostLauncher(launcherPath, host, {
-    pinnedVersion: runtimeVersion,
-    packageName: runtimePackageName,
-  });
-}
-
-function updateCodexMarketplace(path, pluginPath) {
-  const data = readJsonFile(path, {});
-  const plugins = Array.isArray(data.plugins) ? data.plugins : [];
-
-  data.plugins = [
-    ...plugins.filter((plugin) => plugin?.name !== "ai-config-sync-manager"),
-    {
-      name: "ai-config-sync-manager",
-      source: {
-        source: "local",
-        path: pluginPath,
+function stageManagedCodexMarketplace(sourceBundle, managedRoot) {
+  const pluginDir = join(managedRoot, "plugins", CODEX_PLUGIN_NAME);
+  rmSync(pluginDir, { recursive: true, force: true });
+  cpSync(sourceBundle, pluginDir, { recursive: true, dereference: false });
+  const marketplacePath = join(managedRoot, ".codex-plugin", "marketplace.json");
+  mkdirSync(dirname(marketplacePath), { recursive: true });
+  writeFileSync(
+    marketplacePath,
+    `${JSON.stringify(
+      {
+        name: CODEX_MARKETPLACE_NAME,
+        owner: { name: "ai-config-sync-manager", email: "" },
+        plugins: [{ name: CODEX_PLUGIN_NAME, source: `./plugins/${CODEX_PLUGIN_NAME}` }],
       },
-      policy: {
-        installation: "AVAILABLE",
-        authentication: "ON_INSTALL",
-      },
-      category: "Productivity",
-    },
-  ];
-
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+      null,
+      2
+    )}\n`
+  );
 }
 
-function findClaudePlugin() {
-  const installedPath = `${home}/.claude/plugins/installed_plugins.json`;
-  if (!existsSync(installedPath)) return null;
+function enableCodexPluginConfig() {
+  const configPath = `${home}/.codex/config.toml`;
+  const pluginId = `${CODEX_PLUGIN_NAME}@${CODEX_MARKETPLACE_NAME}`;
+  const tableHeader = `[plugins.${JSON.stringify(pluginId)}]`;
+  const enabledLine = "enabled = true";
+  const block = `${tableHeader}\n${enabledLine}\n`;
 
-  try {
-    const data = JSON.parse(readFileSync(installedPath, "utf8"));
-    const installed = data.plugins?.["config-manager@ai-config-sync-manager"]?.[0]?.installPath;
-    return typeof installed === "string" ? installed : null;
-  } catch {
-    return null;
-  }
-}
+  let body = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
+  const tablePattern = new RegExp(
+    `(^|\\n)\\[plugins\\.${escapeRegExp(JSON.stringify(pluginId))}\\]\\n([\\s\\S]*?)(?=\\n\\[|$)`
+  );
+  const match = body.match(tablePattern);
 
-function codexMarketplaceIncludes(path) {
-  if (!existsSync(path)) return false;
-  try {
-    const data = JSON.parse(readFileSync(path, "utf8"));
-    return Boolean(data.plugins?.some((plugin) => plugin.name === "ai-config-sync-manager"));
-  } catch {
-    return false;
+  if (match) {
+    const section = match[2].match(/^enabled\s*=/m)
+      ? match[2].replace(/^enabled\s*=.*$/m, enabledLine)
+      : `${match[2].trimEnd()}\n${enabledLine}\n`;
+    body = body.replace(tablePattern, `${match[1]}${tableHeader}\n${section}`);
+  } else {
+    body = `${body.trimEnd()}${body.trimEnd() ? "\n\n" : ""}${block}`;
   }
+
+  mkdirSync(dirname(configPath), { recursive: true });
+  writeFileSync(configPath, body.endsWith("\n") ? body : `${body}\n`);
 }
 
 function formatPathState(path) {

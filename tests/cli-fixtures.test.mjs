@@ -714,54 +714,31 @@ test("commands support command-specific help", () => {
   assert.match(syncHelp, /--from claude\|codex/);
 });
 
-test("connect registers missing host integrations in an isolated home", () => {
+test("connect initializes config root and status ignore in an isolated home", () => {
   const fixture = createFixture();
+  // Empty PATH so that any `claude`/`codex` CLI invocation fails predictably,
+  // letting the test verify the blocked-status branch instead of touching the
+  // user's real ~/.claude or ~/.codex.
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
 
-  const output = runCli(fixture, ["connect"]);
-  const installed = JSON.parse(
-    readFileSync(join(fixture.home, ".claude/plugins/installed_plugins.json"), "utf8")
-  );
-  const marketplace = JSON.parse(
-    readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8")
-  );
+  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
   const statusIgnore = JSON.parse(
     readFileSync(join(fixture.home, ".ai-config-sync-manager/rules/status-ignore.json"), "utf8")
   );
 
   assert.match(output, /ok: initialized config root/);
   assert.match(output, /ok: initialized status ignore/);
-  assert.match(output, /ok: registered Claude plugin/);
-  assert.match(output, /ok: registered Codex plugin/);
+  assert.match(output, /blocked: registered Claude plugin/);
+  assert.match(output, /blocked: registered Codex plugin/);
   assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
   assert.deepEqual(statusIgnore, { version: 1, exclude: [] });
-  assert.ok(
-    existsSync(
-      join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager/bin/ai-config-sync")
-    )
-  );
-  assert.ok(existsSync(join(fixture.home, "plugins/ai-config-sync-manager/bin/ai-config-sync")));
-  assert.equal(
-    installed.plugins["config-manager@ai-config-sync-manager"][0].installPath,
-    join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager")
-  );
-  assert.equal(marketplace.plugins[0].name, "ai-config-sync-manager");
-  assert.deepEqual(marketplace.plugins[0].source, {
-    source: "local",
-    path: join(fixture.home, "plugins/ai-config-sync-manager"),
-  });
-  assert.deepEqual(marketplace.plugins[0].policy, {
-    installation: "AVAILABLE",
-    authentication: "ON_INSTALL",
-  });
-  assert.equal(marketplace.plugins[0].category, "Productivity");
 });
 
 test("connect skips host registration when host directory is missing", () => {
   const fixture = createFixture();
 
-  const output = runCli(fixture, ["connect"]);
+  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
 
   assert.match(output, /skipped: Claude host not detected/);
   assert.match(output, /skipped: Codex host not detected/);
@@ -770,20 +747,16 @@ test("connect skips host registration when host directory is missing", () => {
   assert.ok(existsSync(join(fixture.home, ".ai-config-sync-manager")));
 });
 
-test("connect registers only the detected host when one is missing", () => {
+test("connect skips Codex when only Claude host is detected", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
 
-  const output = runCli(fixture, ["connect"]);
+  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
 
-  assert.match(output, /ok: registered Claude plugin/);
+  // Without `claude` on PATH the install attempt is blocked, but Codex must
+  // still be skipped because the host directory is absent.
+  assert.match(output, /blocked: registered Claude plugin/);
   assert.match(output, /skipped: Codex host not detected/);
-  assert.ok(
-    existsSync(
-      join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager/bin/ai-config-sync")
-    )
-  );
-  assert.equal(existsSync(join(fixture.home, "plugins/ai-config-sync-manager")), false);
 });
 
 test("status reports same-name skill content drift as a manual conflict", () => {
@@ -5867,55 +5840,29 @@ test("host-launcher script body documents npm exec fallback", async () => {
   assert.equal(readModeBits(launcher), 0o755);
 });
 
-test("connect cleans stale managed Claude plugin tree before reinstalling", () => {
-  // Claude reinstall is gated by installed_plugins.json (not directory existence),
-  // so a stale managed dir without a registry entry triggers a full reinstall +
-  // ensureManagedPluginTarget pattern check + rmSync sweep.
-  const fixture = createFixture();
-
-  const claudeTarget = join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager");
-  mkdirSync(join(claudeTarget, "bin"), { recursive: true });
-  mkdirSync(join(claudeTarget, "packages/junk"), { recursive: true });
-  writeFileSync(join(claudeTarget, "bin/old-stale-binary"), "stale\n");
-  writeFileSync(join(claudeTarget, "packages/junk/leftover.txt"), "stale\n");
-
-  runCli(fixture, ["connect"]);
-
-  assert.ok(
-    !existsSync(join(claudeTarget, "bin/old-stale-binary")),
-    "stale Claude binary should be removed"
-  );
-  assert.ok(
-    !existsSync(join(claudeTarget, "packages/junk/leftover.txt")),
-    "stale Claude junk should be removed"
-  );
-  assert.ok(
-    !existsSync(join(claudeTarget, "packages")),
-    "stale Claude packages dir should be swept"
-  );
-
-  // Fresh thin install present
-  assert.ok(
-    existsSync(join(claudeTarget, "bin/ai-config-sync")),
-    "claude launcher should be reinstalled"
-  );
-  assert.ok(
-    existsSync(join(claudeTarget, "skills/config-manager/SKILL.md")),
-    "claude integration shim should be installed"
-  );
-});
-
-test("connect injects root package version into installed_plugins.json", () => {
+test("connect surfaces a blocked status when the host CLI is unavailable", () => {
+  // After delegating plugin install to the Claude/Codex CLIs, connect can no
+  // longer manage the on-disk plugin tree itself. With an empty PATH the host
+  // CLI invocation must fail and bubble up as a blocked: result instead of
+  // mutating the fixture.
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
-  runCli(fixture, ["connect"]);
 
-  const installed = JSON.parse(
-    readFileSync(join(fixture.home, ".claude/plugins/installed_plugins.json"), "utf8")
+  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
+
+  assert.match(output, /blocked: registered Claude plugin/);
+  assert.match(output, /blocked: registered Codex plugin/);
+  assert.equal(
+    existsSync(join(fixture.home, ".claude/plugins/installed_plugins.json")),
+    false,
+    "connect must not write installed_plugins.json directly"
   );
-  const claudeEntry = installed.plugins["config-manager@ai-config-sync-manager"][0];
-  assert.equal(claudeEntry.version, rootPkg.version);
+  assert.equal(
+    existsSync(join(fixture.home, ".agents/plugins/marketplace.json")),
+    false,
+    "connect must not write Codex marketplace.json directly"
+  );
 });
 
 // state schemaVersion helpers
