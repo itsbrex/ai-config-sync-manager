@@ -12,8 +12,15 @@ const tagLabel = tag ? `@${tag}` : "@latest";
 const home = homedir();
 const claudePluginDir = join(home, ".claude/plugins/config-manager@ai-config-sync-manager");
 const claudeInstalledPath = join(home, ".claude/plugins/installed_plugins.json");
+const claudeKnownMarketplacesPath = join(home, ".claude/plugins/known_marketplaces.json");
+const claudePluginCacheDir = join(home, ".claude/plugins/cache/ai-config-sync-manager");
+const claudeMarketplaceCacheDir = join(home, ".claude/plugins/marketplaces/ai-config-sync-manager");
 const codexMarketplacePath = join(home, ".agents/plugins/marketplace.json");
 const codexPluginDir = join(home, "plugins/ai-config-sync-manager");
+const codexLocalPluginCacheDir = join(
+  home,
+  ".codex/plugins/cache/local-plugins/ai-config-sync-manager"
+);
 
 console.log(`→ Switching to PROD mode (npm ${tagLabel} + marketplace plugins)`);
 
@@ -22,6 +29,10 @@ removePluginDir(claudePluginDir, "config-manager@ai-config-sync-manager");
 removeKeyFromJson(claudeInstalledPath, "config-manager@ai-config-sync-manager");
 filterPluginsArray(codexMarketplacePath, "ai-config-sync-manager");
 removePluginDir(codexPluginDir, "ai-config-sync-manager");
+removeTopLevelKeyFromJson(claudeKnownMarketplacesPath, "ai-config-sync-manager");
+removePluginDir(claudePluginCacheDir, "ai-config-sync-manager");
+removePluginDir(claudeMarketplaceCacheDir, "ai-config-sync-manager");
+removePluginDir(codexLocalPluginCacheDir, "ai-config-sync-manager");
 
 console.log("\n[2/3] npm unlink + install");
 try {
@@ -77,6 +88,27 @@ function removeKeyFromJson(path, key) {
     return;
   }
   delete data.plugins[key];
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
+  console.log(`updated ${path} (removed ${key})`);
+}
+
+function removeTopLevelKeyFromJson(path, key) {
+  if (!existsSync(path)) {
+    console.log(`skipped ${path} (not present)`);
+    return;
+  }
+  let data;
+  try {
+    data = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    console.warn(`warn: ${path} could not be parsed — left as-is`);
+    return;
+  }
+  if (!data || typeof data !== "object" || !(key in data)) {
+    console.log(`skipped ${path} (entry not present)`);
+    return;
+  }
+  delete data[key];
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`);
   console.log(`updated ${path} (removed ${key})`);
 }
