@@ -48,7 +48,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "prepare": "node scripts/build-dist.mjs --skip-sync",
+    "prepare": "husky && node scripts/build-dist.mjs --skip-sync",
     "build:dist": "node scripts/build-dist.mjs",
     "build:dist:no-sync": "node scripts/build-dist.mjs --skip-sync",
     "check": "tsc -p tsconfig.check.json",
@@ -70,8 +70,18 @@
     "@types/node": "^22.0.0",
     "eslint": "^10.3.0",
     "eslint-config-prettier": "^10.1.8",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
     "prettier": "^3.8.3",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.59.2"
+  },
+  "lint-staged": {
+    "*.{js,mjs,json,md,yml,yaml}": [
+      "prettier --list-different"
+    ],
+    "*.{js,mjs}": [
+      "eslint"
+    ]
   }
 }

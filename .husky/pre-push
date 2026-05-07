@@ -1,0 +1,5 @@
+# Step 1: Full test suite (unit + integration)
+npm test
+
+# Step 2: Type check
+npm run check
