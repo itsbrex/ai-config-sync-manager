@@ -7632,9 +7632,15 @@ function updateCodexMarketplace(path, pluginPath) {
     ...plugins.filter((plugin) => plugin?.name !== "ai-config-sync-manager"),
     {
       name: "ai-config-sync-manager",
-      version: runtimeVersion,
-      path: pluginPath,
-      source: pluginPath,
+      source: {
+        source: "local",
+        path: pluginPath,
+      },
+      policy: {
+        installation: "AVAILABLE",
+        authentication: "ON_INSTALL",
+      },
+      category: "Productivity",
     },
   ];
 

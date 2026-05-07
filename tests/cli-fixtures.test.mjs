@@ -747,6 +747,15 @@ test("connect registers missing host integrations in an isolated home", () => {
     join(fixture.home, ".claude/plugins/config-manager@ai-config-sync-manager")
   );
   assert.equal(marketplace.plugins[0].name, "ai-config-sync-manager");
+  assert.deepEqual(marketplace.plugins[0].source, {
+    source: "local",
+    path: join(fixture.home, "plugins/ai-config-sync-manager"),
+  });
+  assert.deepEqual(marketplace.plugins[0].policy, {
+    installation: "AVAILABLE",
+    authentication: "ON_INSTALL",
+  });
+  assert.equal(marketplace.plugins[0].category, "Productivity");
 });
 
 test("connect skips host registration when host directory is missing", () => {
@@ -1255,13 +1264,7 @@ test("status human-readable output includes plugin install hints", () => {
     plugins: [{ name: "bar", path: "/tmp/p/bar", source: "/tmp/p/bar", version: "0.1.0" }],
   });
 
-  const output = runCli(fixture, [
-    "status",
-    "--scope",
-    "global",
-    "--include",
-    "plugins",
-  ]);
+  const output = runCli(fixture, ["status", "--scope", "global", "--include", "plugins"]);
   assert.match(output, /Plugin sync is unsupported/);
   assert.match(output, /\/plugin install/);
   assert.match(output, /\.agents\/plugins\/marketplace\.json/);
@@ -5902,7 +5905,7 @@ test("connect cleans stale managed Claude plugin tree before reinstalling", () =
   );
 });
 
-test("connect injects root package version into installed_plugins.json and codex marketplace", () => {
+test("connect injects root package version into installed_plugins.json", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
@@ -5913,12 +5916,6 @@ test("connect injects root package version into installed_plugins.json and codex
   );
   const claudeEntry = installed.plugins["config-manager@ai-config-sync-manager"][0];
   assert.equal(claudeEntry.version, rootPkg.version);
-
-  const marketplace = JSON.parse(
-    readFileSync(join(fixture.home, ".agents/plugins/marketplace.json"), "utf8")
-  );
-  const codexEntry = marketplace.plugins.find((plugin) => plugin.name === "ai-config-sync-manager");
-  assert.equal(codexEntry.version, rootPkg.version);
 });
 
 // state schemaVersion helpers
