@@ -2,9 +2,11 @@
 
 import { execSync } from "node:child_process";
 
-const tag = process.argv[2] ?? "beta";
+const tag = process.argv[2];
+const installSpec = tag ? `ai-config-sync-manager@${tag}` : "ai-config-sync-manager";
+const tagLabel = tag ? `@${tag}` : "@latest";
 
-console.log(`→ Switching to PROD mode (npm @${tag} + marketplace plugins)`);
+console.log(`→ Switching to PROD mode (npm ${tagLabel} + marketplace plugins)`);
 
 try {
   execSync("npm unlink -g ai-config-sync-manager", { stdio: "inherit" });
@@ -12,7 +14,7 @@ try {
   // already unlinked — proceed
 }
 
-execSync(`npm i -g ai-config-sync-manager@${tag}`, { stdio: "inherit" });
+execSync(`npm i -g ${installSpec}`, { stdio: "inherit" });
 
 let whichOutput;
 try {

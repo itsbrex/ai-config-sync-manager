@@ -390,10 +390,13 @@ After `npm install -g`, every host calls the same npm package, so two hosts cann
 
 `npm install` runs the `prepare` script, which builds `dist/` (without touching active plugin caches) so the launcher and host plugin trees are ready to inspect immediately after clone.
 
+`npm run dev` and `npm run prod` toggle between linking the local clone for active development and switching back to a published npm release for verification.
+
 ```bash
-npm install           # also runs `prepare` -> build:dist:no-sync
-npm run dev:setup     # = npm link + npm run build:dist (with active cache sync)
-npm run dev:teardown  # revert
+npm install           # also runs `prepare` -> build:dist --skip-sync
+npm run dev           # npm link + build:dist (active plugin cache sync) — local dev mode
+npm run prod          # unlink + npm i -g ai-config-sync-manager (latest stable) + plugin reinstall hint
+npm run prod beta     # opt into a tagged dist-tag (e.g. `beta`, `next`) during prerelease cycles
 npm test              # node:test integration suite
 npm run check         # opt-in JSDoc / @ts-check
 npm run lint
