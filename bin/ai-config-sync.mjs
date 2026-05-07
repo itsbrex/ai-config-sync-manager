@@ -7567,6 +7567,32 @@ async function installClaudePlugin(targetPath) {
 
   mkdirSync(dirname(installedPath), { recursive: true });
   writeFileSync(installedPath, `${JSON.stringify(data, null, 2)}\n`);
+
+  registerClaudeMarketplace();
+}
+
+function registerClaudeMarketplace() {
+  const knownPath = `${home}/.claude/plugins/known_marketplaces.json`;
+  const marketplaceSource = join(runtimeRoot, "dist/claude-marketplace");
+
+  if (!existsSync(marketplaceSource)) return;
+  if (!existsSync(knownPath)) return;
+
+  let data;
+  try {
+    data = JSON.parse(readFileSync(knownPath, "utf8"));
+  } catch {
+    return;
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return;
+
+  data["ai-config-sync-manager"] = {
+    source: { source: "directory", path: marketplaceSource },
+    installLocation: marketplaceSource,
+    lastUpdated: new Date().toISOString(),
+  };
+
+  writeFileSync(knownPath, `${JSON.stringify(data, null, 2)}\n`);
 }
 
 async function installCodexPlugin(targetPath) {
