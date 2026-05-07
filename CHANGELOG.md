@@ -1,5 +1,11 @@
 # Ai-config-sync-manager
 
+## v0.1.0-beta.4 (2026-05-08)
+
+### 🐛 Bug Fixes
+
+- **connect**: switch Codex plugin install to user-marketplace direct manipulation. `codex plugin install` / `enable` non-interactive subcommands do not exist, and `policy.installation: "INSTALLED_BY_DEFAULT"` on a managed marketplace does not auto-install on `marketplace add`, so beta.3 left the plugin registered but inactive. `connect` now copies the bundle to `~/.ai-config-sync-manager/codex-plugin/` and upserts an entry into `~/.agents/plugins/marketplace.json` (user marketplace, default name `local-plugins`) using the openai/codex#17885 schema, then writes `[plugins."ai-config-sync-manager@local-plugins"] enabled = true` to `~/.codex/config.toml`. Beta.3 stale entries (`[marketplaces.ai-config-sync-manager]`, `[plugins."ai-config-sync-manager@ai-config-sync-manager"]`, `~/.ai-config-sync-manager/codex-marketplace/`) are not auto-cleaned — remove manually if upgrading.
+
 ## v0.1.0-beta.3 (2026-05-08)
 
 ### 🐛 Bug Fixes
