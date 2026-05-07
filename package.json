@@ -62,8 +62,8 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "dev:setup": "npm link && npm run build:dist",
-    "dev:teardown": "npm unlink -g ai-config-sync-manager"
+    "dev": "node scripts/mode-dev.mjs",
+    "prod": "node scripts/mode-prod.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
