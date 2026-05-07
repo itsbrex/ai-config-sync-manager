@@ -94,6 +94,7 @@ for c in "${cases[@]}"; do
     --scope global --exclude mcp --from codex --to claude --apply \
     > "$LOGS/$c.apply.out" 2> "$LOGS/$c.apply.err"
   apply_rc=$?
+  apply_main_rc=$apply_rc
   if [ "$AI_CONFIG_SYNC_MANUAL_MCP_SCOPE" = "global" ]; then
     node "$AI_CONFIG_SYNC_REPO_ROOT/bin/ai-config-sync.mjs" sync \
       --scope global --include mcp --from codex --to claude --apply \
@@ -112,12 +113,15 @@ for c in "${cases[@]}"; do
   # Per-case post-sync hook: setup.sh runs additional registrations
   # (paraphrase --apply, status-ignore.json) so the fixture exercises
   # rule-registration flows that real users perform after sync.
+  setup_rc=na
   if [ -x "$MANUAL_TEST_TEMPLATES_DIR/$c/setup.sh" ]; then
     "$MANUAL_TEST_TEMPLATES_DIR/$c/setup.sh" "$AI_CONFIG_SYNC_REPO_ROOT" \
       > "$LOGS/$c.setup.out" 2> "$LOGS/$c.setup.err"
     setup_rc=$?
     [ "$apply_rc" -eq 0 ] && apply_rc="$setup_rc"
   fi
+  printf 'DEBUG: case=%s apply_main=%s apply_mcp=%s setup=%s\n' \
+    "$c" "$apply_main_rc" "$mcp_apply_rc" "$setup_rc" >&2
 
   diff -ruN --exclude='.ai-config-sync-manager' \
     --exclude='backups' --exclude='telemetry' \

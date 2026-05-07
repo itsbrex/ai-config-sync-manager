@@ -6,7 +6,7 @@
       "scope": "global",
       "area": "skills",
       "item": "verification-loop",
-      "claude_path": "__LAB_HOME__/.claude/skills/verification-loop/SKILL.md",
+      "claude_path": "__LAB_HOME__/.claude/skills/verification-loop/skill.md",
       "codex_path": "__LAB_HOME__/.agents/skills/verification-loop/SKILL.md",
       "claude_line": 7,
       "codex_line": 9,

@@ -329,7 +329,9 @@ function renderVocabFindings(findings) {
 
   if (manual.length > 0) {
     lines.push("");
-    lines.push("Manual review — run `ai-config-sync paraphrase` to rewrite both sides and register an override:");
+    lines.push(
+      "Manual review — run `ai-config-sync paraphrase` to rewrite both sides and register an override:"
+    );
     for (const f of [...manual].sort(sortFn)) {
       const hostLabel = f.host === "claude" ? "Claude" : "Codex";
       const sideLabel = f.side.replace("_only", "-only");
@@ -5896,7 +5898,6 @@ function instructionsEquivalent(claudeContent, codexContent) {
   );
 }
 
-
 function compareSkillDirs(
   entries,
   scope,
@@ -6061,10 +6062,7 @@ function comparePlugins(entries, scope, claudePluginsManifest, codexMarketplaceP
   const claudePlugins = readClaudeInstalledPlugins(claudePluginsManifest);
   const codexPlugins = readCodexMarketplacePlugins(codexMarketplacePath);
 
-  const SELF_MANAGED = new Set([
-    "config-manager@ai-config-sync-manager",
-    "ai-config-sync-manager",
-  ]);
+  const SELF_MANAGED = new Set(["config-manager@ai-config-sync-manager", "ai-config-sync-manager"]);
   const claudeFiltered = claudePlugins.filter((name) => !SELF_MANAGED.has(name));
   const codexFiltered = codexPlugins.filter((name) => !SELF_MANAGED.has(name));
 
@@ -6102,9 +6100,7 @@ function readCodexMarketplacePlugins(marketplacePath) {
   try {
     const data = JSON.parse(readFileSync(marketplacePath, "utf8"));
     if (!Array.isArray(data?.plugins)) return [];
-    return data.plugins
-      .map((p) => p?.name)
-      .filter((n) => typeof n === "string" && n.length > 0);
+    return data.plugins.map((p) => p?.name).filter((n) => typeof n === "string" && n.length > 0);
   } catch {
     return [];
   }
@@ -6414,8 +6410,7 @@ function codexSandboxModeForClaudeTools(toolsValue) {
   if (!agentFieldMapping("tools", "sandbox_mode")) return "";
   const tools = splitAgentTools(toolsValue);
   if (tools.length === 0) return "";
-  if (tools.some((tool) => ["Edit", "MultiEdit", "Write"].includes(tool)))
-    return "workspace-write";
+  if (tools.some((tool) => ["Edit", "MultiEdit", "Write"].includes(tool))) return "workspace-write";
   const modes = agentsMapData().sandbox_modes ?? {};
   for (const [mode, spec] of Object.entries(modes)) {
     const mapped = splitAgentTools(spec?.claude?.tools);
@@ -6436,9 +6431,7 @@ function splitAgentTools(value) {
 function agentFieldMapping(claude, codex) {
   const fields = agentsMapData().fields;
   if (!Array.isArray(fields)) return null;
-  return (
-    fields.find((field) => field?.claude === claude && field?.codex === codex) ?? null
-  );
+  return fields.find((field) => field?.claude === claude && field?.codex === codex) ?? null;
 }
 
 function modelTiers() {
@@ -6934,16 +6927,38 @@ function skillManifestBasename(host) {
   return host === "claude" ? "skill.md" : "SKILL.md";
 }
 
-function findSkillManifest(skillDir) {
-  for (const name of ["SKILL.md", "skill.md"]) {
-    const candidate = join(skillDir, name);
-    if (existsSync(candidate)) return candidate;
+function findSkillManifest(skillDir, hostHint) {
+  if (!skillDir || !existsSync(skillDir)) return null;
+  let entries;
+  try {
+    entries = readdirSync(skillDir);
+  } catch {
+    return null;
+  }
+  const present = new Set(entries);
+  for (const name of skillManifestLookupOrder(hostHint)) {
+    if (present.has(name)) return join(skillDir, name);
   }
   return null;
 }
 
+function skillManifestFilenames() {
+  const rules = terminologyRules(terminologyMapSource().data);
+  const rule = rules.find((r) => r?.id === "skill-manifest-filename");
+  return {
+    claude: typeof rule?.claude_replace === "string" ? rule.claude_replace : "skill.md",
+    codex: typeof rule?.codex_replace === "string" ? rule.codex_replace : "SKILL.md",
+  };
+}
+
+function skillManifestLookupOrder(hostHint) {
+  const { claude, codex } = skillManifestFilenames();
+  return hostHint === "claude" ? [claude, codex] : [codex, claude];
+}
+
 function isSkillManifestBasename(name) {
-  return name === "SKILL.md" || name === "skill.md";
+  const { claude, codex } = skillManifestFilenames();
+  return name === claude || name === codex;
 }
 
 function instructionState(host, paths) {
@@ -7209,11 +7224,7 @@ function skillDirsLineEquivalent(claudeSkillDir, codexSkillDir, from, to, terms 
     let targetContent = readSkillFileForHash(targetDir, targetEntry.raw).toString("utf8");
     let sourceContent = readSkillFileForHash(sourceDir, sourceEntry.raw).toString("utf8");
 
-    const fileOverrides = activeManifestOverridesForPair(
-      targetAbs,
-      sourceAbs,
-      targetHost
-    );
+    const fileOverrides = activeManifestOverridesForPair(targetAbs, sourceAbs, targetHost);
     if (fileOverrides.length > 0) {
       const masked = maskBodiesForHosts(
         targetContent,
@@ -7463,7 +7474,8 @@ async function registerMissingIntegrations(state) {
   } else {
     results.push({
       status: "skipped",
-      message: "Claude host not detected (~/.claude missing); rerun connect after installing Claude Code",
+      message:
+        "Claude host not detected (~/.claude missing); rerun connect after installing Claude Code",
     });
   }
 
@@ -7475,7 +7487,8 @@ async function registerMissingIntegrations(state) {
   } else {
     results.push({
       status: "skipped",
-      message: "Codex host not detected (~/.codex and ~/.agents both missing); rerun connect after installing Codex",
+      message:
+        "Codex host not detected (~/.codex and ~/.agents both missing); rerun connect after installing Codex",
     });
   }
 
@@ -8201,7 +8214,7 @@ function enumerateScopeItemsForRegister(scope, selectors) {
     if (!dir || !existsSync(dir)) continue;
     for (const name of skillNames(dir)) {
       if (claudeSkillManifest.has(name)) continue;
-      const manifest = findSkillManifest(join(dir, name));
+      const manifest = findSkillManifest(join(dir, name), "claude");
       if (manifest) claudeSkillManifest.set(name, manifest);
     }
   }
@@ -8210,7 +8223,7 @@ function enumerateScopeItemsForRegister(scope, selectors) {
     if (!dir || !existsSync(dir)) continue;
     for (const name of skillNames(dir)) {
       if (codexSkillManifest.has(name)) continue;
-      const manifest = findSkillManifest(join(dir, name));
+      const manifest = findSkillManifest(join(dir, name), "codex");
       if (manifest) codexSkillManifest.set(name, manifest);
     }
   }
@@ -8370,7 +8383,7 @@ function findCounterpartFile(info) {
       if (!dir || !existsSync(dir)) continue;
       const skillDir = join(dir, info.item);
       if (!existsSync(skillDir)) continue;
-      const manifest = findSkillManifest(skillDir);
+      const manifest = findSkillManifest(skillDir, counterpartHost);
       if (manifest) return { path: manifest };
     }
     return null;
