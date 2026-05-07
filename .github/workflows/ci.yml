@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Claude Code and Codex CLIs
+        run: npm install -g @anthropic-ai/claude-code @openai/codex
+
       - name: Reset manual test lab from templates
         run: npm run test:manual:reset
 
