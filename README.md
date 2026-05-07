@@ -377,9 +377,9 @@ Items the engine deliberately does not sync, with the reason and the surface whe
 | Surface | Behavior | Why |
 | --- | --- | --- |
 | `TaskCreate` / `TaskUpdate` / `TeamCreate` SDK calls | Stripped with `ai-config-sync:stripped` marker; original payload archived under the backup root (`unsupported-calls.json`) | Codex has no native todo/task tracker tool nor an atomic agent-team primitive |
-| Symlinked skills (`~/.claude/skills/<name>` is a symlink) | Reported by `status` as `unsupported` (action: `manual review`); excluded from `sync --apply` | Whether to copy the link or materialize target content is an unresolved policy — see [`workflow.md` §8.4](./.claude/docs/workflow.md). Resolve manually by either rewriting as a real directory on the source host, or applying via `--include skills:<name>` after the policy lands |
-| `memory` / implicit context / agent runtime state | Out of scope for now (no read, no write) | Storage layout, redaction rules, and conflict policy not yet settled. Tracked in the [Roadmap](#roadmap) — first phase will be read-only `status` |
-| Host plugin installations (`~/.claude/plugins/installed_plugins.json`, `~/.agents/plugins/marketplace.json`) | Reported by `status --scope global` as `unsupported` (action: `manual review`); excluded from `sync --apply`. Self-managed `config-manager@ai-config-sync-manager` / `ai-config-sync-manager` are filtered out so they never surface as drift | Plugin install/remove crosses package-manager-like boundaries (marketplace metadata + tree copy + per-host install commands). Status surfaces install hints — `/plugin install <name>@<source>` for Claude, edit `~/.agents/plugins/marketplace.json` for Codex. Bidirectional sync tracked in [`workflow.md` §8.4](./.claude/docs/workflow.md) |
+| Symlinked skills (`~/.claude/skills/<name>` is a symlink) | Reported by `status` as `unsupported` (action: `manual review`); excluded from `sync --apply` | Whether to copy the link or materialize target content is an unresolved policy. Resolve manually by either rewriting as a real directory on the source host, or applying via `--include skills:<name>` after the policy lands |
+| `memory` / implicit context / agent runtime state | Out of scope for now (no read, no write) | Storage layout, redaction rules, and conflict policy not yet settled. Tracked in [What's next](#whats-next) — first phase will be read-only `status` |
+| Host plugin installations (`~/.claude/plugins/installed_plugins.json`, `~/.agents/plugins/marketplace.json`) | Reported by `status --scope global` as `unsupported` (action: `manual review`); excluded from `sync --apply`. Self-managed `config-manager@ai-config-sync-manager` / `ai-config-sync-manager` are filtered out so they never surface as drift | Plugin install/remove crosses package-manager-like boundaries (marketplace metadata + tree copy + per-host install commands). Status surfaces install hints — `/plugin install <name>@<source>` for Claude, edit `~/.agents/plugins/marketplace.json` for Codex. |
 
 ## Install resolution
 
@@ -411,7 +411,6 @@ Inside a clone, invoke the CLI as `./bin/ai-config-sync.mjs <command>` (the publ
 
 - **No programmatic API.** `bin/ai-config-sync.mjs` executes on import. Do not `import` it from another module — see [API surface](#api-surface).
 - **Symlink skills, `TaskCreate` / `TaskUpdate` / `TeamCreate`, and memory/runtime state are not synced** — see [Unsupported](#unsupported) for the per-surface behavior.
-- **Permissions and hooks are patched item-by-item**, not whole-file copied. `--include permissions:Write` is the supported way to scope a single item.
 - **Codex host inversion** — when invoked through the Codex plugin, `AI_CONFIG_SYNC_HOST=codex` flips the default direction to `codex → claude`. Use `--from`/`--to` for an explicit override.
 - **MCP env values are copied verbatim by default** — opt in to redaction with `AI_CONFIG_SYNC_STRIP_SECRETS=1`.
 - **`--apply` is final**, but reversible: every write creates a `.backups/` snapshot. `--dry-run` is the default for a reason.
@@ -420,9 +419,7 @@ Inside a clone, invoke the CLI as `./bin/ai-config-sync.mjs <command>` (the publ
 
 This is a **CLI tool**, not a library. There is no programmatic API — `import`-ing this package from another Node module is not supported and the bundled `bin/ai-config-sync.mjs` is not designed to be loaded as a library (it executes the command on import). All functionality is exposed through the `ai-config-sync` command and the host plugins. If you need programmatic access to a specific function (mapping rules, plan generation, status diff), open an issue describing the use case so the surface can be designed deliberately.
 
-## Roadmap
-
-Tracked in [`workflow.md` §8.4](./.claude/docs/workflow.md). Highlights of upcoming scope:
+## What's next
 
 | Item | Status | Notes |
 | --- | --- | --- |
