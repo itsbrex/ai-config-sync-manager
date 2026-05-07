@@ -72,9 +72,8 @@ ai-config-sync sync --apply      # apply with automatic backups
 | **Commands** | [Bundled CLI](#bundled-cli) · [Host plugin commands](#host-plugin-commands) · [Flags](#flags) |
 | **Workflow** | [Selector syntax](#selector-syntax) · [Ignore rules](#ignore-rules) · [Sync direction](#sync-direction) · [Scopes](#scopes) |
 | **Safety** | [Safety defaults](#safety-defaults) · [Risk levels](#risk-levels) · [Retention](#retention) |
-| **Mapping** | [Native mapping](#native-mapping-claude--codex) · [Areas](#areas) · [Agent call compiler](#agent-call-compiler) · [Paraphrase](#paraphrase) · [Hidden markers](#hidden-markers) · [Unsupported](#unsupported) |
-| **Architecture** | [Architecture](#architecture) · [Install resolution](#install-resolution) |
-| **Reference** | [Documentation](#documentation) · [Local dev](#local-dev-from-this-repo) · [Gotchas](#gotchas) · [API surface](#api-surface) |
+| **Mapping** | [Native mapping](#native-mapping-claude--codex) · [Areas](#areas) · [Paraphrase](#paraphrase) · [Hidden markers](#hidden-markers) · [Unsupported](#unsupported) |
+| **Reference** | [Install resolution](#install-resolution) · [Local dev](#local-dev-from-this-repo) · [Gotchas](#gotchas) · [API surface](#api-surface) · [What's next](#whats-next) |
 
 ## Commands
 
