@@ -241,7 +241,7 @@ Each `exclude` entry is a string selector (`area:item` or path glob) **or** an o
 }
 ```
 
-Full template: [`docs/status-ignore.example.json`](./docs/status-ignore.example.json). The active path and rule count are echoed in `status` output as `Status ignore: <path> rules: [...] (N hidden)`.
+The active path and rule count are echoed in `status` output as `Status ignore: <path> rules: [...] (N hidden)`.
 
 ## Sync direction
 
@@ -295,17 +295,6 @@ Full template: [`docs/status-ignore.example.json`](./docs/status-ignore.example.
 
 Full mapping reference: [`rules/`](./rules/).
 
-## Agent call compiler
-
-Skill / agent / instruction bodies often embed Claude SDK calls (`Agent({...})`) that have no syntactic equivalent on the Codex side. The compiler — driven by [`rules/call-templates.json`](./rules/call-templates.json) — round-trips the supported pair:
-
-| Direction | Source form | Target form |
-| --- | --- | --- |
-| `claude → codex` | `Agent({ description, prompt, subagent_type })` | Prose `spawn_agent` block (`agent_type: "<description>"` + `Task: <prompt>`) |
-| `codex → claude` | Prose block reconstructed from the hidden marker | `Agent({...})` call |
-
-The scanner is **tolerant by design**: it only recognizes a single-level object literal where every value is a string, number, boolean, null, or array of those. Anything more complex (template strings, variable references, nested expressions) is left intact and tagged with an `ai-config-sync:manual-review` marker carrying the parse reason. Reverse syncs round-trip the marker so manual edits survive.
-
 ## Paraphrase
 
 Some tokens are **mutually exclusive** between hosts — `Read`, `Write`, `Edit`, `Glob`, `mcp__*` only exist on Claude; `update_plan`, `spawn_agent`, `apply_patch` only exist on Codex (full list: [`rules/host-strict-vocab.json`](./rules/host-strict-vocab.json)). When such a token leaks into the wrong host's file, the terminology map cannot translate it, so `status` keeps reporting the line as a `manual-review` mismatch forever.
@@ -356,17 +345,15 @@ ai-config-sync paraphrase
 ai-config-sync paraphrase --map "Read=Inspect,Write=Author" --apply
 
 # Scope to a single agent file in global config
-ai-config-sync paraphrase --scope global --include agents:code-structure-analyst --apply
+ai-config-sync paraphrase --scope global --include agents:code-writer --apply
 
 # Side already pre-paraphrased outside the CLI — just record the override
-ai-config-sync paraphrase --register --include skills:commit-insight-pipeline \
+ai-config-sync paraphrase --register --include skills:code-writer \
   --map "Read=Inspect,Write=Emit" --apply
 
-# Natural-language paraphrase — substitute Claude-only tokens with wording a
-# Codex prompt would actually use, so the masked line still reads naturally
-ai-config-sync paraphrase \
-  --map "Read=read the file,Write=write to the file,Glob=glob for files" \
-  --apply
+# Natural-language intent — slash-command agent translates this into the
+# matching --map flags on the fly (no need to spell out token=paraphrase pairs)
+/config-manager:paraphrase rewrite to Codex-compatible wording
 ```
 
 ### Stale overrides
