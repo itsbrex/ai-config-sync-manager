@@ -1,5 +1,11 @@
 # Ai-config-sync-manager
 
+## v0.1.0-beta.3 (2026-05-08)
+
+### 🐛 Bug Fixes
+
+- **connect**: fix Codex marketplace manifest path and schema to the official spec — manifest now lives at `<root>/.agents/plugins/marketplace.json` (not `.codex-plugin/marketplace.json`) and uses `interface.displayName`, `source: { source: "local", path: "./plugins/..." }`, and `policy: { installation: "INSTALLED_BY_DEFAULT", authentication: "ON_INSTALL" }`. `INSTALLED_BY_DEFAULT` triggers automatic plugin install on marketplace add. Resolves "invalid marketplace file: marketplace root does not contain a supported manifest" reported during beta.2 verification.
+
 ## v0.1.0-beta.2 (2026-05-08)
 
 ### 🐛 Bug Fixes
