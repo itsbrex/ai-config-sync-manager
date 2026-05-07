@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+  <sub><b>zero dep · zero build · zero config</b></sub>
+</p>
+
+<p align="center">
   <a href="./LICENSE"><img alt="License" src="https://img.shields.io/npm/l/ai-config-sync-manager"></a>
   <a href="https://www.npmjs.com/package/ai-config-sync-manager"><img alt="Version" src="https://img.shields.io/npm/v/ai-config-sync-manager"></a>
   <a href="https://www.npmjs.com/package/ai-config-sync-manager"><img alt="Downloads" src="https://img.shields.io/npm/dt/ai-config-sync-manager"></a>
