@@ -5,11 +5,6 @@
         "installPath": "/tmp/p/frontend-design"
       }
     ],
-    "review-tools@user-marketplace": [
-      {
-        "installPath": "/tmp/p/review-tools"
-      }
-    ],
     "config-manager@ai-config-sync-manager": [
       {
         "installPath": "/tmp/p/config-manager"
