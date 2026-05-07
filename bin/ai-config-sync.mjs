@@ -7561,15 +7561,25 @@ function stageManagedCodexMarketplace(sourceBundle, managedRoot) {
   const pluginDir = join(managedRoot, "plugins", CODEX_PLUGIN_NAME);
   rmSync(pluginDir, { recursive: true, force: true });
   cpSync(sourceBundle, pluginDir, { recursive: true, dereference: false });
-  const marketplacePath = join(managedRoot, ".codex-plugin", "marketplace.json");
+  const marketplacePath = join(managedRoot, ".agents", "plugins", "marketplace.json");
   mkdirSync(dirname(marketplacePath), { recursive: true });
   writeFileSync(
     marketplacePath,
     `${JSON.stringify(
       {
         name: CODEX_MARKETPLACE_NAME,
-        owner: { name: "ai-config-sync-manager", email: "" },
-        plugins: [{ name: CODEX_PLUGIN_NAME, source: `./plugins/${CODEX_PLUGIN_NAME}` }],
+        interface: { displayName: "AI Config Sync Manager" },
+        plugins: [
+          {
+            name: CODEX_PLUGIN_NAME,
+            source: { source: "local", path: `./plugins/${CODEX_PLUGIN_NAME}` },
+            policy: {
+              installation: "INSTALLED_BY_DEFAULT",
+              authentication: "ON_INSTALL",
+            },
+            category: "Productivity",
+          },
+        ],
       },
       null,
       2
