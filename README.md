@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <img src="./assets/ai_config_sync_hero_v4.png" alt="ai-config-sync-manager — data flow at a glance" width="100%" />
+  <img src="https://raw.githubusercontent.com/slash9494/ai-config-sync-manager/main/assets/ai_config_sync_hero_v4.png" alt="ai-config-sync-manager — data flow at a glance" width="100%" />
 </p>
 
 ## Highlights

@@ -1,6 +1,6 @@
 {
   "name": "ai-config-sync-manager",
-  "version": "0.1.0",
+  "version": "0.1.0-beta.0",
   "private": false,
   "packageManager": "npm@11.9.0",
   "description": "OSS manager for syncing Claude and Codex developer configuration.",
@@ -15,6 +15,7 @@
     }
   ],
   "license": "MIT",
+  "homepage": "https://github.com/slash9494/ai-config-sync-manager/",
   "type": "module",
   "keywords": [
     "ai",
@@ -31,6 +32,21 @@
   "bin": {
     "ai-config-sync": "./bin/ai-config-sync.mjs"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/slash9494/ai-config-sync-manager.git"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "integrations/",
+    "rules/",
+    "schemas/",
+    "scripts/build-dist.mjs",
+    "scripts/sync-plugin-cache.mjs",
+    "scripts/lib/",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "prepare": "node scripts/build-dist.mjs --skip-sync",
     "build:dist": "node scripts/build-dist.mjs",
