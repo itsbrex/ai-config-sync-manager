@@ -69,7 +69,7 @@ ai-config-sync sync --apply      # apply with automatic backups
 
 | Category | Sections |
 | --- | --- |
-| **Commands** | [Bundled CLI](#bundled-cli) · [Host plugin commands](#host-plugin-commands) |
+| **Commands** | [Bundled CLI](#bundled-cli) · [Host plugin commands](#host-plugin-commands) · [Flags](#flags) |
 | **Workflow** | [Selector syntax](#selector-syntax) · [Ignore rules](#ignore-rules) · [Sync direction](#sync-direction) · [Scopes](#scopes) |
 | **Safety** | [Safety defaults](#safety-defaults) · [Risk levels](#risk-levels) · [Retention](#retention) |
 | **Mapping** | [Native mapping](#native-mapping-claude--codex) · [Areas](#areas) · [Agent call compiler](#agent-call-compiler) · [Paraphrase](#paraphrase) · [Hidden markers](#hidden-markers) · [Unsupported](#unsupported) |
@@ -115,6 +115,85 @@ ai-config-sync paraphrase
 | --- | --- | --- | --- | --- |
 | **Claude** | `/config-manager:connect` | `/config-manager:status` | `/config-manager:sync` | `/config-manager:paraphrase` |
 | **Codex** | `config-manager-connect` | `config-manager-status` | `config-manager-sync` | `config-manager-paraphrase` |
+
+## Flags
+
+Per-subcommand flag reference, mirroring `<command> --help` output. Shared flags (`--include` / `--exclude` / `--scope` / `--map`) get a one-line summary; full syntax lives in the linked section.
+
+### `connect`
+
+| Flag | Description |
+| --- | --- |
+| `-h`, `--help` | Show connect help |
+
+```bash
+ai-config-sync connect
+```
+
+### `status`
+
+| Flag | Description |
+| --- | --- |
+| `--json` | Print the full status report as JSON |
+| `--compact` | One compact line per diff entry |
+| `--tree` | Scope/area/item tree output |
+| `--scope global\|project\|all` | Limit scope (default: `all` = global + project) |
+| `--include area[:item][,...]` | Include selector — see [Selector syntax](#selector-syntax) |
+| `--exclude area[:item][,...]` | Exclude selector — see [Selector syntax](#selector-syntax) |
+| `-h`, `--help` | Show status help |
+
+```bash
+ai-config-sync status --scope project --tree --include skills:code-writer
+```
+
+### `sync`
+
+| Flag | Description |
+| --- | --- |
+| `--dry-run` | Preview without writing (default; mutually exclusive with `--apply`) |
+| `--apply` | Apply with backups |
+| `--plan-json` | Print the sync plan as JSON |
+| `--from claude\|codex` | Source host (overrides `AI_CONFIG_SYNC_HOST`) |
+| `--to claude\|codex` | Target host (overrides `AI_CONFIG_SYNC_HOST`) |
+| `--scope global\|project\|all` | Limit scope (default: `all` = global + project) |
+| `--include area[:item][,...]` | Include selector — see [Selector syntax](#selector-syntax) |
+| `--exclude area[:item][,...]` | Exclude selector — see [Selector syntax](#selector-syntax) |
+| `-h`, `--help` | Show sync help |
+
+When `--from` / `--to` are omitted, direction follows [Sync direction](#sync-direction).
+
+```bash
+ai-config-sync sync --scope project --include mcp:notion --apply
+```
+
+### `reference`
+
+| Flag | Description |
+| --- | --- |
+| `--output <path>` | Write the reference markdown to `<path>` (parent directories created) |
+| `-h`, `--help` | Show reference help |
+
+```bash
+ai-config-sync reference --output ~/.ai-config-sync-manager/reference.md
+```
+
+### `paraphrase`
+
+| Flag | Description |
+| --- | --- |
+| `--apply` | Rewrite files + register overrides + persist new map entries (default: dry-run) |
+| `--register` | Skip rewriting; only register overrides where the effective map already equates both sides — see [Paraphrase](#paraphrase) |
+| `--map token=paraphrase[,...]` | Inline token-to-paraphrase pairs (free-form prose accepted) — see [`--map` syntax](#--map-syntax) |
+| `--non-interactive` | Skip TTY prompts for tokens missing from `paraphrase-map.json` |
+| `--json` | Print the result as JSON |
+| `--scope global\|project\|all` | Limit scope (default: `all` = global + project) |
+| `--include area[:item][,...]` | Include selector — see [Selector syntax](#selector-syntax) |
+| `--exclude area[:item][,...]` | Exclude selector — see [Selector syntax](#selector-syntax) |
+| `-h`, `--help` | Show paraphrase help |
+
+```bash
+ai-config-sync paraphrase --map "Read=read the file,Write=write to the file" --apply
+```
 
 ## Selector syntax
 
