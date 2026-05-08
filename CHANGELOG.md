@@ -1,5 +1,19 @@
 # Ai-config-sync-manager
 
+## v0.1.0-beta.6 (2026-05-08)
+
+### 🐛 Bug Fixes
+
+- **yaml frontmatter**: extract a strict-safe scalar guard at `bin/util/yaml-scalar.mjs` and route claude→codex sync serialization through it. Bare scalars starting with YAML 1.2 indicators (e.g. `globs: **/*.{js,ts,jsx,tsx,py,go,java}`) used to parse on Claude's lenient loader but trip Codex's strict 1.2 parser as aliases (`unidentified alias "*/*."`), dropping the whole frontmatter — including `name` — so the affected skill silently lost its identity on the Codex side. Guard covers rule [22] c-indicators (`- ? : , [ ] { } # & * ! | > ' " % @ \``), YAML 1.1 coercion compat (single-letter bools `y/Y/n/N`, `null/true/false/yes/no/on/off`variants, integers/floats/exponents/hex/octal/binary, special floats`.NaN/.inf`, ISO 8601 timestamps), and the `<<`merge key. Round-trip verified against`js-yaml`.
+
+### 📝 Docs
+
+- Add `AGENTS.md` (agent-facing project instruction) at the repo root, capturing the ESM/zero-deps conventions, test and build commands, and the yaml-scalar guard rule. `CLAUDE.md` is a symlink to `AGENTS.md` so claude-code reads the same source.
+
+### 🛠 Chore
+
+- Move `lint-staged` config to `.lintstagedrc.mjs` and filter symlinks via `lstatSync` before invoking `prettier`/`eslint`. Prettier 3 hard-errors on symlink arguments and ignores `.prettierignore` for explicit paths, so the previous `package.json` shorthand blocked staging `CLAUDE.md`.
+
 ## v0.1.0-beta.4 (2026-05-08)
 
 ### 🐛 Bug Fixes
