@@ -4907,6 +4907,176 @@ test("status reports zero skill drift after a forward apply round-trip", () => {
   }
 });
 
+test("sync apply quotes glob frontmatter starting with asterisk so Codex strict YAML cannot misread it as an alias", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/code-review"),
+    "claude",
+    ["---", "name: code-review", "globs: **/*.{js,ts,jsx,tsx,py,go,java}", "---", "body", ""].join(
+      "\n"
+    )
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:code-review", "--apply"]);
+  const codexManifest = readFileSync(
+    join(fixture.project, ".agents/skills/code-review/SKILL.md"),
+    "utf8"
+  );
+
+  assert.match(codexManifest, /^name: code-review$/m);
+  assert.match(codexManifest, /^globs: "\*\*\/\*\.\{js,ts,jsx,tsx,py,go,java\}"$/m);
+  assert.doesNotMatch(codexManifest, /^globs: \*\*/m);
+});
+
+test("sync apply emits no bare-asterisk frontmatter line when source globs use leading asterisks", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/code-review"),
+    "claude",
+    ["---", "name: code-review", "globs: **/*.{js,ts,jsx,tsx,py,go,java}", "---", "body", ""].join(
+      "\n"
+    )
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:code-review", "--apply"]);
+  const codexManifest = readFileSync(
+    join(fixture.project, ".agents/skills/code-review/SKILL.md"),
+    "utf8"
+  );
+
+  const closing = codexManifest.indexOf("\n---", 3);
+  assert.ok(closing !== -1, "codex manifest should retain a closing frontmatter delimiter");
+  const frontmatterRegion = codexManifest.slice(3, closing);
+  for (const rawLine of frontmatterRegion.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    assert.doesNotMatch(
+      line,
+      /^[^"]*\*/,
+      `frontmatter line should not start with bare * — got: ${line}`
+    );
+  }
+});
+
+test("sync apply quotes scalars beginning with YAML reserved indicators", () => {
+  const fixture = createFixture();
+  const indicatorPairs = [
+    ["alias_value", "*foo"],
+    ["anchor_value", "&bar"],
+    ["tag_value", "!baz"],
+    ["pipe_value", "|literal"],
+    ["gt_value", ">gt"],
+    ["question_value", "?q"],
+    ["at_value", "@at"],
+    ["backtick_value", "`bt`"],
+    ["pct_value", "%pct"],
+    ["flow_seq", "[a,b]"],
+    ["flow_map", "{a:1}"],
+    ["comma_value", ",comma"],
+    ["hash_value", "#hash"],
+    ["colon_value", ":colon"],
+    ["apo_value", "'apo"],
+    ["dq_value", '"dq'],
+  ];
+
+  const lines = ["---", "name: foo"];
+  for (const [key, value] of indicatorPairs) {
+    lines.push(`${key}: ${value}`);
+  }
+  lines.push("---", "body", "");
+
+  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", lines.join("\n"));
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
+  const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
+
+  for (const [key] of indicatorPairs) {
+    assert.match(
+      codexManifest,
+      new RegExp(`^${key}: "`, "m"),
+      `expected ${key} to be double-quoted in codex manifest`
+    );
+  }
+});
+
+test("sync apply quotes scalars that would otherwise coerce to YAML bool, null, or number", () => {
+  const fixture = createFixture();
+  const coercionPairs = [
+    ["bool_yes", "yes"],
+    ["bool_no", "NO"],
+    ["bool_off", "off"],
+    ["bool_true", "True"],
+    ["null_word", "null"],
+    ["null_tilde", "~"],
+    ["int_value", "1"],
+    ["float_value", "1.5"],
+    ["exp_value", "1e3"],
+    ["hex_value", "0x1A"],
+    ["octal_value", "0o17"],
+  ];
+
+  const lines = ["---", "name: foo"];
+  for (const [key, value] of coercionPairs) {
+    lines.push(`${key}: ${value}`);
+  }
+  lines.push("---", "body", "");
+
+  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", lines.join("\n"));
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
+  const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
+
+  for (const [key, value] of coercionPairs) {
+    assert.match(
+      codexManifest,
+      new RegExp(`^${key}: "${value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}"$`, "m"),
+      `expected ${key} to be double-quoted as ${JSON.stringify(value)}`
+    );
+  }
+});
+
+test("sync apply quotes scalars with leading or trailing whitespace and skips empty values", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/foo"),
+    "claude",
+    [
+      "---",
+      "name: foo",
+      'padded_left: "  foo"',
+      'padded_right: "bar  "',
+      'empty_str: ""',
+      "---",
+      "body",
+      "",
+    ].join("\n")
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
+  const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
+
+  assert.match(codexManifest, /^padded_left: " {2}foo"$/m);
+  assert.match(codexManifest, /^padded_right: "bar {2}"$/m);
+  assert.doesNotMatch(codexManifest, /^empty_str:/m);
+});
+
+test("sync apply leaves plain ASCII frontmatter values unquoted as before", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/foo"),
+    "claude",
+    ["---", "name: code-review", "description: Review the code carefully.", "---", "body", ""].join(
+      "\n"
+    )
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
+  const codexManifest = readFileSync(join(fixture.project, ".agents/skills/foo/SKILL.md"), "utf8");
+
+  assert.match(codexManifest, /^name: code-review$/m);
+  assert.match(codexManifest, /^description: Review the code carefully\.$/m);
+});
+
 test("status renders line-level preview for folder-grouped Claude agent conflict", () => {
   const fixture = createFixture();
   writeClaudeAgent(

@@ -17,6 +17,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
+import { serializeYamlScalar } from "./util/yaml-scalar.mjs";
 
 const hosts = new Set(["claude", "codex"]);
 const [command = "help", ...argv] = process.argv.slice(2);
@@ -6260,17 +6261,11 @@ function serializeClaudeAgentFile(frontmatter, body) {
   const lines = ["---"];
   for (const [key, value] of Object.entries(frontmatter)) {
     if (value === undefined || value === null || value === "") continue;
-    lines.push(`${key}: ${serializeFrontmatterScalar(value)}`);
+    lines.push(`${key}: ${serializeYamlScalar(value)}`);
   }
   lines.push("---", "");
   const trailing = body.endsWith("\n") ? body : `${body}\n`;
   return `${lines.join("\n")}${trailing}`;
-}
-
-function serializeFrontmatterScalar(value) {
-  const text = String(value);
-  if (/[:#"\n]/.test(text)) return JSON.stringify(text);
-  return text;
 }
 
 function parseCodexAgentFile(path) {
