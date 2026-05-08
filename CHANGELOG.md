@@ -1,5 +1,9 @@
 # Ai-config-sync-manager
 
+## v0.1.0 (2026-05-08)
+
+First stable release. Consolidates the `0.1.0-beta.0` → `0.1.0-beta.6` series. No code changes from beta.6.
+
 ## v0.1.0-beta.6 (2026-05-08)
 
 ### 🐛 Bug Fixes
