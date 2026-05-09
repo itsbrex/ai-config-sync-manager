@@ -29,6 +29,7 @@
 - **Backup-on-write** — every overwrite snapshotted under `.backups/`, FIFO retention (30).
 - **Selector syntax** — `--include skills:code-writer,instructions --exclude mcp` style filtering.
 - **Native semantic mapping** — Claude `Write` → Codex `sandbox_mode = "workspace-write"`, etc.
+- **Prose-level token rewriting** — Claude-only tokens (`Read`, `Bash`, `TaskCreate`, headless `claude -p`) and Codex-only tokens (`spawn_agent`, `codex exec`) auto-translate across hosts and round-trip back, instead of being left as `MANUAL MIGRATION REQUIRED` prompt guidance.
 - **Zero runtime dependencies** — single ESM file, Node built-ins only.
 - **Thin host plugins** — `/config-manager:*` for Claude, `config-manager-*` for Codex.
 
@@ -46,6 +47,8 @@ Claude Code and Codex use the **same concepts** (instructions / skills / mcp / p
 Hand-rolling the sync invites **drift, semantic loss, and accidental secret leaks**. This CLI keeps the two hosts aligned while preserving host-native meaning.
 
 This tool is built for **two hosts in continuous use** — where drift accumulates daily and round-trip integrity matters across repeated syncs — not for a one-shot, one-way migration.
+
+One-shot migrators typically copy Claude-only vocabulary (tool names like `Read` / `Bash`, prose like `Use the Bash tool`, in-line `Agent({...})` calls) into the generated file as **prompt guidance** and flag it for manual review. This CLI instead **auto-rewrites those tokens to their host equivalents** (`Read` → `workspace-write`, `TaskCreate` → `spawn_agent`, `claude -p` → `codex exec`, …) and **round-trips them back** when syncing the other direction — so the same content stays correct for both hosts with no manual fix-ups.
 
 ## Quick Start
 
