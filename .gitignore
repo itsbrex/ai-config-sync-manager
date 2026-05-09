@@ -40,6 +40,12 @@ desktop.ini
 tmp/
 *.tmp
 
+# Playwright MCP scratch (screenshots, console logs)
+.playwright-mcp/
+
+# Local workspace (drafts, scratch notes)
+_workspace/
+
 # Agent
 .claude/
 .codex/

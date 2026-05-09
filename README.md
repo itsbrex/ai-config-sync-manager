@@ -29,7 +29,7 @@
 - **Backup-on-write** — every overwrite snapshotted under `.backups/`, FIFO retention (30).
 - **Selector syntax** — `--include skills:code-writer,instructions --exclude mcp` style filtering.
 - **Native semantic mapping** — Claude `Write` → Codex `sandbox_mode = "workspace-write"`, etc.
-- **Prose-level token rewriting** — Claude-only tokens (`Read`, `Bash`, `TaskCreate`, headless `claude -p`) and Codex-only tokens (`spawn_agent`, `codex exec`) auto-translate across hosts and round-trip back, instead of being left as `MANUAL MIGRATION REQUIRED` prompt guidance.
+- **Prose-level token rewriting** — Claude-only tokens (`Read`, `Bash`, `TaskCreate`, headless `claude -p`) and Codex-only tokens (`spawn_agent`, `codex exec`) auto-translate across hosts and round-trip back.
 - **Zero runtime dependencies** — single ESM file, Node built-ins only.
 - **Thin host plugins** — `/config-manager:*` for Claude, `config-manager-*` for Codex.
 
