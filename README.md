@@ -3,7 +3,7 @@
 <h1 align="center">AI Config Sync Manager</h1>
 
 <p align="center">
-  <b>Keep Claude Code and Codex agent config in lockstep — one CLI, both hosts.</b>
+  <b>Continuous bidirectional sync between Claude Code and Codex — round-trip lossless, not a one-shot migrator.</b>
 </p>
 
 <p align="center">
@@ -22,7 +22,8 @@
 
 ## Highlights
 
-- **Bidirectional sync** — `claude → codex` and `codex → claude`, drift auto-detected.
+- **Continuous bidirectional sync** — `claude → codex` and `codex → claude`, run as often as the two hosts drift; not a one-shot migration.
+- **Strict YAML round-trip** — Claude lenient YAML and Codex YAML 1.2 strict frontmatter both preserved across repeated syncs without loss or oscillation.
 - **Diff-first workflow** — `status` to compare → `sync --dry-run` to preview → `--apply` to write.
 - **Risk-tagged operations** — `permissions`, `hooks`, custom commands labeled `safe` / `partial` / `manual`.
 - **Backup-on-write** — every overwrite snapshotted under `.backups/`, FIFO retention (30).
@@ -43,6 +44,8 @@ Claude Code and Codex use the **same concepts** (instructions / skills / mcp / p
 | MCP | `~/.claude/.mcp.json` | `[mcp_servers.*]` in `config.toml` |
 
 Hand-rolling the sync invites **drift, semantic loss, and accidental secret leaks**. This CLI keeps the two hosts aligned while preserving host-native meaning.
+
+This tool is built for **two hosts in continuous use** — where drift accumulates daily and round-trip integrity matters across repeated syncs — not for a one-shot, one-way migration.
 
 ## Quick Start
 
@@ -293,6 +296,8 @@ Full mapping reference: [`rules/`](./rules/).
 ## Paraphrase
 
 Some tokens are **mutually exclusive** between hosts — `Read`, `Write`, `Edit`, `Glob`, `mcp__*` only exist on Claude; `update_plan`, `spawn_agent`, `apply_patch` only exist on Codex (full list: [`rules/host-strict-vocab.json`](./rules/host-strict-vocab.json)). When such a token leaks into the wrong host's file, the terminology map cannot translate it, so `status` keeps reporting the line as a `manual-review` mismatch forever.
+
+This is what keeps **strict YAML round-trip** stable across repeated syncs: without it, host-specific vocabulary would oscillate or accumulate as drift on every cycle.
 
 `paraphrase` resolves these by rewriting **both sides** to a shared word and registering a per-line override so future status runs treat the pair as in sync.
 
