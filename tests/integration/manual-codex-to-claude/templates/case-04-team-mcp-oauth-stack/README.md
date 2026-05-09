@@ -4,7 +4,7 @@ Team-style MCP stack: remote GitHub, Linear, Sentry, and local Docker Postgres w
 
 Expected areas: `instructions`, `mcp`, `permissions`.
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
 ```
 No diff detected for global scope.
@@ -14,4 +14,4 @@ No diff detected for global scope.
 - vocabFindings: 0
 - paraphraseOverrides: 0 active / 0 stale
 
-`.codex/config.toml` 의 4개 MCP(remote GitHub OAuth, Linear, Sentry, local Docker Postgres) 가 placeholder env 그대로 `.claude.json` mcpServers 로 보존되고, `.codex/AGENTS.md` 의 팀 운영 규칙이 `.claude/CLAUDE.md` 와 동등.
+The 4 MCP servers in `.codex/config.toml` (remote GitHub OAuth, Linear, Sentry, local Docker Postgres) carry their placeholder env values verbatim into `.claude.json` `mcpServers`, and the team operating rules in `.codex/AGENTS.md` are equivalent to `.claude/CLAUDE.md`.

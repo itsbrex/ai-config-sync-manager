@@ -4,7 +4,7 @@ Plugin-style frontend design skill with Codex native hooks and formatter shell a
 
 Expected areas: `instructions`, `skills`, `hooks`, `permissions`.
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
 ```
 No diff detected for global scope.
@@ -14,4 +14,4 @@ No diff detected for global scope.
 - vocabFindings: 0
 - paraphraseOverrides: 0 active / 0 stale
 
-`.agents/skills/frontend-design/SKILL.md` 가 `.claude/skills/frontend-design/skill.md` 로 매핑되고, `.codex/config.toml` 의 hooks(예: PostToolUse formatter) 와 shell allow 가 `.claude/settings.json` 의 hooks / permissions 로 동등 변환.
+`.agents/skills/frontend-design/SKILL.md` maps to `.claude/skills/frontend-design/skill.md`, and the hooks (e.g. PostToolUse formatter) and shell allow rules in `.codex/config.toml` convert equivalently to the hooks / permissions in `.claude/settings.json`.

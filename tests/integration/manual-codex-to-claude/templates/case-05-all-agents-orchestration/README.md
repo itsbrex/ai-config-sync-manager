@@ -4,7 +4,7 @@ Multi-agent MCP setup with CLI fallback rules for Codex and Claude delegation. I
 
 Expected areas: `instructions`, `skills`, `mcp`, `permissions`.
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
 ```
 No diff detected for global scope.
@@ -14,4 +14,4 @@ No diff detected for global scope.
 - vocabFindings: 0
 - paraphraseOverrides: 0 active / 0 stale
 
-`.agents/skills/agent-router/SKILL.md` 가 `.claude/skills/agent-router/skill.md` 로, `.codex/config.toml` 의 다중 MCP 와 CLI fallback 규칙이 `.claude.json` / `.claude/settings.json` 과 동등 매핑.
+`.agents/skills/agent-router/SKILL.md` maps to `.claude/skills/agent-router/skill.md`, and the multiple MCP servers and CLI fallback rules in `.codex/config.toml` map equivalently to `.claude.json` / `.claude/settings.json`.

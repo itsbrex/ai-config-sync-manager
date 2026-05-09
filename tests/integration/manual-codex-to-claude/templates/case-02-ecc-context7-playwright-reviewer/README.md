@@ -4,7 +4,7 @@ ECC-style project config: Context7, Playwright, GitHub MCP tool scoping, Sequent
 
 Expected areas: `instructions`, `agents`, `mcp`, `permissions`.
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
 ```
 No diff detected for global scope.
@@ -14,4 +14,4 @@ No diff detected for global scope.
 - vocabFindings: 0
 - paraphraseOverrides: 0 active / 0 stale
 
-`.codex/agents/{explorer,reviewer}.toml` 가 `.claude/agents/{explorer,reviewer}.md` 로 동등 매핑되고, `.codex/config.toml` 의 MCP(context7, playwright, github, sequential-thinking) / read-only sandbox(`web_search` 만 allow) 가 1:1 일치.
+`.codex/agents/{explorer,reviewer}.toml` maps to `.claude/agents/{explorer,reviewer}.md` as equivalent, and `.codex/config.toml`'s MCP (context7, playwright, github, sequential-thinking) and read-only sandbox (only `web_search` allowed) match 1:1.

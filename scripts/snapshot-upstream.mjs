@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Layer 1 of upstream-compat-plan.md: passive snapshot diff.
+// Layer 1 of .claude/docs/upstream-compat-plan.md: passive snapshot diff.
 // Fetches Claude/Codex schemas, releases, and changelogs into snapshots/
 // in a deterministic, byte-stable form. Idempotent — re-runs produce no
 // diff unless upstream actually changed.

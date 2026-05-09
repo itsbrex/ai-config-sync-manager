@@ -29,9 +29,9 @@ Expected sync surfaces: `instructions`, `skills`, `mcp`.
 Source: https://github.com/affaan-m/everything-claude-code (MIT-licensed,
 trimmed to the subset relevant to mapping/paraphrase verification).
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
-setup.sh 가 없어 paraphrase override 미등록 상태로 status 가 vocab finding 1건을 보고합니다.
+Without `setup.sh`, no paraphrase override is registered, so `status` reports 1 vocab finding.
 
 ```
 No diff detected for global scope. 1 vocab mismatch(es) detected.
@@ -40,7 +40,7 @@ No diff detected for global scope. 1 vocab mismatch(es) detected.
 - entries: 0
 - vocabFindings: 1
   - `codex skills/verification-loop L9 col 21: token="Skill" side=claude_only`
-  - 원인: `.agents/skills/verification-loop/SKILL.md:9` 의 `# Verification Loop Skill` 에 들어 있는 `Skill` 토큰이 host-strict-vocab 사전상 claude-only 로 등록돼 있어 codex 측 노출이 manual review 로 표시. `.claude/skills/verification-loop/skill.md` 측은 동일 토큰이 허용되므로 finding 없음.
+  - Cause: the `Skill` token inside `# Verification Loop Skill` at `.agents/skills/verification-loop/SKILL.md:9` is registered as claude-only in the host-strict-vocab dictionary, so its appearance on the codex side is flagged for manual review. The `.claude/skills/verification-loop/skill.md` side allows the same token, so it produces no finding.
 - paraphraseOverrides: 0 active / 0 stale
 
-해소 방법: `paraphrase --apply --map "Skill=verification routine"` 으로 codex 측 토큰을 치환 + override 등록 (= case-09 setup 과 동일 흐름). 그 외 `MAPPING-NOTES.md` 표의 `Codex CLI ↔ Claude Code`, `AGENTS.md ↔ CLAUDE.md`, `.codex/config.toml ↔ .claude/settings.json`, `.codex/agents/*.toml ↔ .claude/agents/*.md` 매핑은 모두 동등 처리되어 entries 에는 잡히지 않음.
+Resolution: `paraphrase --apply --map "Skill=verification routine"` rewrites the codex-side token and registers the override (same flow as the case-09 setup). The remaining mappings in `MAPPING-NOTES.md` (`Codex CLI ↔ Claude Code`, `AGENTS.md ↔ CLAUDE.md`, `.codex/config.toml ↔ .claude/settings.json`, `.codex/agents/*.toml ↔ .claude/agents/*.md`) are all treated as equivalent and do not surface in `entries`.

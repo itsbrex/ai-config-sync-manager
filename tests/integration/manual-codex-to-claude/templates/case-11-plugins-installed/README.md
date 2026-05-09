@@ -13,13 +13,13 @@ asymmetry and still does not touch either host's plugin manifest."
 
 Expected areas: `instructions`, `skills`, `plugins` (status-only).
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
-`sync --apply` 후 `ai-config-sync status --scope global` 실행 시:
+After `sync --apply`, running `ai-config-sync status --scope global`:
 
-- `global/plugins`: `frontend-design@user-marketplace` (claude-only), `review-tools` (codex-only) 가 `unsupported` 로 표시 (manual review). self-managed 항목은 제외.
+- `global/plugins`: `frontend-design@user-marketplace` (claude-only) and `review-tools` (codex-only) are listed as `unsupported` (manual review). Self-managed entries are excluded.
 - entries: 1 (plugins area only, statusOnly)
 - vocabFindings: 0
 - paraphraseOverrides: 0 active / 0 stale
 
-`.claude/plugins/installed_plugins.json`, `.agents/plugins/marketplace.json` 은 sync 가 건드리지 않는다 (statusOnly invariant).
+`.claude/plugins/installed_plugins.json` and `.agents/plugins/marketplace.json` are never touched by `sync` (statusOnly invariant).

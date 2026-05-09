@@ -25,11 +25,11 @@ Use this skill when the user asks to paraphrase host-strict vocabulary mismatche
 
 If the user gives natural-language intent (Korean or English) instead of CLI flags, translate it to flags before running:
 
-- `"X를 Y로 치환"` / `"X to Y"` → `--map "X=Y"` (다중 매핑은 콤마 구분: `--map "Read=Inspect,Write=Emit"`)
+- `"X를 Y로 치환"` / `"X to Y"` → `--map "X=Y"` (multiple mappings comma-separated: `--map "Read=Inspect,Write=Emit"`)
 - `"codex에서 실행가능한 단어로 치환"` / `"host-strict 자동 치환"` / `"일반 paraphrase"` → no `--map` (uses bundled `rules/paraphrase-map.json`)
-- 특정 agent/skill 명시 (예: `"repo-code-analyst만"`) → `--include agents:<name>` 또는 `--include skills:<name>`
+- explicit agent/skill scope (e.g. `"repo-code-analyst만"`) → `--include agents:<name>` or `--include skills:<name>`
 - `"등록만"` / `"등록해줘"` / `"register only"` / `"파일은 그대로 두고 override만"` / `"이미 치환된 라인"` / `"pre-paraphrased"` / `"수동으로 치환된"` → `--register` (skip the rewrite stage, append override entries directly when the effective map equates the diverging line pair)
-- 이미 `--` 로 시작하는 CLI flags → 그대로 통과
+- Arguments that already start with `--` → passed through as-is
 
 When the user passes ambiguous tokens (e.g. `Read`, `Write`), prefix the map entry with `claude_only:` or `codex_only:` to force the direction.
 

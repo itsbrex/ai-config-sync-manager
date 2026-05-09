@@ -3,7 +3,7 @@ name: Upstream compatibility snapshot
 "on":
   schedule:
     # Tuesdays + Fridays at 03:17 UTC — aligned with US deploy days
-    # (Mon/Thu evening PT). See docs/upstream-compat-plan.md (Layer 1).
+    # (Mon/Thu evening PT). See .claude/docs/upstream-compat-plan.md (Layer 1).
     - cron: "17 3 * * 2,5"
   workflow_dispatch:
 
@@ -88,7 +88,7 @@ jobs:
             echo
             echo "## Manual review checklist"
             echo
-            echo "Layer 4 of [\`docs/upstream-compat-plan.md\`](../blob/main/docs/upstream-compat-plan.md) lists judgements that cannot be automated. Review each:"
+            echo "Layer 4 of [\`.claude/docs/upstream-compat-plan.md\`](../blob/main/.claude/docs/upstream-compat-plan.md) lists judgements that cannot be automated. Review each:"
             echo
             echo "- [ ] Deprecated alias runtime acceptance — schema removal does not always mean runtime removal."
             echo "- [ ] Permission / sandbox security equivalence — confirm new modes still map safely (e.g. \`workspace-write\` ↔ \`Write/Edit/MultiEdit\`)."

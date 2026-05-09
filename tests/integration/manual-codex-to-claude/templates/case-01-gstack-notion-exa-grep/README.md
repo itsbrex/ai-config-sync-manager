@@ -4,9 +4,9 @@ Mixed Codex-heavy setup: custom `gstack` skill, Notion MCP, remote Exa MCP, web 
 
 Expected areas: `instructions`, `skills`, `mcp`, `permissions`.
 
-## `status` 결과 (pre-`--apply`, expected)
+## Expected `status` result (post-`sync --apply`)
 
-`sync --apply` 후 `ai-config-sync status --scope global` 실행 시:
+After `sync --apply`, running `ai-config-sync status --scope global`:
 
 ```
 No diff detected for global scope.
@@ -16,4 +16,4 @@ No diff detected for global scope.
 - vocabFindings: 0
 - paraphraseOverrides: 0 active / 0 stale
 
-`.codex/AGENTS.md`, `.codex/config.toml`, `.agents/skills/gstack/SKILL.md` 의 토큰이 host-strict-vocab 매핑(`Codex CLI`↔`Claude Code`, `AGENTS.md`↔`CLAUDE.md`, `SKILL.md`↔`skill.md` 등)으로 `.claude/CLAUDE.md`, `.claude/settings.json`, `.claude/skills/gstack/skill.md` 와 동등 해석. MCP(notion/exa) / permissions(WebSearch, Bash:grep:*) 도 1:1 매핑.
+Tokens in `.codex/AGENTS.md`, `.codex/config.toml`, and `.agents/skills/gstack/SKILL.md` are interpreted as equivalent to those in `.claude/CLAUDE.md`, `.claude/settings.json`, and `.claude/skills/gstack/skill.md` through host-strict-vocab mappings (`Codex CLI`↔`Claude Code`, `AGENTS.md`↔`CLAUDE.md`, `SKILL.md`↔`skill.md`, etc.). MCP (notion/exa) and permissions (WebSearch, Bash:grep:*) also map 1:1.
