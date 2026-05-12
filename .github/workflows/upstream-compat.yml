@@ -2,8 +2,8 @@ name: Upstream compatibility snapshot
 
 "on":
   schedule:
-    # Tuesdays at 03:17 UTC — aligned with US Mon evening PT deploy.
-    - cron: "17 3 * * 2"
+    # Fridays at 03:17 UTC — aligned with US Thu evening PT deploy.
+    - cron: "17 3 * * 5"
   workflow_dispatch:
 
 permissions:
