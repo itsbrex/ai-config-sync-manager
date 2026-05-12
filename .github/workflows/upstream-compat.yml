@@ -71,6 +71,7 @@ jobs:
               } > .upstream-compat/diff.md
               rm .upstream-compat/diff.truncated.md
             fi
+          fi
 
       - name: Build issue body
         if: steps.drift.outputs.changed == 'true'
