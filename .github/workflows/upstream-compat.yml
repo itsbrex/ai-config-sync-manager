@@ -2,14 +2,14 @@ name: Upstream compatibility snapshot
 
 "on":
   schedule:
-    # Tuesdays + Fridays at 03:17 UTC — aligned with US deploy days
-    # (Mon/Thu evening PT). Layer 1 of the upstream compat strategy.
-    - cron: "17 3 * * 2,5"
+    # Tuesdays at 03:17 UTC — aligned with US Mon evening PT deploy.
+    - cron: "17 3 * * 2"
   workflow_dispatch:
 
 permissions:
   contents: write
   issues: write
+  pull-requests: write
 
 concurrency:
   group: upstream-compat
@@ -99,51 +99,15 @@ jobs:
             echo "If rule files (\`rules/terminology-map.json\`, \`rules/agents-map.json\`, \`rules/call-templates.json\`, \`rules/host-target-templates.json\`) need updates, follow the priority order in Layer 2 of the plan."
           } > .upstream-compat/body.md
 
-      - name: Find existing drift issue
+      - name: Open drift PR
         if: steps.drift.outputs.changed == 'true'
-        id: existing
-        run: |
-          set -euo pipefail
-          existing=$(gh issue list \
-            --repo "${{ github.repository }}" \
-            --state open \
-            --label compatibility \
-            --search "Upstream CLI compatibility drift detected in:title" \
-            --json number,title \
-            --jq 'first(.[] | select(.title | startswith("Upstream CLI compatibility drift detected"))) // empty')
-          if [ -n "$existing" ]; then
-            number=$(echo "$existing" | jq -r '.number')
-            echo "number=$number" >> "$GITHUB_OUTPUT"
-            echo "Found existing open issue #$number"
-          else
-            echo "number=" >> "$GITHUB_OUTPUT"
-            echo "No existing open drift issue"
-          fi
-
-      - name: Comment on existing issue
-        if: steps.drift.outputs.changed == 'true' && steps.existing.outputs.number != ''
-        run: |
-          set -euo pipefail
-          gh issue comment "${{ steps.existing.outputs.number }}" \
-            --repo "${{ github.repository }}" \
-            --body-file .upstream-compat/body.md
-
-      - name: Create new drift issue
-        if: steps.drift.outputs.changed == 'true' && steps.existing.outputs.number == ''
-        run: |
-          set -euo pipefail
-          gh issue create \
-            --repo "${{ github.repository }}" \
-            --title "${{ steps.body.outputs.title }}" \
-            --label compatibility \
-            --body-file .upstream-compat/body.md
-
-      - name: Commit refreshed snapshots
-        if: steps.drift.outputs.changed == 'true'
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add snapshots
-          git commit -m "chore(snapshots): refresh upstream snapshots ($(date -u +%F))"
-          git push origin HEAD:main
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ github.token }}
+          branch: upstream-compat/refresh
+          base: main
+          title: ${{ steps.body.outputs.title }}
+          body-path: .upstream-compat/body.md
+          commit-message: "chore(snapshots): refresh upstream snapshots"
+          labels: compatibility
+          add-paths: snapshots
