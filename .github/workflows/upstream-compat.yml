@@ -101,6 +101,59 @@ jobs:
             echo
             echo "If rule files (\`rules/terminology-map.json\`, \`rules/agents-map.json\`, \`rules/call-templates.json\`, \`rules/host-target-templates.json\`) need updates, follow the priority order in Layer 2 of the plan. Also review \`bin/ai-config-sync.mjs\` runtime, \`integrations/\` plugin metadata, and \`tests/integration/\` fixtures for downstream impact."
           } > .upstream-compat/body.md
+          # Compat scan: top-level schema keys ADDED in this drift that no rules/ or bin/ code references.
+          extract_keys() {
+            local f="$1"
+            if [ -f "$f" ]; then
+              jq -r '.properties // {} | keys[]' "$f" 2>/dev/null | sort -u
+            fi
+          }
+          extract_keys_head() {
+            local path="$1"
+            git show "HEAD:$path" 2>/dev/null | jq -r '.properties // {} | keys[]' 2>/dev/null | sort -u || true
+          }
+          claude_added=$(comm -23 <(extract_keys snapshots/claude/settings-schema.json) <(extract_keys_head snapshots/claude/settings-schema.json) || true)
+          codex_added=$(comm -23 <(extract_keys snapshots/codex/config-schema.json) <(extract_keys_head snapshots/codex/config-schema.json) || true)
+          check_coverage() {
+            local key="$1"
+            grep -q "\"$key\"\|'$key'" rules/*.json bin/ai-config-sync.mjs 2>/dev/null
+          }
+          claude_missing=""
+          if [ -n "${claude_added:-}" ]; then
+            while IFS= read -r key; do
+              [ -z "${key:-}" ] && continue
+              if ! check_coverage "$key"; then
+                claude_missing="${claude_missing}- settings.${key}"$'\n'
+              fi
+            done <<< "$claude_added"
+          fi
+          codex_missing=""
+          if [ -n "${codex_added:-}" ]; then
+            while IFS= read -r key; do
+              [ -z "${key:-}" ] && continue
+              if ! check_coverage "$key"; then
+                codex_missing="${codex_missing}- config.${key}"$'\n'
+              fi
+            done <<< "$codex_added"
+          fi
+          if [ -n "${claude_missing:-}" ] || [ -n "${codex_missing:-}" ]; then
+            {
+              echo
+              echo "## Compat scan — new uncovered upstream keys"
+              echo
+              echo "Top-level schema keys **added in this drift** that are not referenced in \`rules/*.json\` or \`bin/ai-config-sync.mjs\`. Likely new upstream features that may need explicit mapping; false positives if intentionally unsupported."
+              if [ -n "${claude_missing:-}" ]; then
+                echo
+                echo "### Claude"
+                printf '%s' "$claude_missing"
+              fi
+              if [ -n "${codex_missing:-}" ]; then
+                echo
+                echo "### Codex"
+                printf '%s' "$codex_missing"
+              fi
+            } >> .upstream-compat/body.md
+          fi
 
       - name: Open drift PR
         if: steps.drift.outputs.changed == 'true'
