@@ -19,5 +19,5 @@
     "spawn_agent", "send_input", "exec_command",
     "update_plan"
   ],
-  "claude_only_patterns": ["^mcp__"]
+  "claude_only_patterns": []
 }
