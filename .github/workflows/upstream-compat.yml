@@ -154,6 +154,45 @@ jobs:
               fi
             } >> .upstream-compat/body.md
           fi
+          # ADDED-only scan misses upstream renames/removals — if a removed key is still referenced, flag it.
+          claude_removed=$(comm -13 <(extract_keys snapshots/claude/settings-schema.json) <(extract_keys_head snapshots/claude/settings-schema.json) || true)
+          codex_removed=$(comm -13 <(extract_keys snapshots/codex/config-schema.json) <(extract_keys_head snapshots/codex/config-schema.json) || true)
+          claude_stale=""
+          if [ -n "${claude_removed:-}" ]; then
+            while IFS= read -r key; do
+              [ -z "${key:-}" ] && continue
+              if check_coverage "$key"; then
+                claude_stale="${claude_stale}- settings.${key}"$'\n'
+              fi
+            done <<< "$claude_removed"
+          fi
+          codex_stale=""
+          if [ -n "${codex_removed:-}" ]; then
+            while IFS= read -r key; do
+              [ -z "${key:-}" ] && continue
+              if check_coverage "$key"; then
+                codex_stale="${codex_stale}- config.${key}"$'\n'
+              fi
+            done <<< "$codex_removed"
+          fi
+          if [ -n "${claude_stale:-}" ] || [ -n "${codex_stale:-}" ]; then
+            {
+              echo
+              echo "## Compat scan — removed upstream keys still referenced"
+              echo
+              echo "Top-level schema keys **removed in this drift** that are still referenced in \`rules/*.json\` or \`bin/ai-config-sync.mjs\`. Likely renamed/deprecated upstream — code may need to switch to the new key or accept both."
+              if [ -n "${claude_stale:-}" ]; then
+                echo
+                echo "### Claude"
+                printf '%s' "$claude_stale"
+              fi
+              if [ -n "${codex_stale:-}" ]; then
+                echo
+                echo "### Codex"
+                printf '%s' "$codex_stale"
+              fi
+            } >> .upstream-compat/body.md
+          fi
 
       - name: Open drift PR
         if: steps.drift.outputs.changed == 'true'
