@@ -1,5 +1,20 @@
 # Ai-config-sync-manager
 
+## v0.1.1 (2026-05-14)
+
+### 🐛 Bug Fixes
+
+- **codex hooks**: rename the native hooks feature flag from `codex_hooks` to `hooks` to match the upstream codex schema rename (openai/codex@0d9a5d2, shipped in codex-cli 0.129.0). `bin/ai-config-sync.mjs` used to write `[features] codex_hooks = true`, leaving the toggle dead on current codex versions; native hooks now activate on apply.
+- **vocab**: remove the `^mcp__` entry from `claude_only_patterns` in `rules/host-strict-vocab.json`. MCP tool naming (`mcp__<server>__<tool>`) is shared by both hosts — codex registers MCP servers under the same namespace (e.g. `[mcp_servers.playwright]` in `~/.codex/config.toml`), so flagging every `mcp__*` token on the codex side produced false-positive vocab-mismatch warnings on skills like `visual-bug-hunter` that legitimately call `mcp__playwright__*`. The key is retained empty for future host-specific namespace entries.
+
+### 🚀 Features
+
+- **ci/upstream-compat**: add a "removed upstream keys still referenced" pass to the upstream-compat drift PR. The existing ADDED-only compat scan (`comm -23`) silently passed upstream renames and removals — a top-level schema key deleted upstream but still referenced in `rules/*.json` or `bin/ai-config-sync.mjs` produced no signal. A new `comm -13` pass surfaces these as a dedicated PR body section so renames like `codex_hooks → hooks` are caught at drift time.
+
+### 🛠 Chore
+
+- **snapshots**: refresh Claude upstream snapshots (v2.1.140, v2.1.141) and Codex schema/release snapshots.
+
 ## v0.1.0 (2026-05-08)
 
 First stable release. Consolidates the `0.1.0-beta.0` → `0.1.0-beta.6` series. No code changes from beta.6.
