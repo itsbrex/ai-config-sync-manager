@@ -1714,7 +1714,7 @@ function hookPatchPreview(from, to, sourcePath, itemNames) {
     if (to === "claude") {
       changes.push(`settings.json hooks.${itemName}: add or merge`);
     } else {
-      changes.push("config.toml [features] codex_hooks = true");
+      changes.push("config.toml [features] hooks = true");
       const groups = sourceValues[itemName];
       changes.push(
         Array.isArray(groups) && groups.every(isCodexNativeHookGroup)
@@ -4753,7 +4753,7 @@ function applyCodexNativeHookMapping(text, sourceValues, itemNames) {
 
   if (hookLines.length === 0) return text;
 
-  const withFeature = setTomlTableBoolean(text, "features", "codex_hooks", true);
+  const withFeature = setTomlTableBoolean(text, "features", "hooks", true);
   return replaceTextBlock(withFeature, "native-hooks", hookLines.join("\n"));
 }
 

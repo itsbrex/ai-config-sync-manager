@@ -2198,7 +2198,7 @@ test("sync apply converts Claude command hooks to Codex native hook TOML", () =>
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /\[features\]/);
-  assert.match(config, /codex_hooks = true/);
+  assert.match(config, /hooks = true/);
   assert.match(config, /\[\[hooks\.PostToolUse\]\]/);
   assert.match(config, /matcher = "Write"/);
   assert.match(config, /command = "npm run check"/);
@@ -2269,7 +2269,7 @@ test("sync apply with hook subset preserves previously synced hooks", () => {
   const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
 
   assert.match(config, /\[features\]/);
-  assert.match(config, /codex_hooks = true/);
+  assert.match(config, /hooks = true/);
   assert.match(config, /\[\[hooks\.Notification\]\]/);
   assert.match(config, /\[\[hooks\.PreToolUse\]\]/);
   assert.match(config, /\[\[hooks\.Stop\]\]/);
@@ -2299,7 +2299,7 @@ test("sync apply converts Codex native hooks back to Claude settings", () => {
     join(fixture.project, ".codex/config.toml"),
     [
       "[features]",
-      "codex_hooks = true",
+      "hooks = true",
       "",
       "[[hooks.PostToolUse]]",
       'matcher = "Write"',
