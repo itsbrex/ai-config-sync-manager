@@ -1,17 +1,15 @@
 # AGENTS.md — AI Config Sync Manager
 
 A zero-runtime-deps Node ESM CLI that compares, converts, and syncs Claude/Codex developer settings.
-Primary entry point: `bin/ai-config-sync.mjs` (single file, 8,600+ lines).
+Primary entry point: `bin/ai-config-sync.mjs`.
 
 ---
 
 ## Pre-work reading order
 
-1. `.claude/docs/repo-analysis/00-overview.md` — overall structure and risks at a glance.
-2. The remaining `01-code` ~ `06-conventions` — read only the areas you need.
-3. `README.md` — user-facing CLI reference.
-4. `package.json`, `scripts/build-dist.mjs` — confirm `scripts` and `files` policy.
-5. Reading source directly is the last resort.
+1. `README.md` — user-facing CLI reference.
+2. `package.json`, `scripts/build-dist.mjs` — confirm `scripts` and `files` policy.
+3. Reading source directly is the last resort.
 
 ---
 
