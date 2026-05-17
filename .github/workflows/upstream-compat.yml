@@ -91,13 +91,19 @@ jobs:
             echo
             echo "Layer 4 (manual review) — judgements that cannot be automated. Review each:"
             echo
-            echo "- [ ] Deprecated alias runtime acceptance — schema removal does not always mean runtime removal."
-            echo "- [ ] Permission / sandbox security equivalence — confirm new modes still map safely (e.g. \`workspace-write\` ↔ \`Write/Edit/MultiEdit\`)."
-            echo "- [ ] Permission key rename semantics — verify \`permissions.allow\` → \`permissions.allowList\` style renames are pure renames."
-            echo "- [ ] New host-vendor intent — read changelog prose for direction shifts."
-            echo "- [ ] Runtime engine impact — \`bin/ai-config-sync.mjs\` hard-codes upstream schema keys (e.g. \`approval_policy\`, \`sandbox_mode\`, \`prefix_rule\`, \`PreToolUse\`). New keys or renamed modes may require runtime changes."
-            echo "- [ ] Integration plugin impact — \`integrations/claude-plugin\` and \`integrations/codex-plugin\` may need metadata updates when host config layout shifts."
-            echo "- [ ] Test fixture impact — \`tests/integration/**/config.toml\` and JSON fixtures encode current schema shapes; new formats need golden/fixture refresh."
+            l4_drift=$(git diff -- snapshots/claude/changelog.md snapshots/codex/changelog.md snapshots/claude/releases.json snapshots/codex/releases.json 2>/dev/null | grep -E '^\+' | grep -vE '^\+\+\+' || true)
+            mark_l4() {
+              local hits
+              hits=$(printf '%s\n' "$l4_drift" | grep -ioE "$1" 2>/dev/null | sort -u | head -4 | tr '\n' ',' | sed 's/,$//' || true)
+              [ -n "${hits:-}" ] && printf ' _(triggered: %s)_' "$hits"
+            }
+            printf -- "- [ ] Deprecated alias runtime acceptance — schema removal does not always mean runtime removal.%s\n" "$(mark_l4 'deprecat[a-z]*|removed |legacy|alias')"
+            printf -- "- [ ] Permission / sandbox security equivalence — confirm new modes still map safely (e.g. \`workspace-write\` ↔ \`Write/Edit/MultiEdit\`).%s\n" "$(mark_l4 'sandbox|workspace-write|read-only|dangerously-skip-permissions|permission-mode')"
+            printf -- "- [ ] Permission key rename semantics — verify \`permissions.allow\` → \`permissions.allowList\` style renames are pure renames.%s\n" "$(mark_l4 'permissions\.allow|allowList|renamed|key rename')"
+            printf -- "- [ ] New host-vendor intent — read changelog prose for direction shifts.%s\n" "$(mark_l4 'now uses|now defaults|replaces|migration|sunset|breaking')"
+            printf -- "- [ ] Runtime engine impact — \`bin/ai-config-sync.mjs\` hard-codes upstream schema keys (e.g. \`approval_policy\`, \`sandbox_mode\`, \`prefix_rule\`, \`PreToolUse\`). New keys or renamed modes may require runtime changes.%s\n" "$(mark_l4 'approval_policy|sandbox_mode|prefix_rule|PreToolUse|PostToolUse|UserPromptSubmit|SessionStart|model_reasoning_effort|hooks\.')"
+            printf -- "- [ ] Integration plugin impact — \`integrations/claude-plugin\` and \`integrations/codex-plugin\` may need metadata updates when host config layout shifts.%s\n" "$(mark_l4 'plugin\.json|marketplace|SKILL\.md|skills/|plugin-dir|plugin cache')"
+            printf -- "- [ ] Test fixture impact — \`tests/integration/**/config.toml\` and JSON fixtures encode current schema shapes; new formats need golden/fixture refresh.%s\n" "$(mark_l4 'new field|new key|schema|format change|breaking|json output')"
             echo
             echo "If rule files (\`rules/terminology-map.json\`, \`rules/agents-map.json\`, \`rules/call-templates.json\`, \`rules/host-target-templates.json\`) need updates, follow the priority order in Layer 2 of the plan. Also review \`bin/ai-config-sync.mjs\` runtime, \`integrations/\` plugin metadata, and \`tests/integration/\` fixtures for downstream impact."
           } > .upstream-compat/body.md
