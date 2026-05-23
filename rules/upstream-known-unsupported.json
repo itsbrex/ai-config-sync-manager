@@ -1,0 +1,60 @@
+{
+  "$schemaNote": "Schema keys intentionally unmapped by ai-config-sync. compat scan (upstream-compat.yml) filters ADDED/REMOVED scan against these entries, and surfaces an entry whenever its schema_desc_hash drifts or recheck_after expires — neither is a permanent exclusion.",
+  "fieldGuide": {
+    "reason": "One-line why the key is not mapped.",
+    "decided_in": "PR or issue reference where the decision was made (e.g. \"#5\").",
+    "decided_at": "ISO date (YYYY-MM-DD) of the decision.",
+    "direction": "Per-direction action. Values: \"drop\" (ignore in this sync direction) | \"preserve\" (keep target's existing value if any, never write) | \"bidirectional-equiv:<other_key>\" (mark intended future mapping target).",
+    "schema_desc_hash": "First 12 hex chars of sha256 over the schema description string. Drift triggers re-review.",
+    "recheck_after": "ISO date after which compat scan flags the entry as review-due. Default: Claude +90d, Codex +180d (Claude keys are user-facing toggles with higher impact)."
+  },
+  "claude_top_level": {},
+  "claude_nested": {},
+  "codex_top_level": {
+    "apps_mcp_product_sku": {
+      "reason": "Codex Apps MCP host-only product SKU; no Claude equivalent.",
+      "decided_in": "#5",
+      "decided_at": "2026-05-22",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "d6aada59d140",
+      "recheck_after": "2026-11-22"
+    },
+    "desktop": {
+      "reason": "Opaque desktop runtime object (additionalProperties:true); Codex itself does not track its inner shape.",
+      "decided_in": "#5",
+      "decided_at": "2026-05-22",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "35a8bd4e9cf8",
+      "recheck_after": "2026-11-22"
+    },
+    "include_collaboration_mode_instructions": {
+      "reason": "Codex-specific developer block injection toggle (renamed from include_apps_instructions); Claude has no equivalent system-prompt toggle.",
+      "decided_in": "#5",
+      "decided_at": "2026-05-22",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "40b9b46a9b43",
+      "recheck_after": "2026-11-22"
+    },
+    "model_auto_compact_token_limit_scope": {
+      "reason": "Codex auto-compact internal counting mode; Claude auto-compact has no user-facing scope setting.",
+      "decided_in": "#5",
+      "decided_at": "2026-05-22",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "e84e31a3dbdf",
+      "recheck_after": "2026-11-22"
+    }
+  },
+  "codex_nested": {}
+}

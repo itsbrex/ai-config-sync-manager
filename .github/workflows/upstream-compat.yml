@@ -108,6 +108,7 @@ jobs:
             echo "If rule files (\`rules/terminology-map.json\`, \`rules/agents-map.json\`, \`rules/call-templates.json\`, \`rules/host-target-templates.json\`) need updates, follow the priority order in Layer 2 of the plan. Also review \`bin/ai-config-sync.mjs\` runtime, \`integrations/\` plugin metadata, and \`tests/integration/\` fixtures for downstream impact."
           } > .upstream-compat/body.md
           # Compat scan: top-level schema keys ADDED in this drift that no rules/ or bin/ code references.
+          ALLOWLIST=rules/upstream-known-unsupported.json
           extract_keys() {
             local f="$1"
             if [ -f "$f" ]; then
@@ -118,17 +119,35 @@ jobs:
             local path="$1"
             git show "HEAD:$path" 2>/dev/null | jq -r '.properties // {} | keys[]' 2>/dev/null | sort -u || true
           }
+          # Nested keys: definitions.<TypeName>.properties.<field> — covers RawMcpServerConfig and other $ref targets.
+          extract_nested() {
+            local f="$1"
+            if [ -f "$f" ]; then
+              jq -r '.definitions // {} | to_entries[] | . as $d | ($d.value.properties // {}) | keys[] | "\($d.key).\(.)"' "$f" 2>/dev/null | sort -u
+            fi
+          }
+          extract_nested_head() {
+            local path="$1"
+            git show "HEAD:$path" 2>/dev/null | jq -r '.definitions // {} | to_entries[] | . as $d | ($d.value.properties // {}) | keys[] | "\($d.key).\(.)"' 2>/dev/null | sort -u || true
+          }
           claude_added=$(comm -23 <(extract_keys snapshots/claude/settings-schema.json) <(extract_keys_head snapshots/claude/settings-schema.json) || true)
           codex_added=$(comm -23 <(extract_keys snapshots/codex/config-schema.json) <(extract_keys_head snapshots/codex/config-schema.json) || true)
+          claude_nested_added=$(comm -23 <(extract_nested snapshots/claude/settings-schema.json) <(extract_nested_head snapshots/claude/settings-schema.json) || true)
+          codex_nested_added=$(comm -23 <(extract_nested snapshots/codex/config-schema.json) <(extract_nested_head snapshots/codex/config-schema.json) || true)
           check_coverage() {
             local key="$1"
             grep -q "\"$key\"\|'$key'" rules/*.json bin/ai-config-sync.mjs 2>/dev/null
+          }
+          # Allowlist gate: keys with an entry in rules/upstream-known-unsupported.json are intentional decisions, not gaps.
+          is_allowlisted() {
+            [ -f "$ALLOWLIST" ] || return 1
+            jq -e --arg k "$3" ".${1}_${2} // {} | has(\$k)" "$ALLOWLIST" >/dev/null 2>&1
           }
           claude_missing=""
           if [ -n "${claude_added:-}" ]; then
             while IFS= read -r key; do
               [ -z "${key:-}" ] && continue
-              if ! check_coverage "$key"; then
+              if ! check_coverage "$key" && ! is_allowlisted claude top_level "$key"; then
                 claude_missing="${claude_missing}- settings.${key}"$'\n'
               fi
             done <<< "$claude_added"
@@ -137,17 +156,37 @@ jobs:
           if [ -n "${codex_added:-}" ]; then
             while IFS= read -r key; do
               [ -z "${key:-}" ] && continue
-              if ! check_coverage "$key"; then
+              if ! check_coverage "$key" && ! is_allowlisted codex top_level "$key"; then
                 codex_missing="${codex_missing}- config.${key}"$'\n'
               fi
             done <<< "$codex_added"
+          fi
+          claude_nested_missing=""
+          if [ -n "${claude_nested_added:-}" ]; then
+            while IFS= read -r path; do
+              [ -z "${path:-}" ] && continue
+              leaf="${path##*.}"
+              if ! check_coverage "$leaf" && ! is_allowlisted claude nested "$path"; then
+                claude_nested_missing="${claude_nested_missing}- settings.${path}"$'\n'
+              fi
+            done <<< "$claude_nested_added"
+          fi
+          codex_nested_missing=""
+          if [ -n "${codex_nested_added:-}" ]; then
+            while IFS= read -r path; do
+              [ -z "${path:-}" ] && continue
+              leaf="${path##*.}"
+              if ! check_coverage "$leaf" && ! is_allowlisted codex nested "$path"; then
+                codex_nested_missing="${codex_nested_missing}- config.${path}"$'\n'
+              fi
+            done <<< "$codex_nested_added"
           fi
           if [ -n "${claude_missing:-}" ] || [ -n "${codex_missing:-}" ]; then
             {
               echo
               echo "## Compat scan — new uncovered upstream keys"
               echo
-              echo "Top-level schema keys **added in this drift** that are not referenced in \`rules/*.json\` or \`bin/ai-config-sync.mjs\`. Likely new upstream features that may need explicit mapping; false positives if intentionally unsupported."
+              echo "Top-level schema keys **added in this drift** that are not referenced in \`rules/*.json\` or \`bin/ai-config-sync.mjs\`, and not present in \`rules/upstream-known-unsupported.json\`. Likely new upstream features that may need explicit mapping; intentional unsupported keys belong in the allowlist."
               if [ -n "${claude_missing:-}" ]; then
                 echo
                 echo "### Claude"
@@ -160,9 +199,29 @@ jobs:
               fi
             } >> .upstream-compat/body.md
           fi
+          if [ -n "${claude_nested_missing:-}" ] || [ -n "${codex_nested_missing:-}" ]; then
+            {
+              echo
+              echo "## Compat scan — new uncovered upstream keys (nested)"
+              echo
+              echo "Schema \`definitions.<Type>.properties.<field>\` paths added in this drift, not referenced in code and not allowlisted. Catches changes to \`RawMcpServerConfig\`, hook payload shapes, and similar \$ref-targets that the top-level scan misses."
+              if [ -n "${claude_nested_missing:-}" ]; then
+                echo
+                echo "### Claude"
+                printf '%s' "$claude_nested_missing"
+              fi
+              if [ -n "${codex_nested_missing:-}" ]; then
+                echo
+                echo "### Codex"
+                printf '%s' "$codex_nested_missing"
+              fi
+            } >> .upstream-compat/body.md
+          fi
           # ADDED-only scan misses upstream renames/removals — if a removed key is still referenced, flag it.
           claude_removed=$(comm -13 <(extract_keys snapshots/claude/settings-schema.json) <(extract_keys_head snapshots/claude/settings-schema.json) || true)
           codex_removed=$(comm -13 <(extract_keys snapshots/codex/config-schema.json) <(extract_keys_head snapshots/codex/config-schema.json) || true)
+          claude_nested_removed=$(comm -13 <(extract_nested snapshots/claude/settings-schema.json) <(extract_nested_head snapshots/claude/settings-schema.json) || true)
+          codex_nested_removed=$(comm -13 <(extract_nested snapshots/codex/config-schema.json) <(extract_nested_head snapshots/codex/config-schema.json) || true)
           claude_stale=""
           if [ -n "${claude_removed:-}" ]; then
             while IFS= read -r key; do
@@ -181,21 +240,181 @@ jobs:
               fi
             done <<< "$codex_removed"
           fi
-          if [ -n "${claude_stale:-}" ] || [ -n "${codex_stale:-}" ]; then
+          claude_nested_stale=""
+          if [ -n "${claude_nested_removed:-}" ]; then
+            while IFS= read -r path; do
+              [ -z "${path:-}" ] && continue
+              leaf="${path##*.}"
+              if check_coverage "$leaf"; then
+                claude_nested_stale="${claude_nested_stale}- settings.${path}"$'\n'
+              fi
+            done <<< "$claude_nested_removed"
+          fi
+          codex_nested_stale=""
+          if [ -n "${codex_nested_removed:-}" ]; then
+            while IFS= read -r path; do
+              [ -z "${path:-}" ] && continue
+              leaf="${path##*.}"
+              if check_coverage "$leaf"; then
+                codex_nested_stale="${codex_nested_stale}- config.${path}"$'\n'
+              fi
+            done <<< "$codex_nested_removed"
+          fi
+          if [ -n "${claude_stale:-}" ] || [ -n "${codex_stale:-}" ] || [ -n "${claude_nested_stale:-}" ] || [ -n "${codex_nested_stale:-}" ]; then
             {
               echo
               echo "## Compat scan — removed upstream keys still referenced"
               echo
-              echo "Top-level schema keys **removed in this drift** that are still referenced in \`rules/*.json\` or \`bin/ai-config-sync.mjs\`. Likely renamed/deprecated upstream — code may need to switch to the new key or accept both."
+              echo "Schema keys **removed in this drift** that are still referenced in \`rules/*.json\` or \`bin/ai-config-sync.mjs\`. Likely renamed/deprecated upstream — code may need to switch to the new key or accept both. Top-level + nested (\`definitions.<Type>.properties.<field>\`) paths are both reported."
               if [ -n "${claude_stale:-}" ]; then
                 echo
                 echo "### Claude"
                 printf '%s' "$claude_stale"
               fi
+              if [ -n "${claude_nested_stale:-}" ]; then
+                if [ -z "${claude_stale:-}" ]; then
+                  echo
+                  echo "### Claude"
+                fi
+                printf '%s' "$claude_nested_stale"
+              fi
               if [ -n "${codex_stale:-}" ]; then
                 echo
                 echo "### Codex"
                 printf '%s' "$codex_stale"
+              fi
+              if [ -n "${codex_nested_stale:-}" ]; then
+                if [ -z "${codex_stale:-}" ]; then
+                  echo
+                  echo "### Codex"
+                fi
+                printf '%s' "$codex_nested_stale"
+              fi
+            } >> .upstream-compat/body.md
+          fi
+          # Allowlist re-review triggers: schema description hash drift + recheck_after expiry.
+          # description-only hash: opaque changes to default/type don't trigger; semantic prose changes do.
+          hash_desc() { printf '%s' "$1" | sha256sum | cut -c1-12; }
+          hash_drift_section() {
+            local side="$1" file="$2"
+            [ -f "$ALLOWLIST" ] || return 0
+            [ -f "$file" ] || return 0
+            jq -r ".${side}_top_level // {} | to_entries[] | \"\(.key)\t\(.value.schema_desc_hash // \"\")\"" "$ALLOWLIST" \
+              | while IFS=$'\t' read -r key recorded; do
+                  [ -z "${key:-}" ] && continue
+                  desc=$(jq -r ".properties.\"$key\".description // \"\"" "$file" 2>/dev/null)
+                  [ -z "$desc" ] && continue
+                  current=$(hash_desc "$desc")
+                  [ "$current" != "$recorded" ] && printf -- "- %s (%s → %s)\n" "$key" "$recorded" "$current"
+                done
+          }
+          claude_hash_drift=$(hash_drift_section claude snapshots/claude/settings-schema.json || true)
+          codex_hash_drift=$(hash_drift_section codex snapshots/codex/config-schema.json || true)
+          if [ -n "${claude_hash_drift:-}" ] || [ -n "${codex_hash_drift:-}" ]; then
+            {
+              echo
+              echo "## Compat scan — allowlist entries with schema description drift"
+              echo
+              echo "Entries in \`rules/upstream-known-unsupported.json\` whose recorded \`schema_desc_hash\` no longer matches the current upstream description. The intent recorded at decision time may no longer apply — re-review the entry, update the hash, or remove it."
+              if [ -n "${claude_hash_drift:-}" ]; then
+                echo
+                echo "### Claude"
+                printf '%s\n' "$claude_hash_drift"
+              fi
+              if [ -n "${codex_hash_drift:-}" ]; then
+                echo
+                echo "### Codex"
+                printf '%s\n' "$codex_hash_drift"
+              fi
+            } >> .upstream-compat/body.md
+          fi
+          recheck_due_section() {
+            local side="$1"
+            [ -f "$ALLOWLIST" ] || return 0
+            jq -r --arg today "$today" ".${side}_top_level // {} | to_entries[] | select((.value.recheck_after // \"9999-12-31\") <= \$today) | \"- \(.key) (decided \(.value.decided_at // \"?\"), due \(.value.recheck_after // \"?\"))\"" "$ALLOWLIST" 2>/dev/null
+          }
+          claude_recheck=$(recheck_due_section claude || true)
+          codex_recheck=$(recheck_due_section codex || true)
+          if [ -n "${claude_recheck:-}" ] || [ -n "${codex_recheck:-}" ]; then
+            {
+              echo
+              echo "## Compat scan — allowlist entries due for re-review"
+              echo
+              echo "Entries in \`rules/upstream-known-unsupported.json\` whose \`recheck_after\` date has passed. Re-evaluate whether the original decision still holds, then bump \`recheck_after\` (or remove the entry if a mapping now exists)."
+              if [ -n "${claude_recheck:-}" ]; then
+                echo
+                echo "### Claude"
+                printf '%s\n' "$claude_recheck"
+              fi
+              if [ -n "${codex_recheck:-}" ]; then
+                echo
+                echo "### Codex"
+                printf '%s\n' "$codex_recheck"
+              fi
+            } >> .upstream-compat/body.md
+          fi
+          # Enum drift: enum-bearing keys the runtime hardcodes. Members added/removed AND hardcoded values stale.
+          extract_enum_members() {
+            local file="$1" key="$2"
+            [ -f "$file" ] || return 0
+            jq -r --arg k "$key" '[.properties[$k].oneOf[]?.enum[]?, .properties[$k].enum[]?] | unique | .[]' "$file" 2>/dev/null | sort -u
+          }
+          extract_enum_members_head() {
+            local path="$1" key="$2"
+            git show "HEAD:$path" 2>/dev/null | jq -r --arg k "$key" '[.properties[$k].oneOf[]?.enum[]?, .properties[$k].enum[]?] | unique | .[]' 2>/dev/null | sort -u || true
+          }
+          # Codex enum-bearing keys + the value the runtime hardcodes.
+          codex_enum_watch="snapshots/codex/config-schema.json:sandbox_mode:workspace-write
+          snapshots/codex/config-schema.json:approval_policy:on-request
+          snapshots/codex/config-schema.json:web_search:live"
+          codex_enum_drift=""
+          while IFS=: read -r file key val; do
+            file=$(echo "$file" | sed 's/^ *//')
+            [ -z "${file:-}" ] && continue
+            curr=$(extract_enum_members "$file" "$key")
+            prev=$(extract_enum_members_head "$file" "$key")
+            added=$(comm -23 <(printf '%s\n' "$curr") <(printf '%s\n' "$prev") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//' || true)
+            removed=$(comm -13 <(printf '%s\n' "$curr") <(printf '%s\n' "$prev") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//' || true)
+            if [ -n "$added" ] || [ -n "$removed" ]; then
+              codex_enum_drift="${codex_enum_drift}- \`${key}\` enum changed"$'\n'
+              [ -n "$added" ] && codex_enum_drift="${codex_enum_drift}  - added: ${added}"$'\n'
+              [ -n "$removed" ] && codex_enum_drift="${codex_enum_drift}  - removed: ${removed}"$'\n'
+            fi
+            if [ -n "$curr" ] && ! printf '%s\n' "$curr" | grep -qx "$val"; then
+              codex_enum_drift="${codex_enum_drift}- **STALE HARDCODED** \`${key} = \"${val}\"\` no longer in schema enum (runtime will write an invalid value)"$'\n'
+            fi
+          done <<< "$codex_enum_watch"
+          # Claude hardcoded hook event names: properties.hooks.properties.<EventName>
+          claude_hook_events_curr=$(jq -r '.properties.hooks.properties // {} | keys[]' snapshots/claude/settings-schema.json 2>/dev/null | sort -u)
+          claude_hook_events_prev=$(git show HEAD:snapshots/claude/settings-schema.json 2>/dev/null | jq -r '.properties.hooks.properties // {} | keys[]' 2>/dev/null | sort -u || true)
+          claude_hook_added=$(comm -23 <(printf '%s\n' "$claude_hook_events_curr") <(printf '%s\n' "$claude_hook_events_prev") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//' || true)
+          claude_hook_removed=$(comm -13 <(printf '%s\n' "$claude_hook_events_curr") <(printf '%s\n' "$claude_hook_events_prev") | sed '/^$/d' | tr '\n' ' ' | sed 's/ *$//' || true)
+          claude_enum_drift=""
+          if [ -n "$claude_hook_added" ] || [ -n "$claude_hook_removed" ]; then
+            claude_enum_drift="${claude_enum_drift}- \`hooks\` event names changed"$'\n'
+            [ -n "$claude_hook_added" ] && claude_enum_drift="${claude_enum_drift}  - added: ${claude_hook_added}"$'\n'
+            [ -n "$claude_hook_removed" ] && claude_enum_drift="${claude_enum_drift}  - removed: ${claude_hook_removed}"$'\n'
+          fi
+          for ev in PreToolUse PostToolUse SessionStart UserPromptSubmit; do
+            if [ -n "$claude_hook_events_curr" ] && ! printf '%s\n' "$claude_hook_events_curr" | grep -qx "$ev"; then
+              claude_enum_drift="${claude_enum_drift}- **STALE HARDCODED** hook event \`${ev}\` no longer in \`hooks.properties\` (runtime writes a hook the host will not fire)"$'\n'
+            fi
+          done
+          if [ -n "${claude_enum_drift:-}" ] || [ -n "${codex_enum_drift:-}" ]; then
+            {
+              echo
+              echo "## Compat scan — enum drift on watched keys"
+              echo
+              echo "Enum members on keys the runtime hardcodes. STALE HARDCODED means \`bin/ai-config-sync.mjs\` will emit a value the new schema rejects — runtime fix required, not just a checklist."
+              if [ -n "${claude_enum_drift:-}" ]; then
+                echo
+                echo "### Claude"
+                printf '%s\n' "$claude_enum_drift"
+              fi
+              if [ -n "${codex_enum_drift:-}" ]; then
+                echo
+                echo "### Codex"
+                printf '%s\n' "$codex_enum_drift"
               fi
             } >> .upstream-compat/body.md
           fi
