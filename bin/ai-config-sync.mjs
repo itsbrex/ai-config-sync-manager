@@ -3492,7 +3492,7 @@ function copyFileWithMappings(source, target, from, to, options = {}) {
     recordVocabFindings(options?.callArchive, lintHostVocab(text, to), from, to);
     const sourceBasename = source.split("/").pop();
     if (isSkillManifestBasename(sourceBasename)) {
-      text = normalizeSkillManifestFrontmatter(text, from, to);
+      text = normalizeSkillManifestFrontmatter(text, from, to, { normalizeModelAlias: true });
     }
     writeFileSync(target, text);
   } else {
@@ -3561,7 +3561,9 @@ function normalizeSkillManifestFrontmatter(text, from, to, options = {}) {
     }
   }
   if (options.normalizeModelAlias === true && typeof frontmatter.model === "string") {
-    const aliases = modelAliasMap("codex", "claude");
+    // Fallback to codex→claude when from/to are empty (called from normalizeYamlFrontmatter
+    // for status-side equivalence comparison, where direction is unknown).
+    const aliases = from && to ? modelAliasMap(from, to) : modelAliasMap("codex", "claude");
     if (aliases[frontmatter.model]) {
       frontmatter.model = aliases[frontmatter.model];
     }

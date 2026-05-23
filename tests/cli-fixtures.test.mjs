@@ -1582,6 +1582,49 @@ test("sync apply replaces manual skill conflicts without per-operation approval"
   assert.equal(skill, "# Review\nmodel: gpt-5.5\n");
 });
 
+test("sync apply normalizes model alias in frontmatter when copying skill claude->codex", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
+  writeFileSync(
+    join(fixture.project, ".claude/skills/review/SKILL.md"),
+    "---\nname: review\nmodel: opus\n---\n# Review\n\nBody.\n"
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:review", "--apply"]);
+  const skill = readFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "utf8");
+
+  assert.match(skill, /^---\n/);
+  assert.match(skill, /\nmodel: gpt-5\.5\n/);
+  assert.doesNotMatch(skill, /\nmodel: opus\n/);
+});
+
+test("sync apply normalizes model alias in frontmatter when copying skill codex->claude", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".agents/skills/review"), { recursive: true });
+  writeFileSync(
+    join(fixture.project, ".agents/skills/review/SKILL.md"),
+    "---\nname: review\nmodel: gpt-5.5\n---\n# Review\n\nBody.\n"
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--scope",
+    "project",
+    "--include",
+    "skills:review",
+    "--apply",
+  ]);
+  const skill = readFileSync(join(fixture.project, ".claude/skills/review/SKILL.md"), "utf8");
+
+  assert.match(skill, /^---\n/);
+  assert.match(skill, /\nmodel: opus\n/);
+  assert.doesNotMatch(skill, /\nmodel: gpt-5\.5\n/);
+});
+
 test("sync applies terminology mappings when copying skills", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude/skills/review"), { recursive: true });
