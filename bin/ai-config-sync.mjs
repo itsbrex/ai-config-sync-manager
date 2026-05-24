@@ -3193,8 +3193,11 @@ function skillChangePreview(
     // visible diff), retry with transform-then-mask + post-transform paraphrase so
     // structured-block overrides also collapse to "No line-level preview available."
     const maskedFirst = maskBodiesForHosts(targetRaw, sourceRaw, to, from, overrides);
-    const sourceFromMaskFirst = normalizeYamlFrontmatter(
-      transformTextForHost(maskedFirst.source, from, to)
+    const sourceFromMaskFirst = normalizeSkillManifestFrontmatter(
+      transformTextForHost(maskedFirst.source, from, to),
+      from,
+      to,
+      { stripHostOnly: true, normalizeModelAlias: true }
     );
     let previewLines = contentChangePreview(
       "Target current",
@@ -3206,7 +3209,12 @@ function skillChangePreview(
     const maskFirstClean =
       previewLines.length === 1 && previewLines[0] === "No line-level preview available.";
     if (overrides.length > 0 && !maskFirstClean) {
-      let transformed = normalizeYamlFrontmatter(transformTextForHost(sourceRaw, from, to));
+      let transformed = normalizeSkillManifestFrontmatter(
+        transformTextForHost(sourceRaw, from, to),
+        from,
+        to,
+        { stripHostOnly: true, normalizeModelAlias: true }
+      );
       transformed = applyOverrideParaphrasesAtTargetLines(
         transformed,
         sourceManifest ?? "",
