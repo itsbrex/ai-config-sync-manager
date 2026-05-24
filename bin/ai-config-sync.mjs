@@ -2779,20 +2779,31 @@ function skipStringLiteral(text, start) {
 
 function parseSingleObjectArgument(argText) {
   const trimmed = argText.trim();
-  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
-    return { ok: false, reason: "argument is not a single object literal" };
+
+  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const reader = { text: trimmed, index: 0 };
+    const value = readObjectLiteral(reader);
+    if (!value.ok) return value;
+    skipWhitespace(reader);
+    if (reader.index !== reader.text.length) {
+      return { ok: false, reason: "extra tokens after object literal" };
+    }
+    return { ok: true, fields: value.value };
   }
 
-  const reader = { text: trimmed, index: 0 };
-  const value = readObjectLiteral(reader);
-  if (!value.ok) return value;
-
-  skipWhitespace(reader);
-  if (reader.index !== reader.text.length) {
-    return { ok: false, reason: "extra tokens after object literal" };
+  // Flat named-args form — Agent( description: ..., model: ..., prompt: ... ).
+  // Wrap in synthetic braces and reparse with the same strict reader so only
+  // genuine key:value lists succeed.
+  const wrappedReader = { text: `{${trimmed}}`, index: 0 };
+  const wrapped = readObjectLiteral(wrappedReader);
+  if (wrapped.ok) {
+    skipWhitespace(wrappedReader);
+    if (wrappedReader.index === wrappedReader.text.length) {
+      return { ok: true, fields: wrapped.value };
+    }
   }
 
-  return { ok: true, fields: value.value };
+  return { ok: false, reason: "argument is not a single object literal" };
 }
 
 function readValue(reader) {
@@ -3004,8 +3015,20 @@ function renameFieldKeys(fields, aliases) {
 
 function renderCodexTemplate(template, fields) {
   if (typeof template !== "string") return "";
-  return template.replace(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (_, key) => {
-    const value = fields[key];
+  // {{#each FIELD}}...{{/each}} expands once per entry against an array field, with the
+  // inner template rendered against the entry as its own fields. Needed for TeamCreate's
+  // `members: [...]` array, which fans out to one spawn_agent prose block per member.
+  const fieldsObj = fields ?? {};
+  const eachExpanded = template.replace(
+    /\{\{#each\s+([A-Za-z_][A-Za-z0-9_]*)\}\}([\s\S]*?)\{\{\/each\}\}/g,
+    (_, key, inner) => {
+      const list = fieldsObj[key];
+      if (!Array.isArray(list)) return "";
+      return list.map((entry) => renderCodexTemplate(inner, entry ?? {})).join("");
+    }
+  );
+  return eachExpanded.replace(/\{\{([A-Za-z_][A-Za-z0-9_]*)\}\}/g, (_, key) => {
+    const value = fieldsObj[key];
     if (value === undefined || value === null) return "";
     return typeof value === "string" ? value : JSON.stringify(value);
   });

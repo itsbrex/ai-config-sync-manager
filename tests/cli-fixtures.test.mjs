@@ -3116,7 +3116,7 @@ test("sync apply does not transform identifier-suffixed call names like MyAgent"
   assert.doesNotMatch(codexBody, /<!-- ai-config-sync:manual-review /);
 });
 
-test("sync apply strips unsupported TaskCreate call and writes archive entry", () => {
+test("sync apply leaves TaskCreate call verbatim when no template is registered", () => {
   const fixture = createFixture();
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
@@ -3124,72 +3124,103 @@ test("sync apply strips unsupported TaskCreate call and writes archive entry", (
     ["# Preview", 'TaskCreate({ items: ["task1","task2"] })', ""].join("\n")
   );
 
-  const output = runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "skills:preview",
-    "--apply",
-  ]);
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
   const codexBody = readFileSync(join(fixture.project, ".agents/skills/preview/SKILL.md"), "utf8");
 
-  assert.doesNotMatch(codexBody, /TaskCreate\(/);
-  assert.match(codexBody, /<!-- ai-config-sync:stripped /);
-  assert.match(codexBody, /"call":"TaskCreate"/);
-  assert.match(codexBody, /"items":\["task1","task2"\]/);
-
-  const archivePath = callsArchivePath(output);
-  assert.ok(existsSync(archivePath), `archive file should exist at ${archivePath}`);
-  const archive = JSON.parse(readFileSync(archivePath, "utf8"));
-  assert.ok(Array.isArray(archive), "archive content should be an array");
-  const stripped = archive.find(
-    (entry) =>
-      entry.call === "TaskCreate" &&
-      entry.action === "stripped" &&
-      entry.direction === "claude->codex"
-  );
-  assert.ok(stripped, "expected a stripped TaskCreate entry in the archive");
+  assert.match(codexBody, /TaskCreate\(\{ items: \["task1","task2"\] \}\)/);
+  assert.doesNotMatch(codexBody, /<!-- ai-config-sync:stripped /);
+  assert.doesNotMatch(codexBody, /<!-- ai-config-sync:manual-review /);
 });
 
-test("sync apply records archive entries for each unsupported call in skill body", () => {
+test("sync apply transforms TeamCreate call with flat named-args + members array to per-member spawn_agent prose", () => {
   const fixture = createFixture();
   writeSkillManifest(
     join(fixture.project, ".claude/skills/preview"),
     "claude",
-    ["# Preview", 'TaskCreate({ items: ["a"] })', 'TeamCreate({ name: "alpha" })', ""].join("\n")
+    [
+      "# Preview",
+      "TeamCreate(",
+      '  team_name: "review-team",',
+      "  members: [",
+      '    { name: "code", agent_type: "browser-audit/code-security-auditor", model: "opus", prompt: "Audit code." },',
+      '    { name: "browser", agent_type: "browser-audit/browser-runtime-auditor", model: "opus", prompt: "Audit runtime." }',
+      "  ]",
+      ")",
+      "",
+    ].join("\n")
   );
 
-  const output = runCli(fixture, [
-    "sync",
-    "--scope",
-    "project",
-    "--include",
-    "skills:preview",
-    "--apply",
-  ]);
-  const archive = JSON.parse(readFileSync(callsArchivePath(output), "utf8"));
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
+  const codexBody = readFileSync(join(fixture.project, ".agents/skills/preview/SKILL.md"), "utf8");
 
-  const calls = archive.map((entry) => entry.call);
-  assert.ok(calls.includes("TaskCreate"), `expected TaskCreate entry, got: ${calls.join(",")}`);
-  assert.ok(calls.includes("TeamCreate"), `expected TeamCreate entry, got: ${calls.join(",")}`);
-  assert.ok(archive.length >= 2, `expected at least 2 archive entries, got ${archive.length}`);
+  assert.match(codexBody, /<!-- ai-config-sync:team-call \{/);
+  assert.match(codexBody, /"call":"TeamCreate"/);
+  assert.match(codexBody, /Use `multi_agent_v2\.spawn_agent` to launch the "review-team" team/);
+  assert.match(
+    codexBody,
+    /### Member: code \(agent_type: "browser-audit\/code-security-auditor", model: "gpt-5\.5"\)/
+  );
+  assert.match(
+    codexBody,
+    /### Member: browser \(agent_type: "browser-audit\/browser-runtime-auditor", model: "gpt-5\.5"\)/
+  );
+  assert.doesNotMatch(codexBody, /TeamCreate\(/);
+  assert.doesNotMatch(codexBody, /ai-config-sync:manual-review/);
 });
 
-test("sync apply restores stripped Codex marker into a Claude TaskCreate call", () => {
+test("sync apply parses Agent call written in flat named-arg form", () => {
   const fixture = createFixture();
-  const markerPayload = JSON.stringify({
-    call: "TaskCreate",
-    fields: { items: ["task1", "task2"] },
-    reason: "Codex has no native todo/task tracker tool",
-  });
   writeSkillManifest(
-    join(fixture.project, ".agents/skills/preview"),
-    "codex",
-    ["# Preview", `<!-- ai-config-sync:stripped ${markerPayload} -->`, ""].join("\n")
+    join(fixture.project, ".claude/skills/preview"),
+    "claude",
+    [
+      "# Preview",
+      "Agent(",
+      '  description: "Audit scope mapping",',
+      '  subagent_type: "browser-audit/scope-mapper",',
+      '  model: "opus",',
+      '  prompt: "Map the audit scope."',
+      ")",
+      "",
+    ].join("\n")
   );
 
-  const output = runCli(
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:preview", "--apply"]);
+  const codexBody = readFileSync(join(fixture.project, ".agents/skills/preview/SKILL.md"), "utf8");
+
+  assert.match(codexBody, /<!-- ai-config-sync:agent-call \{/);
+  assert.match(codexBody, /"call":"Agent"/);
+  assert.match(codexBody, /Use `spawn_agent` with agent_type: "Audit scope mapping"\./);
+  assert.doesNotMatch(codexBody, /Agent\(/);
+  assert.doesNotMatch(codexBody, /ai-config-sync:manual-review/);
+});
+
+test("sync apply round-trips Codex team-call marker back into Claude TeamCreate({...}) call", () => {
+  const fixture = createFixture();
+  const codexSkillDir = join(fixture.project, ".agents/skills/preview");
+  const markerFields = {
+    team_name: "review-team",
+    members: [
+      { name: "code", agent_type: "browser-audit/code", model: "gpt-5.5", prompt: "Audit code." },
+    ],
+  };
+  const markerPayload = JSON.stringify({ call: "TeamCreate", fields: markerFields });
+  writeSkillManifest(
+    codexSkillDir,
+    "codex",
+    [
+      "# Preview",
+      `<!-- ai-config-sync:team-call ${markerPayload} -->`,
+      'Use `multi_agent_v2.spawn_agent` to launch the "review-team" team. Each member runs in parallel.',
+      "",
+      '### Member: code (agent_type: "browser-audit/code", model: "gpt-5.5")',
+      "Audit code.",
+      "",
+      "",
+    ].join("\n")
+  );
+
+  runCli(
     fixture,
     ["sync", "--scope", "project", "--include", "skills:preview", "--apply"],
     undefined,
@@ -3197,17 +3228,10 @@ test("sync apply restores stripped Codex marker into a Claude TaskCreate call", 
   );
   const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/skill.md"), "utf8");
 
-  assert.match(claudeBody, /TaskCreate\(\{/);
-  assert.match(claudeBody, /items: \["task1","task2"\]/);
-
-  const archive = JSON.parse(readFileSync(callsArchivePath(output), "utf8"));
-  const restored = archive.find(
-    (entry) =>
-      entry.call === "TaskCreate" &&
-      entry.action === "restored" &&
-      entry.direction === "codex->claude"
-  );
-  assert.ok(restored, "expected a restored TaskCreate entry in the archive");
+  assert.match(claudeBody, /TeamCreate\(\{/);
+  assert.match(claudeBody, /team_name: "review-team"/);
+  assert.match(claudeBody, /members:/);
+  assert.doesNotMatch(claudeBody, /ai-config-sync:team-call/);
 });
 
 test("sync dry-run does not write the calls archive file to disk", () => {
@@ -3489,14 +3513,16 @@ test("sync apply rewrites prose mentions of TaskCreate / TaskUpdate to spawn_age
   assert.doesNotMatch(codexBody, /TaskCreate|TaskUpdate/);
 });
 
-test("sync apply preserves TaskCreate/TeamCreate inside ai-config-sync stripped marker JSON (round-trip safe)", () => {
+test("sync apply preserves TeamCreate fields inside ai-config-sync team-call marker JSON (round-trip safe)", () => {
   const fixture = createFixture();
   writeSkillManifest(
     join(fixture.project, ".claude/skills/round-trip"),
     "claude",
-    ["# Round Trip", 'TaskCreate({ items: ["a","b"] })', 'TeamCreate({ name: "alpha" })', ""].join(
-      "\n"
-    )
+    [
+      "# Round Trip",
+      'TeamCreate({ team_name: "alpha", members: [{ name: "a", agent_type: "x", model: "opus", prompt: "do" }] })',
+      "",
+    ].join("\n")
   );
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:round-trip", "--apply"]);
@@ -3505,9 +3531,10 @@ test("sync apply preserves TaskCreate/TeamCreate inside ai-config-sync stripped 
     "utf8"
   );
 
-  assert.match(codexBody, /"call":"TaskCreate"/);
   assert.match(codexBody, /"call":"TeamCreate"/);
-  assert.doesNotMatch(codexBody, /TaskCreate\(|TeamCreate\(/);
+  assert.match(codexBody, /"team_name":"alpha"/);
+  assert.match(codexBody, /"members":/);
+  assert.doesNotMatch(codexBody, /TeamCreate\(/);
 });
 
 test("sync apply rewrites prose mentions of SendMessage to send_input on Codex side", () => {
