@@ -1,5 +1,22 @@
 # Ai-config-sync-manager
 
+## v0.1.2 (2026-05-24)
+
+### 🐛 Bug Fixes
+
+- **sync/skill preview**: apply model alias normalization in the dry-run/status preview path. `skillPreview` called `normalizeYamlFrontmatter` without `from`/`to`, so the fallback `modelAliasMap("codex","claude")` could not translate `opus → gpt-5.5` for claude→codex previews. Users saw `+ After apply from Claude L4: model: opus` even though apply (fixed in v0.1.1's follow-up) would correctly write `gpt-5.5`. Both `skillPreview` call sites now call `normalizeSkillManifestFrontmatter` with the direction so the preview matches the apply result.
+- **sync/skill copy**: `copyFileWithMappings` invoked `normalizeSkillManifestFrontmatter` without `normalizeModelAlias`, so a Claude `SKILL.md` authored with `model: opus` was copied to Codex verbatim instead of being rewritten to `model: gpt-5.5`. The mismatch then surfaced as a manual conflict on every subsequent sync because the destination host could not resolve the foreign alias. Direction-aware lookup (`modelAliasMap(from, to)`) replaces the hardcoded codex→claude map; the codex→claude fallback is kept for the status-side normalizer that intentionally invokes the helper without `from`/`to`.
+
+### 🚀 Features
+
+- **ci/upstream-compat**: harden the compat scan with an allowlist + nested keys + hash drift + recheck expiry + enum drift. Adds `rules/upstream-known-unsupported.json` (bidirectional entries with `reason`/`decided_in`/`decided_at`/`direction`/`schema_desc_hash`/`recheck_after`) so deliberate non-mappings stop reappearing as drift noise. A nested-path scan over `definitions.<Type>.properties.<field>` catches changes to `RawMcpServerConfig`, `HooksToml`, `NetworkProxyConfigToml`, and other `$ref`-targets the top-level scan misses. A hash-drift section flags allowlist entries whose recorded `schema_desc_hash` no longer matches the current upstream description, and a recheck-due section surfaces entries whose `recheck_after` date has passed — forcing periodic re-evaluation instead of permanent exclusion. An enum-drift section watches `sandbox_mode`/`approval_policy`/`web_search` and Claude hook event names, marking `STALE HARDCODED` entries when the value `bin/ai-config-sync.mjs` emits is no longer in the schema enum.
+- **ci/upstream-compat**: mark triggered Layer 4 checklist items in the drift PR body. The static 7-entry checklist treated every line as equally relevant regardless of drift content. Keyword matchers now scan added lines from changelog/release diffs and append `_(triggered: …)_` markers to each item that actually applies, so reviewers can skip the irrelevant ones.
+
+### 🛠 Chore
+
+- **snapshots**: refresh Claude/Codex upstream snapshots — Claude changelog through v2.1.148, Codex schema/release snapshots (introduces `apps_mcp_product_sku`, `desktop`, `include_collaboration_mode_instructions`, `model_auto_compact_token_limit_scope`; intentionally unmapped — recorded in `rules/upstream-known-unsupported.json`).
+- **docs**: reorder `AGENTS.md` pre-work reading list to put `README.md` first, then `package.json` + `scripts/build-dist.mjs`, with direct source as the last resort.
+
 ## v0.1.1 (2026-05-14)
 
 ### 🐛 Bug Fixes
