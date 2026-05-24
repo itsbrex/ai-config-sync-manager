@@ -1,5 +1,17 @@
 # Ai-config-sync-manager
 
+## v0.1.3 (2026-05-24)
+
+### 🚀 Features
+
+- **sync/call-templates**: parse Claude SDK calls authored in flat named-arg form (`Agent( description: ..., model: ..., prompt: ... )`), not just the braced object literal form. `parseSingleObjectArgument` now wraps the trimmed input in synthetic braces and reparses with the strict reader; the dominant style in real `SKILL.md` files no longer collapses to a manual-review marker.
+- **sync/call-templates**: promote `TeamCreate` from `unsupported` to `supported`, mapping a Claude `TeamCreate({ team_name, members: [...] })` call to a per-member `multi_agent_v2.spawn_agent` prose block on the Codex side. `renderCodexTemplate` gains a `{{#each FIELD}}...{{/each}}` block expander to fan out the `members` array — one prose section per entry — with the inner template rendered against the entry as its own field bag. Reverse sync (codex→claude) reuses the existing supported-rule loop so the marker round-trips back into a `TeamCreate({...})` call.
+- **sync/call-templates**: drop `TaskCreate` and `TaskUpdate` from the template registry entirely. When the surrounding skill prose already documents conditional skip (e.g. "optional / if exposed / otherwise skip"), the call can pass through verbatim and the destination host interprets it on its own — no stripped marker, no archive entry, no round-trip plumbing needed.
+
+### 🛠 Migration
+
+- Legacy codex `SKILL.md` files that already carry a `<!-- ai-config-sync:stripped {"call":"TaskCreate", ...} -->` marker from earlier versions are not rewritten by this release. On the next claude→codex apply the target file is replaced wholesale, so the marker disappears; codex→claude reverse syncs leave the marker in place (no rule to consume it). Cosmetic only — runtime behavior unaffected.
+
 ## v0.1.2 (2026-05-24)
 
 ### 🐛 Bug Fixes
