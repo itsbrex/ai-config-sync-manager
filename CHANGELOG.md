@@ -1,5 +1,11 @@
 # Ai-config-sync-manager
 
+## v0.1.4 (2026-06-21)
+
+### 🚀 Features
+
+- **sync/call-templates**: promote `TeamDelete` from unsupported to `supported`, mapping a Claude `TeamDelete({ team_name })` call to a Codex teardown prose line through a new `ai-config-sync:team-delete-call` marker. Mirrors the v0.1.3 `TeamCreate` rule so the bare-call form finally has a conversion path: `terminology-map` excludes bare calls via the `(?!\s*\()` lookahead and defers them to `call-templates.json`, which previously had no `TeamDelete` entry — so the call fell through both layers and left a permanent phantom `TeamDelete → multiple spawn_agent invocations` vocab auto-fix that no sync path ever resolved. Reverse sync round-trips the marker back to `TeamDelete({...})`.
+
 ## v0.1.3 (2026-05-24)
 
 ### 🚀 Features
