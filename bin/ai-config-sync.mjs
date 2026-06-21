@@ -3327,7 +3327,11 @@ function skillDirChangePreview(claudeSkillDir, codexSkillDir, from, to, fromLabe
         : readSkillFileForHash(sourceDir, sourceEntry.raw)
     ).toString("utf8");
     if (isTextMappingFile(sourceAbs) && isTextMappingFile(targetAbs)) {
-      sourceContent = transformTextForHost(sourceContent, sourceHost, targetHost);
+      sourceContent = normalizeSkillFileText(
+        transformTextForHost(sourceContent, sourceHost, targetHost),
+        sourceEntry.raw,
+        sourceAbs
+      );
     }
 
     if (targetContent === sourceContent) continue;
