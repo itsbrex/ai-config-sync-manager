@@ -7,6 +7,10 @@
 - **sync/call-templates**: promote `TeamDelete` from unsupported to `supported`, mapping a Claude `TeamDelete({ team_name })` call to a Codex teardown prose line through a new `ai-config-sync:team-delete-call` marker. Mirrors the v0.1.3 `TeamCreate` rule so the bare-call form finally has a conversion path: `terminology-map` excludes bare calls via the `(?!\s*\()` lookahead and defers them to `call-templates.json`, which previously had no `TeamDelete` entry — so the call fell through both layers and left a permanent phantom `TeamDelete → multiple spawn_agent invocations` vocab auto-fix that no sync path ever resolved. Reverse sync round-trips the marker back to `TeamDelete({...})`.
 - **status**: always write the per-run detail file and print its path, not only when diff entries or vocab findings exist. `renderStatus` previously gated `writeStatusDetailFile` behind `hasDetail = entries > 0 || vocabFindings > 0`, so a clean run — or one carrying only stale paraphrase overrides — produced no detail file, leaving stale entries impossible to inspect from disk. `STATUS_DETAILS_RETENTION` pruning already bounds file growth.
 
+### 🐛 Bug Fixes
+
+- **status/host-vocab**: drop the `Task*` family (`TaskCreate`, `TaskUpdate`, `TaskGet`, `TaskList`, `TaskOutput`, `TaskStop`) from `host-strict-vocab.json` `claude_only`. `lintHostVocab` matches tokens with a bare `\bTOKEN\b` and no bare-call lookahead, so a `TaskCreate(...)` call sitting in a Codex file was flagged as a vocab mismatch and reported as an `auto-fix` — yet `terminology-map` excludes the bare-call form via `(?!\s*\()` and v0.1.3 removed `TaskCreate`/`TaskUpdate` from the template registry for verbatim pass-through, so no code path ever performed the advertised rewrite. Codex interprets (or skips) these tokens on its own; they must not be flagged.
+
 ## v0.1.3 (2026-05-24)
 
 ### 🚀 Features
