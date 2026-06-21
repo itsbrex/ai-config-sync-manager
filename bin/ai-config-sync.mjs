@@ -262,10 +262,7 @@ function buildStatusSummary(
 function renderStatus(report, format = "default") {
   if (format === "compact") return renderCompactStatus(report);
   if (format === "tree") return renderTreeStatus(report);
-  const hasDetail =
-    report.entries.length > 0 ||
-    (Array.isArray(report.vocabFindings) && report.vocabFindings.length > 0);
-  const detailPath = hasDetail ? writeStatusDetailFile(report) : null;
+  const detailPath = writeStatusDetailFile(report);
 
   const lines = [
     "AI Config Sync Manager status",
@@ -292,7 +289,7 @@ function renderStatus(report, format = "default") {
     lines.push("");
   }
 
-  if (hasDetail && detailPath) {
+  if (detailPath) {
     lines.push(`Detail file: ${detailPath}`);
     lines.push("Open the detail file for the full item list and before/after diff preview.");
     lines.push("");
