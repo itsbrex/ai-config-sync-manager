@@ -27,6 +27,7 @@
 - **Diff-first workflow** — `status` to compare → `sync --dry-run` to preview → `--apply` to write.
 - **Risk-tagged operations** — `permissions`, `hooks`, custom commands labeled `safe` / `partial` / `manual`.
 - **Backup-on-write** — every overwrite snapshotted under `.backups/`, FIFO retention (30).
+- **Apply ledger** — every `--apply` writes a per-item sha256 attestation (before/after hash, backup path) to `~/.ai-config-sync-manager/ledgers/`.
 - **Selector syntax** — `--include skills:code-writer,instructions --exclude mcp` style filtering.
 - **Native semantic mapping** — Claude `Write` → Codex `sandbox_mode = "workspace-write"`, etc.
 - **Prose-level token rewriting** — Claude-only tokens (`Read`, `Bash`, `TaskCreate`, headless `claude -p`) and Codex-only tokens (`spawn_agent`, `codex exec`) auto-translate across hosts and round-trip back.
@@ -154,6 +155,8 @@ ai-config-sync status --scope project --tree --include skills:code-writer
 | `--dry-run` | Preview without writing (default; mutually exclusive with `--apply`) |
 | `--apply` | Apply with backups |
 | `--plan-json` | Print the sync plan as JSON |
+| `--ledger-json` | Print the apply ledger as JSON to stdout (`--apply` only) |
+| `--ledger <path>` | Write the apply ledger JSON to `<path>` (`--apply` only) |
 | `--from claude\|codex` | Source host (overrides `AI_CONFIG_SYNC_HOST`) |
 | `--to claude\|codex` | Target host (overrides `AI_CONFIG_SYNC_HOST`) |
 | `--scope global\|project\|all` | Limit scope (default: `all` = global + project) |
@@ -264,6 +267,7 @@ The active path and rule count are echoed in `status` output as `Status ignore: 
 
 - **Dry-run first** — `sync` defaults to dry-run; `--apply` is required for any write.
 - **Backups on every write** — atomic snapshot to `.backups/<area>/<host>/<timestamp>/...` before overwrite.
+- **Apply ledger** — every `--apply` records a per-item sha256 attestation (`before_hash`/`after_hash`, `backup_path`, `plan_hash`) to `~/.ai-config-sync-manager/ledgers/<timestamp>.json`; `--ledger <path>` copies it elsewhere and `--ledger-json` prints it to stdout.
 - **Risk labels** — high-impact entries (`permissions`, `hooks`, custom commands) marked with their risk level in the diff.
 - **Strict-vocab guard** — host-only tokens (e.g. Codex `update_plan`) flagged on cross-host copy.
 - **Secret pass-through** — MCP env values are copied by default; set `AI_CONFIG_SYNC_STRIP_SECRETS=1` to redact.
@@ -283,6 +287,7 @@ The active path and rule count are echoed in `status` output as `Status ignore: 
 | --- | --- | --- |
 | `.backups/<area>/<host>/` | 30 | FIFO (oldest pruned on next write) |
 | `~/.config/ai-config-sync/status-details/` | 100 | FIFO |
+| `~/.ai-config-sync-manager/ledgers/` | 300 | FIFO (oldest pruned on next `--apply`) |
 
 ## Native mapping (Claude ↔ Codex)
 

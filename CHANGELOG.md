@@ -1,5 +1,11 @@
 # Ai-config-sync-manager
 
+## v0.1.5 (2026-06-27)
+
+### 🚀 Features
+
+- **sync/apply-ledger**: record a per-item apply ledger with sha256 attestation (#13). Every `sync --apply` now writes `~/.ai-config-sync-manager/ledgers/<timestamp>.json` capturing, for each operation, its `scope`/`area`/`item`/`action`/`status`, the `before_hash` and `after_hash` of the on-disk target (full sha256, no truncation — distinct from the casing-normalized 12-char `skillContentHash` family so the ledger attests exact bytes), the `backup_path` taken, a `plan_hash`, and a run `summary`. Coverage spans every apply path including `vocab-fix` rewrites, with `before_hash` captured before the mutation. The directory-tree hash walk skips symlinks to avoid infinite recursion on cyclic links. `--ledger <path>` writes an extra copy to an arbitrary path and `--ledger-json` prints the ledger to stdout (both `--apply` only); the default ledger directory is pruned FIFO to `LEDGER_RETENTION` (300).
+
 ## v0.1.4 (2026-06-21)
 
 ### 🚀 Features
