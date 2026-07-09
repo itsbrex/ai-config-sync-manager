@@ -21,6 +21,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # pre-push runs these but skips itself under CI, so the server side must run them.
+      - name: Run unit and fixture tests
+        run: npm test
+
+      - name: Type-check
+        run: npm run check
+
       - name: Install Claude Code and Codex CLIs
         run: npm install -g @anthropic-ai/claude-code @openai/codex
 
