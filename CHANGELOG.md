@@ -1,5 +1,11 @@
 # Ai-config-sync-manager
 
+## v0.1.6 (2026-07-09)
+
+### 🐛 Bug Fixes
+
+- **sync/backup**: back up correctly when the target lives on a Windows drive root (#28). `backupPath` mirrored the target under the backup root after stripping only a leading `/`, which never removes a `C:\` drive — so on Windows the leftover `:`/`\` produced an invalid path segment, `mkdir` failed, and the backup (plus the `--apply` that depends on it) aborted. The backup path is now derived through `parse`/`relative` with a sanitized drive label (`E:\ → E`); POSIX layout is preserved byte-for-byte, so Linux/macOS backups are unchanged. Thanks to @VVeb1250 for the report and fix.
+
 ## v0.1.5 (2026-06-27)
 
 ### 🚀 Features
