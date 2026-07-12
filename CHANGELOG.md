@@ -1,5 +1,12 @@
 # Ai-config-sync-manager
 
+## v0.1.7 (2026-07-12)
+
+### 🛠 Chore
+
+- **rules/agents-map**: bump `models.tiers` to the current frontier (#31) — latest-frontier `Opus 4.7 → 4.8` and `gpt-5.5 → gpt-5.6`, balanced tier gains `Claude Sonnet 5`. Version-independent aliases (`opus`/`sonnet`) keep old configs mapping; the `terms` lists carry the new display names so free-text terminology mapping rewrites the new model names too.
+- **snapshots**: refresh Claude/Codex upstream snapshots and record the resulting uncovered keys (#31). Claude changelog/settings-schema and Codex config-schema/releases are updated; 47 new upstream keys that have no cross-host mapping are registered as intentional drops in `rules/upstream-known-unsupported.json` (each with `reason`/`decided_in`/`decided_at`/`direction`/`recheck_after`) so they stop reappearing as drift noise.
+
 ## v0.1.6 (2026-07-09)
 
 ### 🐛 Bug Fixes
