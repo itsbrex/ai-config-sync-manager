@@ -1,6 +1,6 @@
 # Ai-config-sync-manager
 
-## v0.1.8 (unreleased)
+## v0.1.8 (2026-07-20)
 
 ### 🚀 Features
 
