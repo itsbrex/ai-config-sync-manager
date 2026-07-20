@@ -162,7 +162,7 @@ test("renderBoardHtml renders a status color marker and label per status", () =>
   const html = renderBoardHtml(
     buildBoardModel(boardInput({ inventory: [inventoryItem({ name: "alpha" })] }))
   );
-  assert.match(html, /#22c55e/);
+  assert.match(html, /#30a46c/);
   assert.match(html, /In sync/);
   assert.match(html, /class="item"/);
   assert.match(html, /class="dot"/);
@@ -179,8 +179,8 @@ test("renderBoardHtml colors claude-only and codex-only distinctly", () => {
       })
     )
   );
-  assert.match(html, /#3b82f6/);
-  assert.match(html, /#a855f7/);
+  assert.match(html, /#4c8dff/);
+  assert.match(html, /#9d7cff/);
 });
 
 test("renderBoardHtml renders an area tab and section marker per area", () => {
