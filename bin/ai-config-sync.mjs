@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, relative, resolve } from "node:path";
@@ -30,6 +30,8 @@ const BACKUP_RETENTION = 30;
 const LEDGER_RETENTION = 300;
 const STATUS_DETAILS_RETENTION = 100;
 const BOARD_RETENTION = 100;
+// Areas the board inventories; overlays outside this set (permissions/plugins) are out of board scope.
+const BOARD_AREAS = new Set(["skills", "agents", "hooks", "mcp"]);
 const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
 const CODEX_MARKETPLACE_NAME = "local-plugins";
 const runtimePackage = readRuntimePackage();
@@ -198,13 +200,15 @@ function parseStatus(argv) {
 
 function parseBoard(argv) {
   let scopes = ["global", "project"];
-  let open = false;
+  let open = true;
   const selectors = emptySelectors();
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (token === "--open") {
       open = true;
+    } else if (token === "--no-open") {
+      open = false;
     } else if (token === "--scope") {
       scopes = parseScopes(argv[index + 1], true);
       index += 1;
@@ -228,7 +232,34 @@ function buildBoardInventory(scopes, selectors = emptySelectors()) {
     collectSettingsInventory(items, scope, "hooks", paths);
     collectMcpInventory(items, scope, paths);
   }
-  return filterBoardInventory(items, selectors);
+  return filterBoardInventory(filterIgnoredInventory(items), selectors);
+}
+
+function filterIgnoredInventory(items) {
+  const rules = (ignoreListSource().data?.exclude ?? []).filter(Boolean);
+  if (rules.length === 0) return items;
+  return items.filter(
+    (item) => !ignoreRulesMatchEntry(rules, inventoryIgnoreEntry(item), item.name)
+  );
+}
+
+function inventoryIgnoreEntry(item) {
+  // Skills carry the item dir in claudePath/codexPath, but status compares against the base dir
+  // (name excluded); strip the name so path-form ignore rules resolve identically on both sides.
+  if (item.area === "skills") {
+    return {
+      scope: item.scope,
+      area: item.area,
+      claudePath: item.claudePath ? dirname(item.claudePath) : "",
+      codexPath: item.codexPath ? dirname(item.codexPath) : "",
+    };
+  }
+  return {
+    scope: item.scope,
+    area: item.area,
+    claudePath: item.claudePath,
+    codexPath: item.codexPath,
+  };
 }
 
 function filterBoardInventory(items, selectors) {
@@ -352,6 +383,7 @@ function firstPath(pathList, fallback) {
 function normalizeBoardOverlays(entries = []) {
   const overlays = [];
   for (const entry of entries) {
+    if (!BOARD_AREAS.has(entry.area)) continue;
     pushBoardOverlays(overlays, entry, entry.conflicts, "conflict");
     pushBoardOverlays(overlays, entry, entry.missingInCodex, "claude-only");
     pushBoardOverlays(overlays, entry, entry.missingInClaude, "codex-only");
@@ -416,20 +448,23 @@ function writeBoardFile(html) {
 
 function boardFilePath() {
   const stamp = new Date().toISOString().replaceAll(":", "-");
-  return `${home}/.ai-config-sync-manager/board/${stamp}.html`;
+  return `${home}/.ai-config-sync-manager/board/${stamp}-${process.pid}.html`;
 }
 
 function openInBrowser(path) {
   try {
-    const opener =
-      process.platform === "darwin"
-        ? "open"
-        : process.platform === "win32"
-          ? 'start ""'
-          : "xdg-open";
-    execSync(`${opener} ${shellQuote(path)}`, {
-      shell: process.platform === "win32" ? "cmd.exe" : undefined,
-    });
+    // Fire-and-forget: a detached, unref'd child can't hang the CLI if the opener never returns.
+    const child =
+      process.platform === "win32"
+        ? spawn("cmd.exe", ["/c", "start", "", path], { detached: true, stdio: "ignore" })
+        : spawn(process.platform === "darwin" ? "open" : "xdg-open", [path], {
+            detached: true,
+            stdio: "ignore",
+          });
+    // spawn reports a missing opener via an async 'error' event, not a throw; swallow it so a
+    // headless host without xdg-open cannot crash the CLI after the board file is already written.
+    child.on("error", () => {});
+    child.unref();
   } catch {
     // Path already printed; opening is best-effort.
   }
@@ -8384,12 +8419,14 @@ Options:
   --scope global|project|all     Limit board scope
   --include area[:item][,...]    Include only selected areas or items
   --exclude area[:item][,...]    Exclude selected areas or items
-  --open                         Open the generated board in the default browser
+  --no-open                      Only write the file; do not open a browser
   -h, --help                     Show board help
+
+The board opens in the default browser by default; pass --no-open to skip it.
 
 Examples:
   ai-config-sync board
-  ai-config-sync board --scope global --open`);
+  ai-config-sync board --scope global --no-open`);
 }
 
 function printSyncHelp() {
