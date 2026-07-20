@@ -1,5 +1,11 @@
 # Ai-config-sync-manager
 
+## v0.1.9 (2026-07-21)
+
+### 💅 Styles
+
+- **board**: rework the board's visual design to read like a production dashboard rather than a generic template. Following the Vercel Geist and Linear conventions, status color is now confined to the 8px dot (plus a paired text label per row) instead of also painting a left border stripe, so hue signals data rather than decoration; the redundant dot-plus-stripe double encoding is gone. Each row now carries an explicit status word (In sync / Conflict / Claude only / …) next to the dot so color is never the only signal. The surface palette moves to a near-black canvas with hairline (low-opacity white) borders and a single indigo focus/active accent, and the status swatches switch to saturated Radix/Geist hues that stay legible at dot size. Pure-renderer boundary and self-contained output are unchanged.
+
 ## v0.1.8 (2026-07-20)
 
 ### 🚀 Features
