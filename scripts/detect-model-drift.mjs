@@ -17,8 +17,8 @@ const PROSE_FILES = [
 // Stopwords are the inverse risk of an allowlist: a stopword that later becomes a real model name
 // silently misses it, so the lists stay tight, grounded, and HOST-SCOPED. Grammar words are never a
 // model in any position → global. Product/plan words were grounded in the "Claude <word>" slot
-// (Code appears 130×, Platform/API/Pro/Max/Desktop/Browser/Skills/Agent/Fable are Claude products,
-// plans, or an unmapped model) — but on the Codex side "Pro"/"Max" are REAL model tiers (GPT-5 Pro,
+// (Code appears 130×, Platform/API/Pro/Max/Desktop/Browser/Skills/Agent are Claude products or
+// plans) — but on the Codex side "Pro"/"Max" are REAL model tiers (GPT-5 Pro,
 // o1-pro), so applying them there would silently drop a new variant whose base tier is already known.
 // Hence product words apply to the claude patterns only. New names surface by default; cheap
 // human-review noise beats a silent miss (this is what let a tier bump slip through before).
@@ -44,7 +44,6 @@ const CLAUDE_PRODUCT_STOPWORDS = new Set([
   "browser",
   "skills",
   "agent",
-  "fable",
 ]);
 function isStopword(host, name) {
   if (!name) return false;
@@ -107,10 +106,10 @@ function claudeTier(key, tiers) {
 }
 
 function tierHint(candidate, tiers) {
-  if (candidate.host === "codex") return { tierId: null, note: "codex tier 확인 필요" };
+  if (candidate.host === "codex") return { tierId: null, note: "needs a codex tier decision" };
   const tier = claudeTier(candidate.key, tiers);
-  if (!tier) return { tierId: null, note: "새 tier 후보" };
-  return { tierId: tier.id, note: "기존 tier terms 갱신 권장" };
+  if (!tier) return { tierId: null, note: "candidate for a new tier" };
+  return { tierId: tier.id, note: "add to this tier's terms" };
 }
 
 export function findModelDrift(text, tiers) {
@@ -123,14 +122,14 @@ export function findModelDrift(text, tiers) {
 export function renderSection(candidates) {
   if (candidates.length === 0) return "";
   const lines = candidates.map((c) => {
-    const tier = c.tierId ? `추정 tier: ${c.tierId}` : c.note;
+    const tier = c.tierId ? `likely tier: ${c.tierId}` : c.note;
     return `- \`${c.raw}\` (${tier})${c.tierId ? ` — ${c.note}` : ""}`;
   });
   return [
     "",
-    "## Model drift — agents-map.models.tiers 갱신 필요",
+    "## Model drift — agents-map.models.tiers needs review",
     "",
-    "신규 모델 후보 (스키마에 없어 구조 스캔이 놓침). `rules/agents-map.json` `models.tiers` 확인:",
+    "New model candidates, named only in changelog prose, so the schema scan misses them. Check `rules/agents-map.json` `models.tiers`:",
     "",
     ...lines,
     "",

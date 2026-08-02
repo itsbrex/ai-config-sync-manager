@@ -3456,10 +3456,18 @@ function applyTermMappings(value, from, to) {
 
   literalReplacements.sort((left, right) => right.source.length - left.source.length);
   return literalReplacements.reduce(
-    (nextText, { source, target }) =>
-      nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
+    (nextText, { source, target }) => nextText.replace(literalTermPattern(source), target),
     working
   );
+}
+
+// A term must not be eaten out of a longer identifier: "gpt-5.3-codex" inside "gpt-5.3-codex-spark",
+// "fable" inside "affable", "Opus 5" inside "Opus 5.1". \b cannot express this — it sits between "6"
+// and "-", so a version-shaped term still matches the head of a longer id. The dot rules are
+// asymmetric on purpose: a dot that continues a version ("5" then ".1") extends the identifier, but
+// a dot ending a sentence ("opus(latest).") does not.
+function literalTermPattern(source) {
+  return new RegExp(`(?<![\\w-]|\\w\\.)${escapeRegExp(source)}(?![\\w-]|\\.\\w)`, "g");
 }
 
 function terminologyRules(data) {
@@ -4291,27 +4299,51 @@ function applyCopyMissingSkills(plan, operation) {
   }
 }
 
+// Two names canonicalizing to one key would let a plain Map copy one agent's body over the other.
+function indexAgentsByName(agents) {
+  const index = new Map();
+  const collisions = new Map();
+  for (const agent of agents) {
+    const first = index.get(agent.name);
+    if (first) collisions.set(agent.name, [first.path, agent.path]);
+    else index.set(agent.name, agent);
+  }
+  return { index, collisions };
+}
+
 function applyMergeAgents(plan, operation) {
   mkdirSync(operation.targetPath, { recursive: true });
   const overwrite = new Set(operation.overwriteAgentNames ?? []);
-  const sourceClaudeIndex =
+  const source = indexAgentsByName(
     operation.from === "claude"
-      ? new Map(enumerateClaudeAgents(operation.sourcePath).map((agent) => [agent.name, agent]))
-      : null;
-  const sourceCodexIndex =
-    operation.from === "codex"
-      ? new Map(enumerateCodexAgents(operation.sourcePath).map((agent) => [agent.name, agent]))
-      : null;
+      ? enumerateClaudeAgents(operation.sourcePath)
+      : enumerateCodexAgents(operation.sourcePath)
+  );
+  const sourceClaudeIndex = operation.from === "claude" ? source.index : null;
+  const sourceCodexIndex = operation.from === "codex" ? source.index : null;
   const existingClaudeIndex =
     operation.to === "claude"
-      ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      ? indexAgentsByName(enumerateClaudeAgents(operation.targetPath)).index
       : null;
   const existingCodexIndex =
     operation.to === "codex"
-      ? new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      ? indexAgentsByName(enumerateCodexAgents(operation.targetPath)).index
       : null;
 
-  for (const agentName of operation.agentNames ?? []) {
+  for (const agentName of new Set(operation.agentNames ?? [])) {
+    const collision = source.collisions.get(agentName);
+    if (collision) {
+      const message = `agent name collision: ${collision.join(" and ")} both resolve to ${agentName}`;
+      plan.results.push({ status: "skipped", message });
+      recordLedger(plan, {
+        area: operation.area,
+        item: agentName,
+        action: operation.action,
+        status: "skipped",
+        message,
+      });
+      continue;
+    }
     if (operation.to === "codex") {
       const sourceAgent = sourceClaudeIndex?.get(agentName);
       if (!sourceAgent) {
@@ -4353,9 +4385,10 @@ function applyMergeAgents(plan, operation) {
         callArchive: plan.callArchive,
       });
       mkdirSync(dirname(targetPath), { recursive: true });
-      const beforeHash = hashPath(existingAgent ? existingAgent.path : targetPath);
-      const backupPathTaken = existingAgent ? backupTargetPath(plan, existingAgent.path) : null;
-      if (existingAgent) backupPath(plan, existingAgent.path);
+      // Matching is by name, so the existing file can sit elsewhere than the path being written.
+      const beforeHash = hashPath(targetPath);
+      const backupPathTaken = backupTargetPath(plan, targetPath);
+      backupPath(plan, targetPath);
       writeFileSync(targetPath, serializeCodexAgentFile(codexFields));
       const message = `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}`;
       plan.results.push({ status: "applied", message });
@@ -4409,13 +4442,34 @@ function applyMergeAgents(plan, operation) {
       : { frontmatter: {}, body: "" };
     const claude = mapAgentToClaude(codexParsed, {
       preserveClaude: existingClaude.frontmatter,
+      fallbackName: agentName.split("/").pop(),
       callArchive: plan.callArchive,
     });
     mkdirSync(dirname(targetPath), { recursive: true });
-    const beforeHash = hashPath(existingAgent ? existingAgent.path : targetPath);
-    const backupPathTaken = existingAgent ? backupTargetPath(plan, existingAgent.path) : null;
-    if (existingAgent) backupPath(plan, existingAgent.path);
+    // The old file would enumerate to the same canonical name and never stop reporting a diff.
+    const replacedPath =
+      existingAgent && !isSameFile(existingAgent.path, targetPath) ? existingAgent.path : null;
+    const replacedHash = replacedPath ? hashPath(replacedPath) : null;
+    const replacedBackup = replacedPath ? backupTargetPath(plan, replacedPath) : null;
+    if (replacedPath) backupPath(plan, replacedPath);
+    // On a rename these are two files, and a before-state naming the other restores wrong bytes.
+    const beforeHash = hashPath(targetPath);
+    const backupPathTaken = backupTargetPath(plan, targetPath);
+    backupPath(plan, targetPath);
     writeFileSync(targetPath, serializeClaudeAgentFile(claude.frontmatter, claude.body));
+    if (replacedPath) {
+      rmSync(replacedPath, { force: true });
+      recordLedger(plan, {
+        area: operation.area,
+        item: agentName,
+        action: "delete-items",
+        status: "applied",
+        target: replacedPath,
+        beforeHash: replacedHash,
+        backupPath: replacedBackup,
+        message: `removed superseded agent path ${replacedPath}`,
+      });
+    }
     const message = `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}`;
     plan.results.push({ status: "applied", message });
     recordLedger(plan, {
@@ -4429,6 +4483,15 @@ function applyMergeAgents(plan, operation) {
       message,
     });
   }
+}
+
+// Case-insensitive volumes fold both paths onto one inode, so string equality would delete the write.
+function isSameFile(left, right) {
+  if (left === right) return true;
+  if (!existsSync(left) || !existsSync(right)) return false;
+  const leftStat = lstatSync(left);
+  const rightStat = lstatSync(right);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 }
 
 function applyMergeSettingsItems(plan, operation) {
@@ -6776,7 +6839,13 @@ function enumerateCodexAgents(dir) {
 function canonicalAgentName(rawName, fallbackStem) {
   const candidate = typeof rawName === "string" ? rawName.trim() : "";
   const source = candidate || fallbackStem || "";
-  return source.replace(/\//g, "-");
+  return source.replace(/[/:]/g, "-");
+}
+
+// Claude groups agents on "/" but has reserved ":" for plugin namespacing since CLI 2.1.218.
+function claudeSafeAgentName(rawName, fallbackStem) {
+  const candidate = typeof rawName === "string" ? rawName.trim() : "";
+  return (candidate || fallbackStem || "").replace(/:/g, "-");
 }
 
 function agentsEquivalent(claudeAgent, codexAgent, entry, item, rules) {
@@ -6988,7 +7057,7 @@ function mapAgentToClaude(codex, options = {}) {
   );
   recordVocabFindings(options.callArchive, lintHostVocab(body, "claude"), "codex", "claude");
   const frontmatter = {
-    name: codex.name ?? "",
+    name: claudeSafeAgentName(codex.name, options.fallbackName),
     description: codex.description ?? "",
     model: aliases[codex.model] ?? codex.model ?? "",
   };
@@ -7062,15 +7131,13 @@ function modelTiers() {
 function modelAliasMap(from, to) {
   const aliases = {};
   for (const tier of modelTiers()) {
-    const sourceAlias = tier?.[from]?.alias;
     const targetAlias = tier?.[to]?.alias;
-    if (
-      typeof sourceAlias === "string" &&
-      sourceAlias &&
-      typeof targetAlias === "string" &&
-      targetAlias
-    ) {
-      aliases[sourceAlias] = targetAlias;
+    if (typeof targetAlias !== "string" || !targetAlias) continue;
+    const sourceTerms = Array.isArray(tier?.[from]?.terms) ? tier[from].terms : [];
+    // terms carry superseded ids and vendor-tagged variants, so a frontmatter model written in any
+    // accepted spelling still converts. Later tiers win, which is how an overlay reclaims a token.
+    for (const token of [tier?.[from]?.alias, ...sourceTerms]) {
+      if (typeof token === "string" && token) aliases[token] = targetAlias;
     }
   }
   return aliases;

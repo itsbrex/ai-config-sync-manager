@@ -1,60 +1,190 @@
 {
   "version": "0.2",
   "fields": [
-    { "claude": "name", "codex": "name", "level": "exact" },
-    { "claude": "description", "codex": "description", "level": "exact" },
-    { "claude": "body", "codex": "developer_instructions", "level": "equivalent" },
-    { "claude": "model", "codex": "model", "level": "approximate", "alias_table": "models.tiers" },
-    { "claude": "tools", "codex": "sandbox_mode", "level": "approximate", "map": "sandbox_modes" },
-    { "claude": "color", "codex": null, "level": "metadata-only" },
-    { "claude": "memory", "codex": null, "level": "metadata-only" },
-    { "claude": null, "codex": "model_reasoning_effort", "level": "metadata-only" }
+    {
+      "claude": "name",
+      "codex": "name",
+      "level": "exact"
+    },
+    {
+      "claude": "description",
+      "codex": "description",
+      "level": "exact"
+    },
+    {
+      "claude": "body",
+      "codex": "developer_instructions",
+      "level": "equivalent"
+    },
+    {
+      "claude": "model",
+      "codex": "model",
+      "level": "approximate",
+      "alias_table": "models.tiers"
+    },
+    {
+      "claude": "tools",
+      "codex": "sandbox_mode",
+      "level": "approximate",
+      "map": "sandbox_modes"
+    },
+    {
+      "claude": "color",
+      "codex": null,
+      "level": "metadata-only"
+    },
+    {
+      "claude": "memory",
+      "codex": null,
+      "level": "metadata-only"
+    },
+    {
+      "claude": null,
+      "codex": "model_reasoning_effort",
+      "level": "metadata-only"
+    }
   ],
   "sandbox_modes": {
     "read-only": {
-      "claude": { "tools": ["Read", "Grep", "Glob"] }
+      "claude": {
+        "tools": [
+          "Read",
+          "Grep",
+          "Glob"
+        ]
+      }
     },
     "workspace-write": {
-      "claude": { "tools": ["Bash", "Edit", "MultiEdit", "Read", "Grep", "Glob", "Write"] }
+      "claude": {
+        "tools": [
+          "Bash",
+          "Edit",
+          "MultiEdit",
+          "Read",
+          "Grep",
+          "Glob",
+          "Write"
+        ]
+      }
     },
     "danger-full-access": {
-      "claude": { "tools": ["Bash", "Edit", "MultiEdit", "Read", "Grep", "Glob", "Write"] }
+      "claude": {
+        "tools": [
+          "Bash",
+          "Edit",
+          "MultiEdit",
+          "Read",
+          "Grep",
+          "Glob",
+          "Write"
+        ]
+      }
     }
   },
   "models": {
-    "description": "Single source of truth for model mapping. `alias` is the bare frontmatter token used by agent-frontmatter mapping. `terms` is the ordered synonym list for free-text terminology mapping (first term is the canonical replacement target).",
+    "description": "Single source of truth for model mapping. `alias` is the canonical token written into converted frontmatter and prose. `terms` are other accepted spellings of the same tier — every one is also a recognized frontmatter model value, which is how superseded ids and vendor-tagged variants still convert instead of passing through unmapped. A token may appear in only one tier; a project or user overlay wins because its tiers merge in last.",
     "tiers": [
+      {
+        "id": "mythos-class-model",
+        "claude": {
+          "alias": "fable",
+          "terms": [
+            "claude-fable-5",
+            "fable(latest)",
+            "Claude Fable 5",
+            "Fable 5",
+            "Fable"
+          ]
+        },
+        "codex": {
+          "alias": "gpt-5.6-sol",
+          "terms": [
+            "GPT-5.6 Sol",
+            "GPT-5.6-Sol"
+          ]
+        }
+      },
       {
         "id": "latest-frontier-model",
         "claude": {
           "alias": "opus",
-          "terms": ["opus4.8(latest)", "opus 4.8 latest", "Claude Opus 4.8", "Opus 4.8", "Opus"]
+          "terms": [
+            "claude-opus-4-8",
+            "claude-opus-5",
+            "opus(latest)",
+            "opus4.8(latest)",
+            "opus 4.8 latest",
+            "Claude Opus 5",
+            "Claude Opus 4.8",
+            "Opus 5",
+            "Opus 4.8",
+            "Opus"
+          ]
         },
         "codex": {
-          "alias": "gpt-5.6",
-          "terms": ["gpt5.6(latest)", "gpt-5.6 latest", "GPT-5.6", "GPT 5.6"]
+          "alias": "gpt-5.6-terra",
+          "terms": [
+            "gpt-5.6",
+            "gpt-5.5",
+            "gpt-5.2",
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex",
+            "gpt-5-codex",
+            "gpt-5.1-codex-max",
+            "gpt5.6(latest)",
+            "gpt-5.6 latest",
+            "GPT-5.6 Terra",
+            "GPT-5.6-Terra",
+            "GPT-5.6",
+            "GPT 5.6"
+          ]
         }
       },
       {
         "id": "balanced-model",
         "claude": {
           "alias": "sonnet",
-          "terms": ["sonnet(latest)", "Claude Sonnet 5", "Claude Sonnet", "Sonnet 5", "Sonnet"]
+          "terms": [
+            "claude-sonnet-5",
+            "sonnet(latest)",
+            "Claude Sonnet 5",
+            "Claude Sonnet",
+            "Sonnet 5",
+            "Sonnet"
+          ]
         },
         "codex": {
-          "alias": "gpt-5.4",
-          "terms": ["GPT-5.4"]
+          "alias": "gpt-5.6-luna",
+          "terms": [
+            "gpt-5.4",
+            "gpt-5.3-codex-spark",
+            "gpt-5.1-codex-mini",
+            "GPT-5.6 Luna",
+            "GPT-5.6-Luna",
+            "GPT-5.4"
+          ]
         }
       },
       {
         "id": "small-fast-model",
         "claude": {
           "alias": "haiku",
-          "terms": ["haiku(latest)", "Claude Haiku", "Haiku"]
+          "terms": [
+            "claude-haiku-4-5",
+            "claude-haiku-4-5-20251001",
+            "haiku(latest)",
+            "Claude Haiku 4.5",
+            "Claude Haiku",
+            "Haiku 4.5",
+            "Haiku"
+          ]
         },
         "codex": {
           "alias": "gpt-5.4-mini",
-          "terms": ["GPT-5.4-Mini"]
+          "terms": [
+            "GPT-5.4-Mini"
+          ]
         }
       }
     ]
