@@ -656,8 +656,8 @@ test("default status details content differs sources", () => {
 
 test("instructions status treats terminology-mapped model names as equivalent", () => {
   const fixture = createFixture();
-  writeFileSync(join(fixture.project, "CLAUDE.md"), "Use opus4.7(latest) for hard reasoning.\n");
-  writeFileSync(join(fixture.project, "AGENTS.md"), "Use gpt-5.5 for hard reasoning.\n");
+  writeFileSync(join(fixture.project, "CLAUDE.md"), "Use opus4.8(latest) for hard reasoning.\n");
+  writeFileSync(join(fixture.project, "AGENTS.md"), "Use gpt-5.6 for hard reasoning.\n");
 
   const report = JSON.parse(
     runCli(fixture, ["status", "--scope", "project", "--include", "instructions", "--json"])
@@ -812,16 +812,16 @@ test("status reports same-name skill content drift as a manual conflict", () => 
     /apply: ai-config-sync sync --scope project --include skills:review --apply/
   );
   assert.match(output, /- Codex current L2: Codex version/);
-  assert.match(output, /\+ After apply from Claude L2: model: gpt-5\.5/);
+  assert.match(output, /\+ After apply from Claude L2: model: gpt-5\.6/);
   assert.match(
     readFileSync(statusDetailPath(output), "utf8"),
-    /\+ After apply from Claude L2: model: gpt-5\.5/
+    /\+ After apply from Claude L2: model: gpt-5\.6/
   );
 });
 
 test("status treats skill as equivalent when transform and override jointly equalize content", () => {
   // Verifies skillDirsEquivalent's transform+override combined-path: SKILL.md
-  // diverges in BOTH a model token (opus <-> gpt-5.5, closed by terminology
+  // diverges in BOTH a model token (opus <-> gpt-5.6, closed by terminology
   // transform) AND a free-prose line (closed only by an active paraphrase
   // override). Neither path alone makes them equal, but applied together they
   // must — otherwise the skill surfaces as a manual conflict.
@@ -834,11 +834,11 @@ test("status treats skill as equivalent when transform and override jointly equa
   mkdirSync(claudeSkill, { recursive: true });
   mkdirSync(codexSkill, { recursive: true });
 
-  // opus4.7(latest) <-> gpt-5.5 is a baked-in terminology mapping (agents-map.json
+  // opus4.8(latest) <-> gpt-5.6 is a baked-in terminology mapping (agents-map.json
   // models.tiers, latest-frontier-model). Used here to force one-directional
   // transform equivalence for the model-token line.
-  const claudeBody = "# Jointly\nUse opus4.7(latest) for hard reasoning.\nRead the docs.\n";
-  const codexBody = "# Jointly\nUse gpt-5.5 for hard reasoning.\nInspect the docs.\n";
+  const claudeBody = "# Jointly\nUse opus4.8(latest) for hard reasoning.\nRead the docs.\n";
+  const codexBody = "# Jointly\nUse gpt-5.6 for hard reasoning.\nInspect the docs.\n";
   writeFileSync(join(claudeSkill, "SKILL.md"), claudeBody);
   writeFileSync(join(codexSkill, "SKILL.md"), codexBody);
 
@@ -886,7 +886,7 @@ test("status treats skill differing only by model alias as equivalent (no phanto
   );
   writeFileSync(
     join(fixture.project, ".agents/skills/aliased/SKILL.md"),
-    "---\nname: aliased\nmodel: gpt-5.5\n---\n# Aliased\nShared body.\n"
+    "---\nname: aliased\nmodel: gpt-5.6\n---\n# Aliased\nShared body.\n"
   );
 
   const report = JSON.parse(
@@ -899,7 +899,7 @@ test("status treats skill differing by model alias plus a term-masked line as eq
   // Regression for #10 sibling path: maskedSkillContentHash transforms to the
   // host-native model alias but never folds it back to canonical the way
   // skillContentHash does. When a skill needs BOTH a term ignore rule (to mask a
-  // diverging prose line) AND the model fold, the masked hash ends on gpt-5.5 vs
+  // diverging prose line) AND the model fold, the masked hash ends on gpt-5.6 vs
   // canonical opus and the skill surfaces as a phantom manual conflict.
   const fixture = createFixture();
   writeSkillManifest(
@@ -919,7 +919,7 @@ test("status treats skill differing by model alias plus a term-masked line as eq
   writeSkillManifest(
     join(fixture.project, ".agents/skills/masked-alias"),
     "codex",
-    ["---", "name: masked-alias", "model: gpt-5.5", "---", "# X", "common line", ""].join("\n")
+    ["---", "name: masked-alias", "model: gpt-5.6", "---", "# X", "common line", ""].join("\n")
   );
   mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
   writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
@@ -937,7 +937,7 @@ test("status treats skill differing by model alias plus an override-masked line 
   // Regression for #10 sibling path: overriddenTransformedSkillContentHash layers
   // transformTextForHost over paraphrase masking but never folds the model token
   // back to canonical. A skill needing BOTH a paraphrase override (to mask a
-  // diverging prose line) AND the model fold ends on gpt-5.5 vs canonical opus,
+  // diverging prose line) AND the model fold ends on gpt-5.6 vs canonical opus,
   // surfacing as a phantom manual conflict even though the prose is overridden.
   const fixture = createFixture();
   const projectReal = realpathSync(fixture.project);
@@ -951,7 +951,7 @@ test("status treats skill differing by model alias plus an override-masked line 
   );
   writeFileSync(
     join(codexSkill, "SKILL.md"),
-    "---\nname: override-alias\nmodel: gpt-5.5\n---\n# X\nInspect the docs.\n"
+    "---\nname: override-alias\nmodel: gpt-5.6\n---\n# X\nInspect the docs.\n"
   );
   writeJson(join(fixture.home, ".ai-config-sync-manager/rules/paraphrase-overrides.json"), {
     version: 1,
@@ -1567,7 +1567,7 @@ test("sync applies default terminology mappings to instructions", () => {
   const fixture = createFixture();
   writeFileSync(
     join(fixture.project, "CLAUDE.md"),
-    "Use CLAUDE.md with opus4.7(latest), thinking budget, and Task-tool delegation.\n"
+    "Use CLAUDE.md with opus4.8(latest), thinking budget, and Task-tool delegation.\n"
   );
   writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
 
@@ -1585,7 +1585,60 @@ test("sync applies default terminology mappings to instructions", () => {
   assert.match(output, /Target templates: .*rules\/host-target-templates\.json/);
   assert.equal(
     agents,
-    "Use AGENTS.md with gpt-5.5, reasoning effort, and Codex spawn_agent delegation.\n"
+    "Use AGENTS.md with gpt-5.6, reasoning effort, and Codex spawn_agent delegation.\n"
+  );
+});
+
+// A term used to be replaced anywhere it appeared as a substring, so a model id that merely starts
+// with a mapped one came out truncated: "gpt-5.6-nano" became "opus-nano".
+test("sync leaves a longer model id alone when a mapped term is only its prefix", () => {
+  const fixture = createFixture();
+  writeFileSync(
+    join(fixture.project, "AGENTS.md"),
+    "Pin gpt-5.6-nano for volume and gpt-5.6 for hard work.\n"
+  );
+  writeFileSync(join(fixture.project, "CLAUDE.md"), "old\n");
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "instructions", "--apply"],
+    undefined,
+    {
+      AI_CONFIG_SYNC_HOST: "codex",
+    }
+  );
+
+  assert.equal(
+    readFileSync(join(fixture.project, "CLAUDE.md"), "utf8"),
+    "Pin gpt-5.6-nano for volume and opus for hard work.\n"
+  );
+});
+
+test("sync leaves an English word alone when a mapped term is only its tail", () => {
+  const fixture = createFixture();
+  writeFileSync(join(fixture.project, "CLAUDE.md"), "An Opusculum is not Opus.\n");
+  writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
+
+  assert.equal(
+    readFileSync(join(fixture.project, "AGENTS.md"), "utf8"),
+    "An Opusculum is not gpt-5.6.\n"
+  );
+});
+
+// The boundary must not swallow ordinary sentence punctuation — a trailing "." that ends a sentence
+// is not a version continuation the way the "." in "5.1" is.
+test("sync still maps a term that ends a sentence", () => {
+  const fixture = createFixture();
+  writeFileSync(join(fixture.project, "CLAUDE.md"), "Reasoning goes to opus4.8(latest).\n");
+  writeFileSync(join(fixture.project, "AGENTS.md"), "old\n");
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "instructions", "--apply"]);
+
+  assert.equal(
+    readFileSync(join(fixture.project, "AGENTS.md"), "utf8"),
+    "Reasoning goes to gpt-5.6.\n"
   );
 });
 
@@ -1708,9 +1761,9 @@ test("sync apply replaces manual skill conflicts without per-operation approval"
   assert.match(output, /Change preview:/);
   assert.match(output, /review: target will be replaced from Claude/);
   assert.match(output, /- Target current L2: Codex version/);
-  assert.match(output, /\+ After apply from Claude L2: model: gpt-5\.5/);
+  assert.match(output, /\+ After apply from Claude L2: model: gpt-5\.6/);
   assert.match(output, /replaced skill review/);
-  assert.equal(skill, "# Review\nmodel: gpt-5.5\n");
+  assert.equal(skill, "# Review\nmodel: gpt-5.6\n");
 });
 
 test("sync apply normalizes model alias in frontmatter when copying skill claude->codex", () => {
@@ -1725,7 +1778,7 @@ test("sync apply normalizes model alias in frontmatter when copying skill claude
   const skill = readFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "utf8");
 
   assert.match(skill, /^---\n/);
-  assert.match(skill, /\nmodel: gpt-5\.5\n/);
+  assert.match(skill, /\nmodel: gpt-5\.6\n/);
   assert.doesNotMatch(skill, /\nmodel: opus\n/);
 });
 
@@ -1734,7 +1787,7 @@ test("sync apply normalizes model alias in frontmatter when copying skill codex-
   mkdirSync(join(fixture.project, ".agents/skills/review"), { recursive: true });
   writeFileSync(
     join(fixture.project, ".agents/skills/review/SKILL.md"),
-    "---\nname: review\nmodel: gpt-5.5\n---\n# Review\n\nBody.\n"
+    "---\nname: review\nmodel: gpt-5.6\n---\n# Review\n\nBody.\n"
   );
 
   runCli(fixture, [
@@ -1753,7 +1806,7 @@ test("sync apply normalizes model alias in frontmatter when copying skill codex-
 
   assert.match(skill, /^---\n/);
   assert.match(skill, /\nmodel: opus\n/);
-  assert.doesNotMatch(skill, /\nmodel: gpt-5\.5\n/);
+  assert.doesNotMatch(skill, /\nmodel: gpt-5\.6\n/);
 });
 
 test("sync applies terminology mappings when copying skills", () => {
@@ -1767,7 +1820,7 @@ test("sync applies terminology mappings when copying skills", () => {
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:review", "--apply"]);
   const skill = readFileSync(join(fixture.project, ".agents/skills/review/SKILL.md"), "utf8");
 
-  assert.equal(skill, "# Review\nUse AGENTS.md with gpt-5.5.\n");
+  assert.equal(skill, "# Review\nUse AGENTS.md with gpt-5.6.\n");
 });
 
 test("sync applies host target templates when copying skills", () => {
@@ -2819,7 +2872,7 @@ test("agents sync apply copies Claude agent to Codex with model alias", () => {
   assert.match(output, /Backup root: /);
   assert.match(codexFile, /^name = "sample"$/m);
   assert.match(codexFile, /^description = "Example agent"$/m);
-  assert.match(codexFile, /^model = "gpt-5\.5"$/m);
+  assert.match(codexFile, /^model = "gpt-5\.6"$/m);
   assert.match(codexFile, /developer_instructions = "[^"]*Hello, agent body\./);
 });
 
@@ -3283,11 +3336,11 @@ test("sync apply transforms TeamCreate call with flat named-args + members array
   assert.match(codexBody, /Use `multi_agent_v2\.spawn_agent` to launch the "review-team" team/);
   assert.match(
     codexBody,
-    /### Member: code \(agent_type: "browser-audit\/code-security-auditor", model: "gpt-5\.5"\)/
+    /### Member: code \(agent_type: "browser-audit\/code-security-auditor", model: "gpt-5\.6"\)/
   );
   assert.match(
     codexBody,
-    /### Member: browser \(agent_type: "browser-audit\/browser-runtime-auditor", model: "gpt-5\.5"\)/
+    /### Member: browser \(agent_type: "browser-audit\/browser-runtime-auditor", model: "gpt-5\.6"\)/
   );
   assert.doesNotMatch(codexBody, /TeamCreate\(/);
   assert.doesNotMatch(codexBody, /ai-config-sync:manual-review/);
@@ -3326,7 +3379,7 @@ test("sync apply round-trips Codex team-call marker back into Claude TeamCreate(
   const markerFields = {
     team_name: "review-team",
     members: [
-      { name: "code", agent_type: "browser-audit/code", model: "gpt-5.5", prompt: "Audit code." },
+      { name: "code", agent_type: "browser-audit/code", model: "gpt-5.6", prompt: "Audit code." },
     ],
   };
   const markerPayload = JSON.stringify({ call: "TeamCreate", fields: markerFields });
@@ -3338,7 +3391,7 @@ test("sync apply round-trips Codex team-call marker back into Claude TeamCreate(
       `<!-- ai-config-sync:team-call ${markerPayload} -->`,
       'Use `multi_agent_v2.spawn_agent` to launch the "review-team" team. Each member runs in parallel.',
       "",
-      '### Member: code (agent_type: "browser-audit/code", model: "gpt-5.5")',
+      '### Member: code (agent_type: "browser-audit/code", model: "gpt-5.6")',
       "Audit code.",
       "",
       "",
@@ -6539,7 +6592,7 @@ test("status surfaces vocab-mismatch when claude agent body uses spawn_agent", (
   writeCodexAgent(join(fixture.home, ".codex/agents/sample.toml"), {
     name: "sample",
     description: "demo agent",
-    model: "gpt-5.5",
+    model: "gpt-5.6",
     developer_instructions: "spawn_agent를 호출한다.\n",
   });
 
@@ -7207,4 +7260,163 @@ test("paraphrase --apply uses text-search fallback when counterpart line offset 
   const after = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
   assert.equal(after.paraphraseOverrides.active.length, 1);
   assert.equal(after.paraphraseOverrides.stale.length, 0);
+});
+
+function boardWrittenPath(output) {
+  const match = output.match(/^Board written to: (.+)$/m);
+  assert.ok(match, "board output should include the written path");
+  return match[1];
+}
+
+test("board writes a self-contained HTML file listing planted skills", () => {
+  const fixture = createFixture();
+  for (const host of [".claude/skills", ".agents/skills"]) {
+    mkdirSync(join(fixture.project, host, "alpha"), { recursive: true });
+    writeFileSync(join(fixture.project, host, "alpha/SKILL.md"), "# alpha\n");
+  }
+  mkdirSync(join(fixture.project, ".claude/skills/beta"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/beta/SKILL.md"), "# beta\n");
+
+  const output = runCli(fixture, ["board", "--scope", "project", "--no-open"]);
+  const boardPath = boardWrittenPath(output);
+  assert.ok(existsSync(boardPath), "board file should exist on disk");
+
+  const html = readFileSync(boardPath, "utf8");
+  assert.match(html, /alpha/);
+  assert.match(html, /beta/);
+});
+
+test("board marks a skill present on only one host as claude-only", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/beta"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/beta/SKILL.md"), "# beta\n");
+
+  const html = readFileSync(
+    boardWrittenPath(runCli(fixture, ["board", "--scope", "project", "--no-open"])),
+    "utf8"
+  );
+  assert.match(html, /beta/);
+  assert.match(html, /Claude only/);
+});
+
+test("board --include agents omits skills from the inventory", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/gamma"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/gamma/SKILL.md"), "# gamma\n");
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeFileSync(
+    join(fixture.project, ".claude/agents/myagent.md"),
+    "---\nname: myagent\ndescription: planted agent\n---\nbody\n"
+  );
+
+  const html = readFileSync(
+    boardWrittenPath(
+      runCli(fixture, ["board", "--scope", "project", "--include", "agents", "--no-open"])
+    ),
+    "utf8"
+  );
+  assert.match(html, /myagent/);
+  assert.doesNotMatch(html, /gamma/);
+});
+
+test("board omits permissions and plugins entries that fall outside its inventory areas", () => {
+  const fixture = createFixture();
+  writeJson(join(fixture.project, ".claude/settings.json"), {
+    permissions: { allow: ["WebSearch"] },
+  });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeFileSync(join(fixture.project, ".codex/config.toml"), "");
+
+  const html = readFileSync(
+    boardWrittenPath(runCli(fixture, ["board", "--scope", "project", "--no-open"])),
+    "utf8"
+  );
+  assert.doesNotMatch(html, /data-area="permissions"/);
+  assert.doesNotMatch(html, /data-area="plugins"/);
+  assert.doesNotMatch(html, /WebSearch/);
+});
+
+test("board drops a status-ignored skill instead of showing it as in-sync", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/hushed"),
+    "claude",
+    "# hushed\nclaude\n"
+  );
+  writeSkillManifest(join(fixture.project, ".agents/skills/hushed"), "codex", "# hushed\ncodex\n");
+  writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
+    version: 1,
+    exclude: [{ scope: "project", area: "skills", item: "hushed" }],
+  });
+
+  const html = readFileSync(
+    boardWrittenPath(runCli(fixture, ["board", "--scope", "project", "--no-open"])),
+    "utf8"
+  );
+  assert.doesNotMatch(html, /hushed/);
+});
+
+test("board honors a path-form skills ignore rule targeting the SKILL.md file", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/pathhush"),
+    "claude",
+    "# pathhush\nclaude\n"
+  );
+  writeSkillManifest(
+    join(fixture.project, ".agents/skills/pathhush"),
+    "codex",
+    "# pathhush\ncodex\n"
+  );
+  writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
+    version: 1,
+    exclude: [".claude/skills/pathhush/SKILL.md"],
+  });
+
+  const html = readFileSync(
+    boardWrittenPath(runCli(fixture, ["board", "--scope", "project", "--no-open"])),
+    "utf8"
+  );
+  assert.doesNotMatch(html, /pathhush/);
+});
+
+test("board file name carries a pid suffix so same-millisecond runs cannot collide", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/solo"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/solo/SKILL.md"), "# solo\n");
+
+  const boardPath = boardWrittenPath(runCli(fixture, ["board", "--scope", "project", "--no-open"]));
+  assert.match(boardPath, /Z-\d+\.html$/);
+});
+
+test("openInBrowser launches a detached, unref'd child with an async error handler so a stalled or missing opener cannot hang or crash the CLI", () => {
+  const source = readFileSync(cliPath, "utf8");
+  const start = source.indexOf("function openInBrowser");
+  const fn = source.slice(start, source.indexOf("\n}\n", start));
+  assert.match(fn, /spawn\(/);
+  assert.match(fn, /detached: true/);
+  assert.match(fn, /\.unref\(\)/);
+  assert.match(fn, /\.on\("error"/);
+  assert.doesNotMatch(fn, /execSync/);
+});
+
+test("board default open exits cleanly when the opener binary is absent from PATH", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/skills/solo"), { recursive: true });
+  writeFileSync(join(fixture.project, ".claude/skills/solo/SKILL.md"), "# solo\n");
+
+  const output = runCli(fixture, ["board", "--scope", "project"], undefined, { PATH: "" });
+  assert.match(output, /^Board written to: /m);
+});
+
+test("board rejects an unknown option", () => {
+  const fixture = createFixture();
+  assert.throws(
+    () => runCli(fixture, ["board", "--bogus"]),
+    (error) => {
+      assert.equal(error.status, 1);
+      assert.match(error.stderr, /Unknown option for board/);
+      return true;
+    }
+  );
 });

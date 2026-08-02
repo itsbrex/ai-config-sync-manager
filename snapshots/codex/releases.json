@@ -1,27 +1,27 @@
 [
   {
-    "body": "Release 0.143.0-alpha.35\n\n",
-    "published_at": "2026-07-03T02:33:31Z",
-    "tag_name": "rust-v0.143.0-alpha.35"
+    "body": "Release 0.146.0-alpha.6\n\n",
+    "published_at": "2026-07-24T05:31:18Z",
+    "tag_name": "rust-v0.146.0-alpha.6"
   },
   {
-    "body": "Release 0.143.0-alpha.34\n\n",
-    "published_at": "2026-07-02T21:42:01Z",
-    "tag_name": "rust-v0.143.0-alpha.34"
+    "body": "Release 0.146.0-alpha.3.1\n\n",
+    "published_at": "2026-07-23T23:26:55Z",
+    "tag_name": "rust-v0.146.0-alpha.3.1"
   },
   {
-    "body": "Release 0.143.0-alpha.33\n\n",
-    "published_at": "2026-07-02T01:58:50Z",
-    "tag_name": "rust-v0.143.0-alpha.33"
+    "body": "Release 0.146.0-alpha.5\n\n",
+    "published_at": "2026-07-23T20:02:57Z",
+    "tag_name": "rust-v0.146.0-alpha.5"
   },
   {
-    "body": "Release 0.143.0-alpha.32\n\n",
-    "published_at": "2026-07-01T03:47:46Z",
-    "tag_name": "rust-v0.143.0-alpha.32"
+    "body": "Release 0.146.0-alpha.4\n\n",
+    "published_at": "2026-07-23T00:46:13Z",
+    "tag_name": "rust-v0.146.0-alpha.4"
   },
   {
-    "body": "## Bug Fixes\n\n- Prevented full Responses WebSocket request payloads from being written to trace logs. (#30771)\n\n## Changelog\n\nFull Changelog: https://github.com/openai/codex/compare/rust-v0.142.4...rust-v0.142.5\n\n- #30771 [codex] Backport websocket trace fix to release/0.142 @dylan-hurd-oai\n\n\n",
-    "published_at": "2026-07-01T01:15:44Z",
-    "tag_name": "rust-v0.142.5"
+    "body": "Release 0.146.0-alpha.3\n\n",
+    "published_at": "2026-07-22T21:51:44Z",
+    "tag_name": "rust-v0.146.0-alpha.3"
   }
 ]

@@ -1,5 +1,24 @@
 # Ai-config-sync-manager
 
+## v0.1.9 (2026-07-21)
+
+### 💅 Styles
+
+- **board**: rework the board's visual design to read like a production dashboard rather than a generic template. Following the Vercel Geist and Linear conventions, status color is now confined to the 8px dot (plus a paired text label per row) instead of also painting a left border stripe, so hue signals data rather than decoration; the redundant dot-plus-stripe double encoding is gone. Each row now carries an explicit status word (In sync / Conflict / Claude only / …) next to the dot so color is never the only signal. The surface palette moves to a near-black canvas with hairline (low-opacity white) borders and a single indigo focus/active accent, and the status swatches switch to saturated Radix/Geist hues that stay legible at dot size. Pure-renderer boundary and self-contained output are unchanged.
+
+## v0.1.8 (2026-07-20)
+
+### 🚀 Features
+
+- **board**: add an HTML inventory board of both hosts colored by sync status (#35, #36). A new read-only `board` subcommand renders every skill, agent, hook, and MCP server from Claude and Codex into a single self-contained HTML page (no external requests, zero runtime deps), reusing the existing `status` engine for diff data. Items split into per-area tabs and are colored by sync state — green in-sync, red conflict, blue Claude-only, purple Codex-only, amber unsupported — with agents grouped under their harness (the `agents/` subfolder). A filter box narrows by name, description, or harness. The board opens in the default browser by default (`--no-open` to skip). The renderer is a pure module (`bin/util/board-html.mjs`); the CLI normalizes the engine's diff shape into an overlay DTO so the renderer never reaches into engine internals. Overlays are restricted to the four inventoried areas and honor status-ignore rules, so the board never contradicts `status`; the browser opener is a detached fire-and-forget `spawn` (with a no-op error listener) so a missing or wedged opener never blocks or crashes the CLI.
+
+## v0.1.7 (2026-07-12)
+
+### 🛠 Chore
+
+- **rules/agents-map**: bump `models.tiers` to the current frontier (#31) — latest-frontier `Opus 4.7 → 4.8` and `gpt-5.5 → gpt-5.6`, balanced tier gains `Claude Sonnet 5`. Version-independent aliases (`opus`/`sonnet`) keep old configs mapping; the `terms` lists carry the new display names so free-text terminology mapping rewrites the new model names too.
+- **snapshots**: refresh Claude/Codex upstream snapshots and record the resulting uncovered keys (#31). Claude changelog/settings-schema and Codex config-schema/releases are updated; 47 new upstream keys that have no cross-host mapping are registered as intentional drops in `rules/upstream-known-unsupported.json` (each with `reason`/`decided_in`/`decided_at`/`direction`/`recheck_after`) so they stop reappearing as drift noise.
+
 ## v0.1.6 (2026-07-09)
 
 ### 🐛 Bug Fixes

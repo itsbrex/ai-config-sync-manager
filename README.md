@@ -33,6 +33,11 @@
 - **Prose-level token rewriting** — Claude-only tokens (`Read`, `Bash`, `TaskCreate`, headless `claude -p`) and Codex-only tokens (`spawn_agent`, `codex exec`) auto-translate across hosts and round-trip back.
 - **Zero runtime dependencies** — single ESM file, Node built-ins only.
 - **Thin host plugins** — `/config-manager:*` for Claude, `config-manager-*` for Codex.
+- **Visual inventory board** — `board` renders a self-contained HTML page of every skill, agent, hook, and MCP server on both hosts, colored by sync status (in-sync / conflict / one-host-only) and grouped into per-area tabs and by agent harness. [Jump to the board →](#board)
+
+<p align="center">
+  <a href="#board"><img src="https://raw.githubusercontent.com/slash9494/ai-config-sync-manager/main/assets/board_preview.png" alt="ai-config-sync board — inventory of agents, skills, mcp, and hooks colored by sync status" width="100%" /></a>
+</p>
 
 ## Why this exists
 
@@ -72,7 +77,7 @@ ai-config-sync sync --apply      # apply with automatic backups
 
 | Category | Sections |
 | --- | --- |
-| **Commands** | [Bundled CLI](#bundled-cli) · [Host plugin commands](#host-plugin-commands) · [Flags](#flags) |
+| **Commands** | [Bundled CLI](#bundled-cli) · [Host plugin commands](#host-plugin-commands) · [Flags](#flags) · [Board](#board) |
 | **Workflow** | [Selector syntax](#selector-syntax) · [Ignore rules](#ignore-rules) · [Sync direction](#sync-direction) · [Scopes](#scopes) |
 | **Safety** | [Safety defaults](#safety-defaults) · [Risk levels](#risk-levels) · [Retention](#retention) |
 | **Mapping** | [Native mapping](#native-mapping-claude--codex) · [Areas](#areas) · [Paraphrase](#paraphrase) · [Hidden markers](#hidden-markers) · [Unsupported](#unsupported) |
@@ -97,6 +102,8 @@ ai-config-sync sync --scope global --apply
 ai-config-sync sync --include instructions,skills:code-writer --exclude mcp --dry-run
 ai-config-sync sync --from claude --to codex
 ai-config-sync sync --from codex --to claude
+ai-config-sync board
+ai-config-sync board --scope global --no-open
 ai-config-sync reference
 ai-config-sync paraphrase
 ```
@@ -108,6 +115,7 @@ ai-config-sync paraphrase
 | `status --json` | Machine-readable diff |
 | `sync --dry-run` | Preview the merge plan without writing |
 | `sync --apply` | Apply the plan, snapshot to `.backups/` |
+| `board` | Render an HTML inventory board of both hosts, colored by sync status |
 | `reference` | Emit / persist a self-generated markdown reference |
 | `paraphrase` | Line-level override archive for instruction wording |
 
@@ -146,6 +154,22 @@ ai-config-sync connect
 
 ```bash
 ai-config-sync status --scope project --tree --include skills:code-writer
+```
+
+### `board`
+
+Renders a self-contained HTML inventory board — every skill, agent, hook, and MCP server on both hosts, split into per-area tabs, colored by sync status: green = in sync, red = conflict, blue = Claude only, purple = Codex only, amber = unsupported. Agents are grouped under their harness (subfolder) where they have one. Type in the filter box to narrow rows; click a row for the full description, paths, and status detail. The file is written to `~/.ai-config-sync-manager/board/` with no external requests, so it works offline, and opens in your default browser automatically (pass `--no-open` to skip). ([Screenshot at the top](#highlights).)
+
+| Flag | Description |
+| --- | --- |
+| `--scope global\|project\|all` | Limit scope (default: `all` = global + project) |
+| `--include area[:item][,...]` | Include selector — see [Selector syntax](#selector-syntax) |
+| `--exclude area[:item][,...]` | Exclude selector — see [Selector syntax](#selector-syntax) |
+| `--no-open` | Only write the file; do not open a browser |
+| `-h`, `--help` | Show board help |
+
+```bash
+ai-config-sync board --scope global
 ```
 
 ### `sync`
