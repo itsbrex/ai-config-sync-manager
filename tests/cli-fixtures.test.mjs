@@ -2922,6 +2922,139 @@ test("agents sync apply copies Codex agent to Claude with reverse model alias", 
   assert.doesNotMatch(claudeFile, /Migrated from Claude agent/);
 });
 
+test("agents sync apply rewrites a Codex agent name Claude would reject for its colon", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/namespaced.toml"), {
+    name: "plugin:sample",
+    description: "Example agent",
+    developer_instructions: "Real codex content",
+  });
+
+  const output = runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  assert.match(output, /copied agent plugin-sample/);
+  const claudeFile = readFileSync(join(fixture.project, ".claude/agents/plugin-sample.md"), "utf8");
+  assert.match(claudeFile, /^name: plugin-sample$/m);
+});
+
+// Claude uses "/" for harness grouping and accepts it; only ":" is reserved. Flattening both would
+// rename every grouped agent and leave the slashed name resolving to a stale file.
+test("agents sync apply keeps a slash in the Codex agent name it writes to Claude", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/browser-audit-scope-mapper.toml"), {
+    name: "browser-audit/scope-mapper",
+    description: "Example agent",
+    developer_instructions: "Real codex content",
+  });
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "agents", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+
+  const claudeFile = readFileSync(
+    join(fixture.project, ".claude/agents/browser-audit-scope-mapper.md"),
+    "utf8"
+  );
+  assert.match(claudeFile, /^name: browser-audit\/scope-mapper$/m);
+});
+
+test("agents sync apply removes the pre-colon-flattening file instead of leaving a duplicate", () => {
+  const fixture = createFixture();
+  const stalePath = join(fixture.project, ".claude/agents/plugin:sample.md");
+  writeClaudeAgent(stalePath, { name: "plugin:sample", description: "Example agent" }, "Old body");
+  writeCodexAgent(join(fixture.project, ".codex/agents/namespaced.toml"), {
+    name: "plugin:sample",
+    description: "Example agent",
+    developer_instructions: "New codex content",
+  });
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "agents", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+
+  assert.equal(existsSync(stalePath), false);
+  const claudeFile = readFileSync(join(fixture.project, ".claude/agents/plugin-sample.md"), "utf8");
+  assert.match(claudeFile, /New codex content/);
+});
+
+// Two names that differ only in a separator canonicalize to one key, so the index used to keep
+// whichever readdir returned last and copy it over the other agent's body without a word.
+test("agents sync apply refuses a pair of names that resolve to the same agent", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/colon.toml"), {
+    name: "docs:writer",
+    description: "Colon agent",
+    developer_instructions: "COLON BODY",
+  });
+  writeCodexAgent(join(fixture.project, ".codex/agents/dash.toml"), {
+    name: "docs-writer",
+    description: "Dash agent",
+    developer_instructions: "DASH BODY",
+  });
+
+  const output = runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+
+  assert.match(
+    output,
+    /agent name collision: .*colon\.toml and .*dash\.toml both resolve to docs-writer/
+  );
+  assert.equal(existsSync(join(fixture.project, ".claude/agents/docs-writer.md")), false);
+});
+
+// The frontmatter name drives the write target, so a file whose stem differs only in case looks
+// like a superseded path — and on a case-insensitive volume removing it deletes the fresh write.
+test("agents sync apply keeps the target when the existing file differs only in filename case", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeFileSync(
+    join(fixture.project, ".claude/agents/docswriter.md"),
+    "---\nname: DocsWriter\ndescription: Example agent\n---\nOld claude content\n"
+  );
+  writeCodexAgent(join(fixture.project, ".codex/agents/docswriter.toml"), {
+    name: "DocsWriter",
+    description: "Example agent",
+    developer_instructions: "New codex content",
+  });
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "agents", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+
+  const written = readdirSync(join(fixture.project, ".claude/agents"));
+  assert.equal(written.length, 1, `expected one agent file, got ${written.join(", ")}`);
+  const claudeFile = readFileSync(join(fixture.project, ".claude/agents", written[0]), "utf8");
+  assert.match(claudeFile, /New codex content/);
+});
+
+test("agents sync apply names a Codex agent after its file when the toml omits one", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude/agents"), { recursive: true });
+  writeCodexAgent(join(fixture.project, ".codex/agents/nameless.toml"), {
+    description: "Example agent",
+    developer_instructions: "Real codex content",
+  });
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "agents", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+
+  const claudeFile = readFileSync(join(fixture.project, ".claude/agents/nameless.md"), "utf8");
+  assert.match(claudeFile, /^name: nameless$/m);
+});
+
 test("agents sync apply preserves Codex metadata-only fields when overwriting", () => {
   const fixture = createFixture();
   writeClaudeAgent(
