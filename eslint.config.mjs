@@ -21,6 +21,8 @@ export default tseslint.config(
       // provisioned by the global plans-system hook; upgrades would clobber lint fixes
       "docs/plans/**",
       "scripts/plans.mjs",
+      // session-tool scratch dir (gitignored) — its temp files are not project code
+      ".remember/**",
     ],
   },
   js.configs.recommended,
