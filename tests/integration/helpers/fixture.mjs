@@ -43,6 +43,25 @@ export function layPreExistingClaude(home, areaSpecs) {
   }
 }
 
+export function layClaudeHome(home, areaSpecs) {
+  for (const { area, variant } of areaSpecs) {
+    const src = join(fixturesRoot, area, variant, "claude-home");
+    if (!existsSync(src)) {
+      throw new Error(`fixture missing: ${area}/${variant}/claude-home`);
+    }
+    cpSync(src, home, { recursive: true, dereference: false, verbatimSymlinks: true });
+  }
+}
+
+export function layExpectedCodex(expectedHome, areaSpecs) {
+  for (const { area, variant } of areaSpecs) {
+    const src = join(fixturesRoot, area, variant, "expected-codex");
+    if (!existsSync(src)) continue;
+    cpSync(src, expectedHome, { recursive: true });
+  }
+  return expectedHome;
+}
+
 export function layExpectedClaude(expectedHome, areaSpecs) {
   for (const { area, variant } of areaSpecs) {
     const src = join(fixturesRoot, area, variant, "expected-claude");

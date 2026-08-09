@@ -51,3 +51,4 @@ The codebase is a zero-dependency ESM CLI with 294 tests and clean dependency hy
 ## Updates
 
 - **2026-08-09 — TD-02 closed (baseline).** c8 added (`npm run coverage`, thresholds in `.c8rc.json`). Baseline: 85.54% statements, 76.15% branches, 94.45% functions on `bin/**`. Thresholds set at 84/74/92 to ratchet upward.
+- **2026-08-09 — TD-15 seeded.** `tests/integration/claude-to-codex/` added (mcp + agents: golden, http_headers preservation, parity/no-op, source-unchanged) with direction-aware fixture helpers (`layClaudeHome`/`layExpectedCodex`/`assertPrefixesUnchanged`). Extend per-area like `codex-to-claude/`.

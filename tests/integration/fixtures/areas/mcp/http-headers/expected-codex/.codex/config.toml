@@ -1,0 +1,8 @@
+
+
+# BEGIN ai-config-sync mcp-servers
+[mcp_servers.context7]
+transport = "streamable_http"
+url = "https://mcp.context7.com/mcp"
+http_headers = { Authorization = "Bearer ctx7-test-token", CONTEXT7_API_KEY = "ctx7-test-key" }
+# END ai-config-sync mcp-servers

@@ -1,0 +1,7 @@
+
+
+# BEGIN ai-config-sync mcp-servers
+[mcp_servers.notion]
+command = "npx"
+args = ["-y","@notionhq/notion-mcp-server"]
+# END ai-config-sync mcp-servers

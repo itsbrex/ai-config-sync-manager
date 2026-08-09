@@ -116,6 +116,23 @@ export function diffTrees(actualMap, expectedMap, { ignore = [] } = {}) {
   return { missing, extra, changed };
 }
 
+// Direction-aware variant: assert nothing under the given prefixes (dirs or
+// single files, relative to home) changed between the before snapshot and now.
+export function assertPrefixesUnchanged(home, beforeSnapshot, prefixes) {
+  const filter = (map) => {
+    const out = new Map();
+    for (const [path, entry] of map) {
+      if (prefixes.some((p) => path === p || path.startsWith(`${p}/`))) out.set(path, entry);
+    }
+    return out;
+  };
+  const after = snapshotTree(home);
+  const diff = diffTrees(filter(after), filter(beforeSnapshot));
+  if (diff.missing.length > 0 || diff.extra.length > 0 || diff.changed.length > 0) {
+    assert.fail(`source tree mutated under ${prefixes.join(", ")}:\n${formatTreeDiff(diff)}`);
+  }
+}
+
 export function assertSourceUnchanged(home, beforeSnapshot) {
   const prefixes = [".codex", ".agents/skills"];
   for (const prefix of prefixes) {
