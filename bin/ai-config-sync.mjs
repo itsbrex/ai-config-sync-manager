@@ -5301,12 +5301,15 @@ function stripTopLevelMcpServerTables(text, serverNames, blockName = "mcp-server
 
 function stripMcpTablesFromSegment(segment, serverNames) {
   return serverNames.reduce((acc, name) => {
-    // Match `[mcp_servers.X]` headers (NOT `[mcp_servers.X.tools.Y]` sub-tables —
-    // those carry standalone tool-permission config the user may want to keep). The
+    // Match `[mcp_servers.X]` AND config sub-tables like `[mcp_servers.X.env]` /
+    // `[mcp_servers.X.http_headers]` — the managed block re-emits those fields inline,
+    // so leaving the standalone sub-table behind produces a duplicate TOML key that
+    // Codex's strict parser rejects. `[mcp_servers.X.tools.Y]` sub-tables are skipped
+    // (negative lookahead): they carry standalone tool-permission config to keep. The
     // body match consumes lines until the next TOML header (`[`) or a managed-block
     // marker (`# BEGIN/END ai-config-sync`), so it never accidentally swallows them.
     const pattern = new RegExp(
-      `(^|\\n)\\[mcp_servers\\.${escapeRegExp(name)}\\][^\\n]*(?:\\n(?!\\[|# (?:BEGIN|END) ai-config-sync )[^\\n]*)*\\n?`,
+      `(^|\\n)\\[mcp_servers\\.${escapeRegExp(name)}(?:\\.(?!tools[.\\]])[^\\]]+)?\\][^\\n]*(?:\\n(?!\\[|# (?:BEGIN|END) ai-config-sync )[^\\n]*)*\\n?`,
       "g"
     );
     return acc.replace(pattern, (match, prefix) => (prefix === "\n" ? "\n" : ""));
@@ -5804,12 +5807,14 @@ function readCodexMcpServerDetails(path) {
     const url = body.match(/^url\s*=\s*"([^"]*)"/m);
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
+    const httpHeaders = body.match(/^http_headers\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
+    if (httpHeaders) server.headers = parseInlineTomlObject(httpHeaders[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
     servers[match[1]] = server;
   }
@@ -5849,12 +5854,14 @@ function readCodexMcpServers(path) {
     const url = body.match(/^url\s*=\s*"([^"]*)"/m);
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
+    const httpHeaders = body.match(/^http_headers\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
+    if (httpHeaders) server.headers = parseInlineTomlObject(httpHeaders[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
     servers[match[1]] = server;
   }
@@ -6006,6 +6013,15 @@ function renderCodexMcpServers(servers) {
     if (server.env && Object.keys(server.env).length > 0) {
       lines.push(
         `env = { ${Object.entries(server.env)
+          .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+          .join(", ")} }`
+      );
+    }
+    // Non-Authorization headers (e.g. an API key) map to Codex `http_headers`;
+    // omitting them silently drops the credential a streamable-http server needs.
+    if (server.headers && Object.keys(server.headers).length > 0) {
+      lines.push(
+        `http_headers = { ${Object.entries(server.headers)
           .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
           .join(", ")} }`
       );
