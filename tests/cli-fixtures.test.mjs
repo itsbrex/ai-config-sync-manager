@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import {
   chmodSync,
   existsSync,
+  lstatSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
@@ -11,6 +12,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -2085,6 +2087,74 @@ test("default sync deletes Codex skill not present in Claude (claude->codex dire
     existsSync(backupSkillFile),
     `backup should contain SKILL.md for the deleted skill at ${backupSkillFile}`
   );
+});
+
+test("sync apply backs up the real content of a symlinked target, not another symlink", () => {
+  // Regression: backupPath copied with dereference: false, so a symlinked target
+  // (common for dotfile-managed configs) was "backed up" as another symlink to the
+  // same file — once the apply wrote through the link, the backup silently pointed
+  // at the new content and the pre-change state was unrecoverable.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  mkdirSync(join(fixture.home, "dotfiles"), { recursive: true });
+  const realConfig = join(fixture.home, "dotfiles/config.toml");
+  writeFileSync(realConfig, '[mcp_servers.stale]\ncommand = "node"\n');
+  symlinkSync(realConfig, join(fixture.home, ".codex/config.toml"));
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { fresh: { command: "node", args: ["fresh.js"] } },
+  });
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:fresh",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+
+  const backup = backupRoot(output);
+  const backupFile = expectedBackupPath(backup, join(fixture.home, ".codex/config.toml"));
+  assert.ok(existsSync(backupFile), `backup should exist at ${backupFile}`);
+  assert.equal(
+    lstatSync(backupFile).isSymbolicLink(),
+    false,
+    "backup must be a regular file, not a symlink"
+  );
+  assert.match(
+    readFileSync(backupFile, "utf8"),
+    /mcp_servers\.stale/,
+    "backup must hold the pre-change content"
+  );
+});
+
+test("sync apply refuses retention pruning through a symlinked backups directory", () => {
+  // Regression: pruneRetention followed a symlinked backups dir, so readdirSync/
+  // rmSync operated on whatever real directory it pointed at — deleting that
+  // directory's oldest entries instead of failing loudly.
+  const fixture = createFixture();
+  const victim = join(fixture.home, "victim");
+  mkdirSync(victim, { recursive: true });
+  writeFileSync(join(victim, "keep.txt"), "precious\n");
+  mkdirSync(join(fixture.home, ".ai-config-sync-manager"), { recursive: true });
+  symlinkSync(victim, join(fixture.home, ".ai-config-sync-manager/backups"));
+  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", "# Foo\nbody\n");
+
+  try {
+    runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
+    assert.fail("sync apply should exit non-zero when the backups dir is a symlink");
+  } catch (error) {
+    assert.match(
+      `${error.stderr ?? ""}${error.stdout ?? ""}`,
+      /refusing to prune/,
+      "the failure must name the symlinked prune refusal"
+    );
+  }
+  assert.ok(existsSync(join(victim, "keep.txt")), "victim contents must be untouched");
 });
 
 test("explicit --from codex --to claude deletes Claude-only item", () => {

@@ -812,6 +812,11 @@ function statusDetailPath() {
 
 function pruneRetention(dir, keep) {
   if (!existsSync(dir)) return;
+  // A symlinked `dir` would make readdirSync/rmSync below operate on whatever
+  // real directory it points at, deleting that directory's contents instead.
+  if (lstatSync(dir).isSymbolicLink()) {
+    throw new Error(`${dir} is a symlink; refusing to prune through it`);
+  }
   const entries = readdirSync(dir).sort();
   if (entries.length <= keep) return;
   for (const name of entries.slice(0, entries.length - keep)) {
@@ -6264,7 +6269,11 @@ function backupPath(plan, targetPath) {
 
   const backupTarget = backupTargetFor(plan, targetPath);
   mkdirSync(dirname(backupTarget), { recursive: true });
-  cpSync(targetPath, backupTarget, { recursive: true, dereference: false });
+  // dereference: true — a backup must capture the real pre-change content. With
+  // dereference: false, a symlinked target (common for dotfile-managed configs)
+  // is "backed up" as another symlink to the same file, so once the write below
+  // goes through the link, the backup silently points at the new content too.
+  cpSync(targetPath, backupTarget, { recursive: true, dereference: true });
 }
 
 function backupTargetPath(plan, targetPath) {
