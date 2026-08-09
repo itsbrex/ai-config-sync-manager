@@ -1,0 +1,10 @@
+{
+  "all": true,
+  "include": ["bin/**/*.mjs"],
+  "reporter": ["text-summary"],
+  "check-coverage": true,
+  "statements": 84,
+  "lines": 84,
+  "branches": 74,
+  "functions": 92
+}

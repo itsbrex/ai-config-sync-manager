@@ -47,3 +47,7 @@
 ## Summary
 
 The codebase is a zero-dependency ESM CLI with 294 tests and clean dependency hygiene, but two structural risks dominate: the 8,836-line monolith (`bin/ai-config-sync.mjs`, TD-01) concentrates all logic, complexity, and duplication in a single file, and the absence of coverage tooling (TD-02) means there is no empirical signal on which of its 454 functions are actually exercised. Twelve silent `catch` blocks (TD-05) and six duplicated patterns (TD-07/08/09/10) amplify the friction. The highest-leverage first move is adding `c8` coverage (TD-02, effort S) to establish a baseline, followed by incremental extraction of utility modules from the monolith per the existing `yaml-scalar.mjs` precedent.
+
+## Updates
+
+- **2026-08-09 — TD-02 closed (baseline).** c8 added (`npm run coverage`, thresholds in `.c8rc.json`). Baseline: 85.54% statements, 76.15% branches, 94.45% functions on `bin/**`. Thresholds set at 84/74/92 to ratchet upward.
