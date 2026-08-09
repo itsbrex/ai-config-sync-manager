@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { execSync, spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, relative, resolve } from "node:path";
@@ -34,6 +34,17 @@ const BOARD_RETENTION = 100;
 const BOARD_AREAS = new Set(["skills", "agents", "hooks", "mcp"]);
 const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
 const CODEX_MARKETPLACE_NAME = "local-plugins";
+// Caps mutual recursion depth for object/array literals in a tracked call's
+// arguments (see readValue/readObjectLiteral/readArrayLiteral). Without this, a
+// deeply nested literal in a user-authored agent/skill file (even from an
+// accidental copy-paste) throws an uncaught RangeError (stack overflow) and aborts
+// the whole status/sync command instead of failing just that one call parse. 200
+// levels is far beyond anything a real call argument needs. Declared here (before
+// the top-level `await main()` below) rather than near its use site further down
+// the file — a `const` declared after a top-level `await` stays in the temporal
+// dead zone for the entire run, since that top-level statement never "completes"
+// until main() itself returns.
+const MAX_LITERAL_NESTING_DEPTH = 200;
 const runtimePackage = readRuntimePackage();
 
 /**
@@ -812,6 +823,11 @@ function statusDetailPath() {
 
 function pruneRetention(dir, keep) {
   if (!existsSync(dir)) return;
+  // A symlinked `dir` would make readdirSync/rmSync below operate on whatever
+  // real directory it points at, deleting that directory's contents instead.
+  if (lstatSync(dir).isSymbolicLink()) {
+    throw new Error(`${dir} is a symlink; refusing to prune through it`);
+  }
   const entries = readdirSync(dir).sort();
   if (entries.length <= keep) return;
   for (const name of entries.slice(0, entries.length - keep)) {
@@ -1381,7 +1397,10 @@ function entryRulePaths(entry, item, host) {
 function pathMatchesIgnoreRule(path, pattern) {
   const normalizedPath = path.replaceAll("\\", "/");
   const normalizedPattern = expandHome(pattern).replaceAll("\\", "/");
-  if (normalizedPath === normalizedPattern || normalizedPath.endsWith(normalizedPattern))
+  // Require the suffix match to land on a path-segment boundary — otherwise a rule
+  // for "notes.md" also silently matches "release-notes.md", over-suppressing
+  // unrelated files that merely share a filename suffix.
+  if (normalizedPath === normalizedPattern || normalizedPath.endsWith(`/${normalizedPattern}`))
     return true;
   if (!/[*?]/.test(normalizedPattern)) return false;
   return globToRegExp(normalizedPattern).test(normalizedPath);
@@ -3100,12 +3119,12 @@ function parseSingleObjectArgument(argText) {
   return { ok: false, reason: "argument is not a single object literal" };
 }
 
-function readValue(reader) {
+function readValue(reader, depth = 0) {
   skipWhitespace(reader);
   const ch = reader.text[reader.index];
   if (ch === undefined) return { ok: false, reason: "unexpected end of value" };
-  if (ch === "{") return readObjectLiteral(reader);
-  if (ch === "[") return readArrayLiteral(reader);
+  if (ch === "{") return readObjectLiteral(reader, depth);
+  if (ch === "[") return readArrayLiteral(reader, depth);
   if (ch === '"' || ch === "'" || ch === "`") return readStringLiteral(reader);
   if (ch === "-" || (ch >= "0" && ch <= "9")) return readNumberLiteral(reader);
   if (matchKeyword(reader, "true")) return { ok: true, value: true };
@@ -3114,9 +3133,12 @@ function readValue(reader) {
   return { ok: false, reason: `unsupported value token at offset ${reader.index}` };
 }
 
-function readObjectLiteral(reader) {
+function readObjectLiteral(reader, depth = 0) {
   if (reader.text[reader.index] !== "{") {
     return { ok: false, reason: "expected '{'" };
+  }
+  if (depth > MAX_LITERAL_NESTING_DEPTH) {
+    return { ok: false, reason: "object/array literal nested too deeply" };
   }
   reader.index += 1;
   const fields = {};
@@ -3139,7 +3161,7 @@ function readObjectLiteral(reader) {
     }
     reader.index += 1;
 
-    const value = readValue(reader);
+    const value = readValue(reader, depth + 1);
     if (!value.ok) return value;
     fields[key.value] = value.value;
 
@@ -3157,9 +3179,12 @@ function readObjectLiteral(reader) {
   }
 }
 
-function readArrayLiteral(reader) {
+function readArrayLiteral(reader, depth = 0) {
   if (reader.text[reader.index] !== "[") {
     return { ok: false, reason: "expected '['" };
+  }
+  if (depth > MAX_LITERAL_NESTING_DEPTH) {
+    return { ok: false, reason: "object/array literal nested too deeply" };
   }
   reader.index += 1;
   const items = [];
@@ -3173,7 +3198,7 @@ function readArrayLiteral(reader) {
       return { ok: true, value: items };
     }
 
-    const value = readValue(reader);
+    const value = readValue(reader, depth + 1);
     if (!value.ok) return value;
     items.push(value.value);
 
@@ -5312,7 +5337,18 @@ function stripMcpTablesFromSegment(segment, serverNames) {
       `(^|\\n)\\[mcp_servers\\.${escapeRegExp(name)}(?:\\.(?!tools[.\\]])[^\\]]+)?\\][^\\n]*(?:\\n(?!\\[|# (?:BEGIN|END) ai-config-sync )[^\\n]*)*\\n?`,
       "g"
     );
-    return acc.replace(pattern, (match, prefix) => (prefix === "\n" ? "\n" : ""));
+    // Loop to a fixed point rather than a single replace(): when a base table is
+    // immediately followed (only a blank line apart) by its own `.env`/`.http_headers`
+    // sub-table, the base match's trailing `\n?` consumes the separator newline the
+    // sub-table's own `(^|\n)` anchor needs, so a single pass leaves it unstripped.
+    // Re-running finds it anchored on the fresh `^` at the top of the shortened string.
+    let next = acc;
+    let previous;
+    do {
+      previous = next;
+      next = previous.replace(pattern, (match, prefix) => (prefix === "\n" ? "\n" : ""));
+    } while (next !== previous);
+    return next;
   }, segment);
 }
 
@@ -5482,11 +5518,22 @@ function deleteCodexMcpServers(targetPath, serverNames) {
       `^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`,
       "gm"
     );
+    // `serverPattern`'s body match halts right before the next `[mcp_servers.` line,
+    // so a deleted server's own `.env`/`.http_headers` sub-tables (which start with
+    // that same prefix) are never swallowed by it. Strip them explicitly here — a
+    // fully-deleted server shouldn't leave its secrets behind in an orphan sub-table.
+    const configSubTablePattern = new RegExp(
+      `^\\[mcp_servers\\.${escapeRegExp(name)}\\.(?!tools\\.)[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`,
+      "gm"
+    );
     const toolsPattern = new RegExp(
       `^\\[mcp_servers\\.${escapeRegExp(name)}\\.tools\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
       "gm"
     );
-    nextText = nextText.replace(serverPattern, "").replace(toolsPattern, "");
+    nextText = nextText
+      .replace(serverPattern, "")
+      .replace(configSubTablePattern, "")
+      .replace(toolsPattern, "");
   }
 
   writeFileSync(targetPath, nextText.replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "\n"));
@@ -6061,6 +6108,23 @@ function readJsonFile(path, fallback) {
   }
 }
 
+// Unlike readJsonFile, this refuses to treat "exists but fails to parse" the same
+// as "doesn't exist yet" — callers use this before a read-modify-write that would
+// otherwise silently overwrite a corrupted file with only the current run's data,
+// discarding everything previously registered with no warning and no backup.
+function readJsonFileOrThrowIfCorrupt(path, fallback) {
+  if (!existsSync(path)) return fallback;
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "unknown parse error";
+    throw new Error(
+      `${path} exists but is not valid JSON (${reason}); refusing to overwrite it and lose its prior contents. Fix or remove the file, then retry.`,
+      { cause: error }
+    );
+  }
+}
+
 function readRuntimePackage() {
   const fallback = { name: "ai-config-sync-manager", version: "0.0.0" };
   const path = join(runtimeRoot, "package.json");
@@ -6280,7 +6344,11 @@ function backupPath(plan, targetPath) {
 
   const backupTarget = backupTargetFor(plan, targetPath);
   mkdirSync(dirname(backupTarget), { recursive: true });
-  cpSync(targetPath, backupTarget, { recursive: true, dereference: false });
+  // dereference: true — a backup must capture the real pre-change content. With
+  // dereference: false, a symlinked target (common for dotfile-managed configs)
+  // is "backed up" as another symlink to the same file, so once the write below
+  // goes through the link, the backup silently points at the new content too.
+  cpSync(targetPath, backupTarget, { recursive: true, dereference: true });
 }
 
 function backupTargetPath(plan, targetPath) {
@@ -6380,7 +6448,10 @@ function readSyncState(scope) {
   let parsed;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
-  } catch {
+  } catch (error) {
+    console.error(
+      `ai-config-sync: state ${path} is corrupted (${error instanceof Error ? error.message : "parse error"}); treating as no prior baseline`
+    );
     return null;
   }
 
@@ -6575,25 +6646,28 @@ function compareInstructions(
   const masked = maskBodiesWithOverrides(claude.content, codex.content, overrides);
   if (instructionsEquivalent(masked.claudeBody, masked.codexBody)) return;
 
-  if (claude.hash !== codex.hash) {
-    entries.push({
-      scope,
-      area: "instructions",
-      risk: "safe",
-      summary: "Instructions differ",
-      claudePath,
-      codexPath,
-      claudeInstructionPaths: claude.paths,
-      codexInstructionPaths: codex.paths,
-      claudeInstructionCheckedPaths: claude.checkedPaths,
-      codexInstructionCheckedPaths: codex.checkedPaths,
-      claudeInstructionContent: claude.content,
-      codexInstructionContent: codex.content,
-      claude: claude.summary,
-      codex: codex.summary,
-      mappingQuality: "equivalent",
-    });
-  }
+  // instructionsEquivalent already applied host-terminology transforms and found a
+  // real difference — report it unconditionally. Gating on raw hash equality here
+  // would silently drop exactly the common case of a verbatim-copied instructions
+  // file that hasn't been adapted for the other host's vocabulary (raw bytes match,
+  // but the transform-aware check correctly says they're NOT equivalent).
+  entries.push({
+    scope,
+    area: "instructions",
+    risk: "safe",
+    summary: "Instructions differ",
+    claudePath,
+    codexPath,
+    claudeInstructionPaths: claude.paths,
+    codexInstructionPaths: codex.paths,
+    claudeInstructionCheckedPaths: claude.checkedPaths,
+    codexInstructionCheckedPaths: codex.checkedPaths,
+    claudeInstructionContent: claude.content,
+    codexInstructionContent: codex.content,
+    claude: claude.summary,
+    codex: codex.summary,
+    mappingQuality: "equivalent",
+  });
 }
 
 function instructionsEquivalent(claudeContent, codexContent) {
@@ -8144,6 +8218,13 @@ async function runConnect() {
   for (const result of results) {
     console.log(`${result.status}: ${result.message}`);
   }
+
+  // Every step is wrapped in tryConnectAction[Async], which turns a thrown error
+  // into a "blocked" result rather than rethrowing — without this, a fully-failed
+  // connect still exits 0, so CI/scripts gating on the exit code can't detect it.
+  if (results.some((result) => result.status === "blocked")) {
+    process.exitCode = 1;
+  }
 }
 
 function connectState() {
@@ -8247,8 +8328,8 @@ async function installClaudePlugin() {
   if (!existsSync(marketplaceSource)) {
     throw new Error(`Claude marketplace bundle missing at ${marketplaceSource}`);
   }
-  execIdempotent(`claude plugin marketplace add "${marketplaceSource}"`);
-  execIdempotent("claude plugin install config-manager@ai-config-sync-manager");
+  execIdempotent("claude", ["plugin", "marketplace", "add", marketplaceSource]);
+  execIdempotent("claude", ["plugin", "install", "config-manager@ai-config-sync-manager"]);
 }
 
 async function installCodexPlugin() {
@@ -8263,9 +8344,9 @@ async function installCodexPlugin() {
   enableCodexPluginConfig();
 }
 
-function execIdempotent(command) {
+function execIdempotent(command, args) {
   try {
-    execSync(command, { stdio: "inherit" });
+    execFileSync(command, args, { stdio: "inherit" });
   } catch (error) {
     // Host CLI missing (ENOENT) or shell-reported "command not found" (status 127):
     // surface so connect reports blocked. Other non-zero exits are treated as
@@ -9164,7 +9245,7 @@ function paraphraseMapHomePath() {
 function registerParaphraseOverrides(entries) {
   if (!Array.isArray(entries) || entries.length === 0) return;
   const path = paraphraseOverridesHomePath();
-  const data = readJsonFile(path, { version: 1, overrides: [] });
+  const data = readJsonFileOrThrowIfCorrupt(path, { version: 1, overrides: [] });
   const overrides = Array.isArray(data.overrides) ? data.overrides : [];
   const filtered = overrides.filter(
     (existing) => !entries.some((entry) => existing?.id === entry.id)
@@ -9176,7 +9257,7 @@ function registerParaphraseOverrides(entries) {
 
 function persistParaphraseMap(newEntries) {
   const path = paraphraseMapHomePath();
-  const data = readJsonFile(path, { version: 1, claude_only: {}, codex_only: {} });
+  const data = readJsonFileOrThrowIfCorrupt(path, { version: 1, claude_only: {}, codex_only: {} });
   const next = {
     version: 1,
     claude_only: { ...(data.claude_only ?? {}), ...(newEntries.claude_only ?? {}) },
