@@ -3380,6 +3380,33 @@ test("sync apply leaves unparseable Agent call intact and emits a manual-review 
   assert.match(codexBody, /<!-- ai-config-sync:manual-review [^>]*-->Agent\(\{/);
 });
 
+test("sync apply falls back to manual-review instead of crashing on a deeply nested call argument", () => {
+  // Regression: readValue/readObjectLiteral/readArrayLiteral recursed with no depth
+  // limit, so a deeply nested array/object literal in a tracked call's arguments
+  // threw an uncaught RangeError (stack overflow) and aborted the whole command
+  // instead of just failing that one call's parse.
+  const fixture = createFixture();
+  const nesting = 5000;
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/deepnest"),
+    "claude",
+    ["# Deepnest", `Agent(prompt: ${"[".repeat(nesting)}${"]".repeat(nesting)})`, ""].join("\n")
+  );
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:deepnest",
+    "--apply",
+  ]);
+  const codexBody = readFileSync(join(fixture.project, ".agents/skills/deepnest/SKILL.md"), "utf8");
+
+  assert.match(output, /applied: copied skill deepnest/);
+  assert.match(codexBody, /<!-- ai-config-sync:manual-review [^>]*-->Agent\(/);
+});
+
 test("sync apply strips manual-review marker when copying Codex skill back to Claude", () => {
   const fixture = createFixture();
   writeSkillManifest(
@@ -6539,6 +6566,24 @@ test("sync proceeds normally when state has schemaVersion 1", () => {
   assert.doesNotMatch(result.stderr, /baseline state schema mismatch/);
 });
 
+test("sync warns and continues when the baseline state file is corrupted", () => {
+  // Regression: a corrupted state file was silently treated the same as "no
+  // state yet" — the baseline vanished with no signal, so delete detection
+  // quietly degraded with nothing in the output to explain why.
+  const fixture = setupBaselineFixture();
+  const statePath = projectStatePath(fixture);
+  mkdirSync(dirname(statePath), { recursive: true });
+  writeFileSync(statePath, "{ not valid json\n");
+
+  const result = spawnSync(process.execPath, [cliPath, "sync", "--scope", "project"], {
+    cwd: fixture.project,
+    encoding: "utf8",
+    env: { ...process.env, AI_CONFIG_SYNC_HOME: fixture.home },
+  });
+  assert.equal(result.status, 0, `unexpected exit: ${result.stderr}`);
+  assert.match(result.stderr, /is corrupted .*treating as no prior baseline/);
+});
+
 test("sync aborts when state schemaVersion is unknown", () => {
   const fixture = setupBaselineFixture();
   const statePath = projectStatePath(fixture);
@@ -7214,6 +7259,55 @@ test("paraphrase --register registers override for pre-paraphrased codex line", 
   const after = JSON.parse(runCli(fixture, ["status", "--scope", "project", "--json"]));
   assert.equal(after.entries.length, 0);
   assert.equal(after.paraphraseOverrides.active.length, 1);
+});
+
+test("paraphrase --register --apply refuses to overwrite a corrupted overrides file", () => {
+  // Regression: the overrides read used readJsonFile, whose parse-failure
+  // fallback is the empty default — so a corrupted overrides file was silently
+  // replaced with only the current run's registrations, discarding everything
+  // previously registered with no warning and no backup.
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "demo", model: "opus" },
+    "Use Read tool to inspect."
+  );
+  writeCodexAgentBodyAligned(
+    join(fixture.project, ".codex/agents/sample.toml"),
+    { name: "sample", description: "demo", model: "gpt-5.4" },
+    "Use Inspection tool to inspect."
+  );
+  const overridesPath = join(
+    fixture.home,
+    ".ai-config-sync-manager/rules/paraphrase-overrides.json"
+  );
+  mkdirSync(dirname(overridesPath), { recursive: true });
+  writeFileSync(overridesPath, "{ this is not valid JSON\n");
+
+  try {
+    runCli(fixture, [
+      "paraphrase",
+      "--register",
+      "--scope",
+      "project",
+      "--map",
+      "Read=Inspection",
+      "--apply",
+      "--json",
+    ]);
+    assert.fail("register --apply should exit non-zero on a corrupted overrides file");
+  } catch (error) {
+    assert.match(
+      `${error.stderr ?? ""}`,
+      /refusing to overwrite/,
+      "the failure must explain the corrupted-file refusal"
+    );
+  }
+  assert.equal(
+    readFileSync(overridesPath, "utf8"),
+    "{ this is not valid JSON\n",
+    "the corrupted file must be left untouched for manual recovery"
+  );
 });
 
 // `--register` must skip a diverging line when the supplied map cannot make
