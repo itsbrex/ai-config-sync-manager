@@ -18,6 +18,9 @@ export default tseslint.config(
       "packages/*/build/**",
       ".claude/docs/repo-analysis/**",
       ".codex/docs/repo-analysis/**",
+      // provisioned by the global plans-system hook; upgrades would clobber lint fixes
+      "docs/plans/**",
+      "scripts/plans.mjs",
     ],
   },
   js.configs.recommended,

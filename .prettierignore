@@ -9,3 +9,5 @@ tests/integration/fixtures
 rules
 schemas
 README.md
+docs/plans
+scripts/plans.mjs

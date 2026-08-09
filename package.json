@@ -65,7 +65,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "dev": "node scripts/mode-dev.mjs",
-    "prod": "node scripts/mode-prod.mjs"
+    "prod": "node scripts/mode-prod.mjs",
+    "plans": "bun scripts/plans.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
