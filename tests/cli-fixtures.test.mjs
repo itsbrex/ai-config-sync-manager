@@ -53,6 +53,18 @@ function runCli(fixture, args, input, extraEnv = {}) {
   });
 }
 
+// connect exits non-zero when any step is blocked, so execFileSync throws;
+// recover stdout from the thrown error instead of the return value.
+function runCliExpectFailure(fixture, args, input, extraEnv = {}) {
+  try {
+    runCli(fixture, args, input, extraEnv);
+    assert.fail(`${args.join(" ")} should exit non-zero`);
+  } catch (error) {
+    assert.equal(error.status, 1);
+    return error.stdout;
+  }
+}
+
 function writeJson(path, value) {
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
@@ -407,6 +419,105 @@ test("global MCP sync strips a pre-existing [mcp_servers.X.env] sub-table so the
   assert.match(config, /^\[mcp_servers\.databar\.tools\.search\]/m);
 });
 
+test("global MCP sync strips an adjacent [mcp_servers.X.env] sub-table that directly follows the base table", () => {
+  // Regression for a strip-regex bug: when a server's own base table is directly
+  // followed (one blank line apart) by its `.env` sub-table, the base table's
+  // greedy trailing match consumed the separator the sub-table needed as its own
+  // anchor, leaving the sub-table (and its secret) unstripped and producing a
+  // duplicate-key config.toml on the next merge.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.databar]",
+      'command = "node"',
+      'args = ["databar.js"]',
+      "",
+      "[mcp_servers.databar.env]",
+      'DATABAR_API_KEY = "stale-value"',
+      "",
+      "[mcp_servers.databar.http_headers]",
+      'X-Extra = "stale-header"',
+      "",
+    ].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      databar: {
+        command: "node",
+        args: ["databar.js"],
+        env: { DATABAR_API_KEY: "fresh-value" },
+      },
+    },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:databar",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  const count = (re) => (config.match(re) ?? []).length;
+  assert.equal(count(/^\[mcp_servers\.databar\.env\]/gm), 0);
+  assert.equal(count(/^\[mcp_servers\.databar\.http_headers\]/gm), 0);
+  assert.equal(count(/^\[mcp_servers\.databar\]/gm), 1);
+  assert.match(config, /env = \{ DATABAR_API_KEY = "fresh-value" \}/);
+});
+
+test("project MCP delete removes a server's orphan .env/.http_headers sub-tables, not just its base table", () => {
+  // Regression: deleteCodexMcpServers's lazy body match halts right before ANY
+  // `[mcp_servers.` line (including the deleted server's own sub-tables), so a
+  // "deleted" server used to leave its secrets behind in an orphan sub-table.
+  const fixture = createFixture();
+  mkdirSync(join(fixture.project, ".claude"), { recursive: true });
+  mkdirSync(join(fixture.project, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.project, ".codex/config.toml"),
+    [
+      "[mcp_servers.databar]",
+      'command = "node"',
+      "",
+      "[mcp_servers.databar.env]",
+      'DATABAR_API_KEY = "secret-value"',
+      "",
+      "[mcp_servers.other]",
+      'command = "npx"',
+      "",
+    ].join("\n")
+  );
+  writeJson(join(fixture.project, ".mcp.json"), {
+    mcpServers: {
+      other: { command: "npx" },
+    },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "mcp:databar",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.project, ".codex/config.toml"), "utf8");
+
+  assert.doesNotMatch(config, /databar/);
+  assert.match(config, /\[mcp_servers\.other\]/);
+});
+
 test("global MCP status reports parity when ~/.claude.json and codex config.toml hold the same server", () => {
   // ~/.claude.json is the only canonical Claude global MCP source; settings.json
   // and the legacy ~/.claude/mcp.json must not be probed.
@@ -759,6 +870,24 @@ test("instructions status treats terminology-mapped model names as equivalent", 
   assert.equal(report.entries.length, 0);
 });
 
+test("instructions status reports a diff for verbatim-copied content that mentions both hosts' vocabulary", () => {
+  // Regression: compareInstructions only reported a diff when the raw byte hashes
+  // differed, even after instructionsEquivalent (terminology-aware) already found a
+  // real difference -- so a verbatim copy (identical bytes) that hasn't been
+  // adapted for the other host's vocabulary was silently treated as "in sync".
+  const fixture = createFixture();
+  const body = "This project supports both Claude Code and Codex CLI workflows.\n";
+  writeFileSync(join(fixture.project, "CLAUDE.md"), body);
+  writeFileSync(join(fixture.project, "AGENTS.md"), body);
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "instructions", "--json"])
+  );
+
+  assert.equal(report.entries.length, 1);
+  assert.equal(report.entries[0].summary, "Instructions differ");
+});
+
 test("default status collapses large area diffs and writes full detail file", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.project, ".claude/skills"), { recursive: true });
@@ -827,7 +956,7 @@ test("connect initializes config root and status ignore in an isolated home", ()
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
 
-  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
+  const output = runCliExpectFailure(fixture, ["connect"], undefined, { PATH: "" });
   const statusIgnore = JSON.parse(
     readFileSync(join(fixture.home, ".ai-config-sync-manager/rules/status-ignore.json"), "utf8")
   );
@@ -870,7 +999,7 @@ test("connect skips Codex when only Claude host is detected", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
 
-  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
+  const output = runCliExpectFailure(fixture, ["connect"], undefined, { PATH: "" });
 
   // Without `claude` on PATH the install attempt is blocked, but Codex must
   // still be skipped because the host directory is absent.
@@ -3473,6 +3602,33 @@ test("sync apply leaves unparseable Agent call intact and emits a manual-review 
   assert.match(codexBody, /<!-- ai-config-sync:manual-review [^>]*-->Agent\(\{/);
 });
 
+test("sync apply falls back to manual-review instead of crashing on a deeply nested call argument", () => {
+  // Regression: readValue/readObjectLiteral/readArrayLiteral recursed with no depth
+  // limit, so a deeply nested array/object literal in a tracked call's arguments
+  // threw an uncaught RangeError (stack overflow) and aborted the whole command
+  // instead of just failing that one call's parse.
+  const fixture = createFixture();
+  const nesting = 5000;
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/deepnest"),
+    "claude",
+    ["# Deepnest", `Agent(prompt: ${"[".repeat(nesting)}${"]".repeat(nesting)})`, ""].join("\n")
+  );
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:deepnest",
+    "--apply",
+  ]);
+  const codexBody = readFileSync(join(fixture.project, ".agents/skills/deepnest/SKILL.md"), "utf8");
+
+  assert.match(output, /applied: copied skill deepnest/);
+  assert.match(codexBody, /<!-- ai-config-sync:manual-review [^>]*-->Agent\(/);
+});
+
 test("sync apply strips manual-review marker when copying Codex skill back to Claude", () => {
   const fixture = createFixture();
   writeSkillManifest(
@@ -5927,6 +6083,38 @@ test("status-ignore path-only rule still ignores the entry at entry level", () =
   }
 });
 
+test("status-ignore path rule matches only on a path-segment boundary, not any filename suffix", () => {
+  // Regression: pathMatchesIgnoreRule's endsWith() check had no separator
+  // boundary, so a rule for "notes" also silently matched "release-notes" --
+  // over-suppressing an unrelated skill that merely shares a filename suffix.
+  const fixture = createFixture();
+  writeSkillManifest(join(fixture.project, ".claude/skills/notes"), "claude", "# Notes\nbody\n");
+  writeSkillManifest(
+    join(fixture.project, ".claude/skills/release-notes"),
+    "claude",
+    "# Release Notes\nbody\n"
+  );
+  mkdirSync(join(fixture.project, ".ai-config-sync-manager"), { recursive: true });
+  writeJson(join(fixture.project, ".ai-config-sync-manager/status-ignore.json"), {
+    version: 1,
+    exclude: [{ area: "skills", path: "notes" }],
+  });
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
+  );
+  const skillEntry = report.entries.find((entry) => entry.area === "skills");
+  assert.ok(skillEntry, "release-notes must still be reported as a real diff");
+  assert.ok(
+    skillEntry.missingInCodex.includes("release-notes"),
+    "release-notes should NOT be suppressed by a rule targeting the unrelated 'notes' skill"
+  );
+  assert.ok(
+    !skillEntry.missingInCodex.includes("notes"),
+    "notes should still be suppressed by its own path rule"
+  );
+});
+
 test("status-ignore term + path AND restricts the line-mask to entries whose path matches", () => {
   const fixture = createFixture();
   const sharedTermBody = [
@@ -6539,7 +6727,7 @@ test("connect surfaces a blocked status when the Claude host CLI is unavailable"
   mkdirSync(join(fixture.home, ".claude"), { recursive: true });
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
 
-  const output = runCli(fixture, ["connect"], undefined, { PATH: "" });
+  const output = runCliExpectFailure(fixture, ["connect"], undefined, { PATH: "" });
 
   assert.match(output, /blocked: registered Claude plugin/);
   assert.match(output, /ok: registered Codex plugin/);
