@@ -5312,7 +5312,18 @@ function stripMcpTablesFromSegment(segment, serverNames) {
       `(^|\\n)\\[mcp_servers\\.${escapeRegExp(name)}(?:\\.(?!tools[.\\]])[^\\]]+)?\\][^\\n]*(?:\\n(?!\\[|# (?:BEGIN|END) ai-config-sync )[^\\n]*)*\\n?`,
       "g"
     );
-    return acc.replace(pattern, (match, prefix) => (prefix === "\n" ? "\n" : ""));
+    // Loop to a fixed point rather than a single replace(): when a base table is
+    // immediately followed (only a blank line apart) by its own `.env`/`.http_headers`
+    // sub-table, the base match's trailing `\n?` consumes the separator newline the
+    // sub-table's own `(^|\n)` anchor needs, so a single pass leaves it unstripped.
+    // Re-running finds it anchored on the fresh `^` at the top of the shortened string.
+    let next = acc;
+    let previous;
+    do {
+      previous = next;
+      next = previous.replace(pattern, (match, prefix) => (prefix === "\n" ? "\n" : ""));
+    } while (next !== previous);
+    return next;
   }, segment);
 }
 
@@ -5482,11 +5493,22 @@ function deleteCodexMcpServers(targetPath, serverNames) {
       `^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`,
       "gm"
     );
+    // `serverPattern`'s body match halts right before the next `[mcp_servers.` line,
+    // so a deleted server's own `.env`/`.http_headers` sub-tables (which start with
+    // that same prefix) are never swallowed by it. Strip them explicitly here — a
+    // fully-deleted server shouldn't leave its secrets behind in an orphan sub-table.
+    const configSubTablePattern = new RegExp(
+      `^\\[mcp_servers\\.${escapeRegExp(name)}\\.(?!tools\\.)[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`,
+      "gm"
+    );
     const toolsPattern = new RegExp(
       `^\\[mcp_servers\\.${escapeRegExp(name)}\\.tools\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
       "gm"
     );
-    nextText = nextText.replace(serverPattern, "").replace(toolsPattern, "");
+    nextText = nextText
+      .replace(serverPattern, "")
+      .replace(configSubTablePattern, "")
+      .replace(toolsPattern, "");
   }
 
   writeFileSync(targetPath, nextText.replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "\n"));
