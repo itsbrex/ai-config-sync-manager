@@ -3357,7 +3357,7 @@ test("sync apply round-trips Codex agent-call marker back into Claude Agent({...
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
-  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/skill.md"), "utf8");
+  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/SKILL.md"), "utf8");
 
   assert.match(claudeBody, /Agent\(\{/);
   assert.match(claudeBody, /subagent_type: "general-purpose"/);
@@ -3407,7 +3407,7 @@ test("sync apply strips manual-review marker when copying Codex skill back to Cl
     "skills:preview",
     "--apply",
   ]);
-  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/skill.md"), "utf8");
+  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/SKILL.md"), "utf8");
 
   assert.match(claudeBody, /^Agent\($/m);
   assert.doesNotMatch(claudeBody, /ai-config-sync:manual-review/);
@@ -3544,7 +3544,7 @@ test("sync apply round-trips Codex team-call marker back into Claude TeamCreate(
     undefined,
     { AI_CONFIG_SYNC_HOST: "codex" }
   );
-  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/skill.md"), "utf8");
+  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/preview/SKILL.md"), "utf8");
 
   assert.match(claudeBody, /TeamCreate\(\{/);
   assert.match(claudeBody, /team_name: "review-team"/);
