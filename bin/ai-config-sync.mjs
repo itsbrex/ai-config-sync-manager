@@ -33,6 +33,8 @@ const BOARD_RETENTION = 100;
 // Areas the board inventories; overlays outside this set (permissions/plugins) are out of board scope.
 const BOARD_AREAS = new Set(["skills", "agents", "hooks", "mcp"]);
 const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
+// Both hosts load SKILL.md; the lowercase spelling only ever worked on case-insensitive volumes.
+const LEGACY_SKILL_MANIFEST = "skill.md";
 const CODEX_MARKETPLACE_NAME = "local-plugins";
 const runtimePackage = readRuntimePackage();
 
@@ -7608,10 +7610,8 @@ function enumerateSkillSymlinkIndex(dirs) {
   return index;
 }
 
-// Skill manifest filename differs by host: Claude uses lowercase skill.md, Codex uses SKILL.md.
-// Authors may have mixed-case skills on either side; helpers explicitly check both casings.
-function skillManifestBasename(host) {
-  return host === "claude" ? "skill.md" : "SKILL.md";
+function skillManifestBasename() {
+  return "SKILL.md";
 }
 
 function findSkillManifest(skillDir, hostHint) {
@@ -7633,19 +7633,19 @@ function skillManifestFilenames() {
   const rules = terminologyRules(terminologyMapSource().data);
   const rule = rules.find((r) => r?.id === "skill-manifest-filename");
   return {
-    claude: typeof rule?.claude_replace === "string" ? rule.claude_replace : "skill.md",
+    claude: typeof rule?.claude_replace === "string" ? rule.claude_replace : "SKILL.md",
     codex: typeof rule?.codex_replace === "string" ? rule.codex_replace : "SKILL.md",
   };
 }
 
-function skillManifestLookupOrder(hostHint) {
+// Reading stays tolerant of the legacy lowercase spelling; skills authored under it still load.
+function skillManifestLookupOrder() {
   const { claude, codex } = skillManifestFilenames();
-  return hostHint === "claude" ? [claude, codex] : [codex, claude];
+  return [...new Set([codex, claude, LEGACY_SKILL_MANIFEST])];
 }
 
 function isSkillManifestBasename(name) {
-  const { claude, codex } = skillManifestFilenames();
-  return name === claude || name === codex;
+  return skillManifestLookupOrder().includes(name);
 }
 
 function instructionState(host, paths) {
