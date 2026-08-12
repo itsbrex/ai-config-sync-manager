@@ -14,7 +14,7 @@ This supplements the root `CLAUDE.md` with Codex-specific guidance.
 ## Skills Discovery
 
 Skills are auto-loaded from `.agents/skills/`. Each skill contains:
-- `skill.md` — Detailed instructions and workflow
+- `SKILL.md` — Detailed instructions and workflow
 - `agents/openai.yaml` — Codex interface metadata
 
 Available skills:

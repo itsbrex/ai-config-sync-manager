@@ -3583,7 +3583,7 @@ test("sync apply renames lowercase Claude skill manifest to uppercase SKILL.md o
   );
 });
 
-test("sync apply renames uppercase Codex skill manifest to lowercase skill.md on Claude side", () => {
+test("sync apply keeps the Codex skill manifest as SKILL.md on the Claude side", () => {
   const fixture = createFixture();
   writeSkillManifest(join(fixture.project, ".codex/skills/bar"), "codex", "# Bar\nbody\n");
 
@@ -3593,13 +3593,27 @@ test("sync apply renames uppercase Codex skill manifest to lowercase skill.md on
   const claudeEntries = readdirSync(join(fixture.project, ".claude/skills/bar"));
 
   assert.ok(
-    claudeEntries.includes("skill.md"),
-    `expected skill.md, got: ${claudeEntries.join(",")}`
+    claudeEntries.includes("SKILL.md"),
+    `expected SKILL.md, got: ${claudeEntries.join(",")}`
   );
   assert.ok(
-    !claudeEntries.includes("SKILL.md"),
-    `did not expect SKILL.md in ${claudeEntries.join(",")}`
+    !claudeEntries.includes("skill.md"),
+    `did not expect skill.md in ${claudeEntries.join(",")}`
   );
+});
+
+// A case-sensitive volume is what separates the two spellings; macOS folds them onto one file, so
+// this asserts the byte the loader looks for rather than what existsSync happens to answer.
+test("sync apply reads a legacy lowercase Claude manifest and writes the canonical name", () => {
+  const fixture = createFixture();
+  const legacyDir = join(fixture.project, ".claude/skills/legacy");
+  mkdirSync(legacyDir, { recursive: true });
+  writeFileSync(join(legacyDir, "skill.md"), "---\nname: legacy\n---\n# Legacy\nbody\n");
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:legacy", "--apply"]);
+  const codexEntries = readdirSync(join(fixture.project, ".agents/skills/legacy"));
+
+  assert.deepEqual(codexEntries, ["SKILL.md"]);
 });
 
 test("sync apply rewrites skill.md body references to SKILL.md when copying to Codex", () => {
