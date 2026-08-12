@@ -284,6 +284,8 @@ To force `hooks` to manual review and prevent automatic application:
 
 Manages agent field mappings and model tier aliases. Use this when you want to add a tier before the bundle ships it, or to attach in-house phrasing to an existing tier.
 
+A tier's `claude` and `codex` objects are replaced wholesale, not merged field by field. `terms` decide which model values convert, so an overlay that lists only its own spellings drops the bundled ones — a model written in a dropped spelling then passes through unconverted. Repeat the bundled `terms` you still want alongside yours.
+
 **Recipe: add an alias to the existing balanced-model tier**
 
 ```json
@@ -298,8 +300,8 @@ Manages agent field mappings and model tier aliases. Use this when you want to a
           "terms": ["sonnet(latest)", "Claude Sonnet", "Sonnet", "standard model"]
         },
         "codex": {
-          "alias": "gpt-5.4",
-          "terms": ["GPT-5.4", "standard model"]
+          "alias": "gpt-5.6-luna",
+          "terms": ["gpt-5.4", "gpt-5.1-codex-mini", "GPT-5.6 Luna", "standard model"]
         }
       }
     ]
@@ -307,7 +309,7 @@ Manages agent field mappings and model tier aliases. Use this when you want to a
 }
 ```
 
-The `latest-frontier-model` and `small-fast-model` tiers and the `fields` array are kept as the bundle ships them.
+The `mythos-class-model`, `latest-frontier-model`, and `small-fast-model` tiers and the `fields` array are kept as the bundle ships them.
 
 **Recipe: add a new model tier**
 

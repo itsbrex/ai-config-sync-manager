@@ -11,7 +11,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, dirname, join, parse, relative, resolve } from "node:path";
@@ -19,6 +19,7 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { serializeYamlScalar } from "./util/yaml-scalar.mjs";
 import { hashPath } from "./util/ledger-hash.mjs";
+import { buildBoardModel, renderBoardHtml } from "./util/board-html.mjs";
 
 const hosts = new Set(["claude", "codex"]);
 const [command = "help", ...argv] = process.argv.slice(2);
@@ -28,6 +29,9 @@ const STATE_SCHEMA_VERSION = 1;
 const BACKUP_RETENTION = 30;
 const LEDGER_RETENTION = 300;
 const STATUS_DETAILS_RETENTION = 100;
+const BOARD_RETENTION = 100;
+// Areas the board inventories; overlays outside this set (permissions/plugins) are out of board scope.
+const BOARD_AREAS = new Set(["skills", "agents", "hooks", "mcp"]);
 const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
 const CODEX_MARKETPLACE_NAME = "local-plugins";
 const runtimePackage = readRuntimePackage();
@@ -101,6 +105,22 @@ async function main() {
       console.log(
         options.planJson ? JSON.stringify(formatPlanOutput(plans), null, 2) : renderSyncPlans(plans)
       );
+    }
+  } else if (command === "board") {
+    if (isHelp(argv)) {
+      printBoardHelp();
+    } else {
+      const { scopes, selectors, open } = parseBoard(argv);
+      const report = createStatusReport(scopes, selectors);
+      const inventory = buildBoardInventory(scopes, selectors);
+      const overlays = normalizeBoardOverlays(report.entries);
+      const model = buildBoardModel(
+        { inventory, overlays, direction: report.direction, scopes },
+        readBoardItemDescription
+      );
+      const boardPath = writeBoardFile(renderBoardHtml(model));
+      console.log(`Board written to: ${boardPath}`);
+      if (open) openInBrowser(boardPath);
     }
   } else if (command === "reference") {
     if (isHelp(argv)) {
@@ -176,6 +196,278 @@ function parseStatus(argv) {
   }
 
   return { format, json, scopes, selectors };
+}
+
+function parseBoard(argv) {
+  let scopes = ["global", "project"];
+  let open = true;
+  const selectors = emptySelectors();
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (token === "--open") {
+      open = true;
+    } else if (token === "--no-open") {
+      open = false;
+    } else if (token === "--scope") {
+      scopes = parseScopes(argv[index + 1], true);
+      index += 1;
+    } else if (token === "--include" || token === "--exclude") {
+      addSelectors(selectors, token, argv[index + 1]);
+      index += 1;
+    } else {
+      throw new Error(`Unknown option for board: ${token}`);
+    }
+  }
+
+  return { scopes, selectors, open };
+}
+
+function buildBoardInventory(scopes, selectors = emptySelectors()) {
+  const items = [];
+  for (const scope of scopes) {
+    const paths = scope === "global" ? globalPaths() : projectPaths(process.cwd());
+    collectSkillInventory(items, scope, paths);
+    collectAgentInventory(items, scope, paths);
+    collectSettingsInventory(items, scope, "hooks", paths);
+    collectMcpInventory(items, scope, paths);
+  }
+  return filterBoardInventory(filterIgnoredInventory(items), selectors);
+}
+
+function filterIgnoredInventory(items) {
+  const rules = (ignoreListSource().data?.exclude ?? []).filter(Boolean);
+  if (rules.length === 0) return items;
+  return items.filter(
+    (item) => !ignoreRulesMatchEntry(rules, inventoryIgnoreEntry(item), item.name)
+  );
+}
+
+function inventoryIgnoreEntry(item) {
+  // Skills carry the item dir in claudePath/codexPath, but status compares against the base dir
+  // (name excluded); strip the name so path-form ignore rules resolve identically on both sides.
+  if (item.area === "skills") {
+    return {
+      scope: item.scope,
+      area: item.area,
+      claudePath: item.claudePath ? dirname(item.claudePath) : "",
+      codexPath: item.codexPath ? dirname(item.codexPath) : "",
+    };
+  }
+  return {
+    scope: item.scope,
+    area: item.area,
+    claudePath: item.claudePath,
+    codexPath: item.codexPath,
+  };
+}
+
+function filterBoardInventory(items, selectors) {
+  return items.filter(
+    (item) =>
+      inventoryItemIncluded(item, selectors.include) &&
+      !inventorySelectorHit(item, selectors.exclude)
+  );
+}
+
+function inventoryItemIncluded(item, include) {
+  if (include.length === 0) return true;
+  return inventorySelectorHit(item, include);
+}
+
+function inventorySelectorHit(item, selectors) {
+  return selectors.some(
+    (selector) =>
+      selector.area === item.area &&
+      (!selector.item || itemMatchesSelector(item.name, selector.item))
+  );
+}
+
+function collectSkillInventory(items, scope, paths) {
+  const claudeIndex = enumerateSkillIndex(paths.claude.skillsPaths ?? [paths.claude.skills]);
+  const codexIndex = enumerateSkillIndex(paths.codex.skillsPaths ?? [paths.codex.skills]);
+  const symlinkNames = new Set([
+    ...enumerateSkillSymlinkIndex(paths.claude.skillsPaths ?? [paths.claude.skills]).keys(),
+    ...enumerateSkillSymlinkIndex(paths.codex.skillsPaths ?? [paths.codex.skills]).keys(),
+  ]);
+
+  for (const name of uniqueStrings([...claudeIndex.keys(), ...codexIndex.keys()])) {
+    if (symlinkNames.has(name)) continue;
+    const claudeBase = claudeIndex.get(name);
+    const codexBase = codexIndex.get(name);
+    items.push({
+      area: "skills",
+      scope,
+      name,
+      inClaude: claudeBase !== undefined,
+      inCodex: codexBase !== undefined,
+      claudePath: claudeBase ? join(claudeBase, name) : "",
+      codexPath: codexBase ? join(codexBase, name) : "",
+    });
+  }
+}
+
+function collectAgentInventory(items, scope, paths) {
+  const claudeAgents = new Map(
+    enumerateClaudeAgents(paths.claude.agents).map((agent) => [
+      agent.name,
+      { path: agent.path, harness: agent.group },
+    ])
+  );
+  const codexAgents = new Map(
+    enumerateCodexAgents(paths.codex.agents).map((agent) => [agent.name, agent.path])
+  );
+
+  for (const name of uniqueStrings([...claudeAgents.keys(), ...codexAgents.keys()])) {
+    const claudeAgent = claudeAgents.get(name);
+    items.push({
+      area: "agents",
+      scope,
+      name,
+      inClaude: claudeAgents.has(name),
+      inCodex: codexAgents.has(name),
+      claudePath: claudeAgent?.path ?? "",
+      codexPath: codexAgents.get(name) ?? "",
+      harness: claudeAgent?.harness ?? null,
+    });
+  }
+}
+
+function collectSettingsInventory(items, scope, area, paths) {
+  if (!paths.claude.settings || !paths.codex.settings) return;
+  const claudeItems = new Set(settingsItems("claude", area, paths.claude.settings));
+  const codexItems = new Set(settingsItems("codex", area, paths.codex.settings));
+
+  for (const name of uniqueStrings([...claudeItems, ...codexItems])) {
+    items.push({
+      area,
+      scope,
+      name,
+      inClaude: claudeItems.has(name),
+      inCodex: codexItems.has(name),
+      claudePath: claudeItems.has(name) ? paths.claude.settings : "",
+      codexPath: codexItems.has(name) ? paths.codex.settings : "",
+    });
+  }
+}
+
+function collectMcpInventory(items, scope, paths) {
+  const claudeServers = new Set(
+    Object.keys(readClaudeMcpServers(paths.claude.mcpPaths ?? paths.claude.mcp))
+  );
+  const codexServers = new Set(
+    Object.keys(readCodexMcpServers(paths.codex.mcpPaths ?? paths.codex.mcp))
+  );
+
+  for (const name of uniqueStrings([...claudeServers, ...codexServers])) {
+    items.push({
+      area: "mcp",
+      scope,
+      name,
+      inClaude: claudeServers.has(name),
+      inCodex: codexServers.has(name),
+      claudePath: claudeServers.has(name) ? firstPath(paths.claude.mcpPaths, paths.claude.mcp) : "",
+      codexPath: codexServers.has(name) ? firstPath(paths.codex.mcpPaths, paths.codex.mcp) : "",
+    });
+  }
+}
+
+function firstPath(pathList, fallback) {
+  return Array.isArray(pathList) ? (pathList[0] ?? fallback) : (pathList ?? fallback);
+}
+
+// Translates status-engine entries into the board's display vocabulary and resolves
+// per-item file paths so bin/util/board-html.mjs stays a pure renderer (no engine
+// field-name or path-layout knowledge). Engine reports absence as missing-in-<host>;
+// board names the host that HAS the item (missingInCodex -> claude-only).
+function normalizeBoardOverlays(entries = []) {
+  const overlays = [];
+  for (const entry of entries) {
+    if (!BOARD_AREAS.has(entry.area)) continue;
+    pushBoardOverlays(overlays, entry, entry.conflicts, "conflict");
+    pushBoardOverlays(overlays, entry, entry.missingInCodex, "claude-only");
+    pushBoardOverlays(overlays, entry, entry.missingInClaude, "codex-only");
+    pushBoardOverlays(overlays, entry, entry.unsupported, "unsupported");
+  }
+  return overlays;
+}
+
+function pushBoardOverlays(overlays, entry, names, status) {
+  for (const name of names ?? []) {
+    overlays.push({
+      scope: entry.scope,
+      area: entry.area,
+      name,
+      status,
+      claudePath: entryItemPath(entry, name, "claude"),
+      codexPath: entryItemPath(entry, name, "codex"),
+    });
+  }
+}
+
+function entryItemPath(entry, name, host) {
+  const isClaude = host === "claude";
+  if (entry.area === "agents") {
+    const map = isClaude ? entry.claudeAgentPaths : entry.codexAgentPaths;
+    return map?.[name] ?? (isClaude ? entry.claudePath : entry.codexPath) ?? "";
+  }
+  if (entry.area === "skills") {
+    const index = isClaude ? entry.claudeSkillIndex : entry.codexSkillIndex;
+    const base = index?.[name];
+    if (base) return join(base, name);
+  }
+  return (isClaude ? entry.claudePath : entry.codexPath) ?? "";
+}
+
+function readBoardItemDescription(item) {
+  if (item.area === "agents") {
+    if (item.claudePath && existsSync(item.claudePath))
+      return parseClaudeAgentFile(item.claudePath).frontmatter?.description ?? "";
+    if (item.codexPath && existsSync(item.codexPath))
+      return parseCodexAgentFile(item.codexPath).description ?? "";
+  }
+  if (item.area === "skills") {
+    const useClaude = item.claudePath && existsSync(item.claudePath);
+    const dir = useClaude ? item.claudePath : item.codexPath;
+    if (!dir) return "";
+    const manifest = findSkillManifest(dir, useClaude ? "claude" : "codex");
+    if (!manifest) return "";
+    return parseClaudeAgentText(readFileSync(manifest, "utf8")).frontmatter?.description ?? "";
+  }
+  return "";
+}
+
+function writeBoardFile(html) {
+  const boardPath = boardFilePath();
+  mkdirSync(dirname(boardPath), { recursive: true });
+  // Prune to one below the cap so the board about to be written stays within retention.
+  pruneRetention(dirname(boardPath), BOARD_RETENTION - 1);
+  writeFileSync(boardPath, html);
+  return boardPath;
+}
+
+function boardFilePath() {
+  const stamp = new Date().toISOString().replaceAll(":", "-");
+  return `${home}/.ai-config-sync-manager/board/${stamp}-${process.pid}.html`;
+}
+
+function openInBrowser(path) {
+  try {
+    // Fire-and-forget: a detached, unref'd child can't hang the CLI if the opener never returns.
+    const child =
+      process.platform === "win32"
+        ? spawn("cmd.exe", ["/c", "start", "", path], { detached: true, stdio: "ignore" })
+        : spawn(process.platform === "darwin" ? "open" : "xdg-open", [path], {
+            detached: true,
+            stdio: "ignore",
+          });
+    // spawn reports a missing opener via an async 'error' event, not a throw; swallow it so a
+    // headless host without xdg-open cannot crash the CLI after the board file is already written.
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // Path already printed; opening is best-effort.
+  }
 }
 
 function defaultSyncDirection() {
@@ -3164,10 +3456,18 @@ function applyTermMappings(value, from, to) {
 
   literalReplacements.sort((left, right) => right.source.length - left.source.length);
   return literalReplacements.reduce(
-    (nextText, { source, target }) =>
-      nextText.replace(new RegExp(escapeRegExp(source), "g"), target),
+    (nextText, { source, target }) => nextText.replace(literalTermPattern(source), target),
     working
   );
+}
+
+// A term must not be eaten out of a longer identifier: "gpt-5.3-codex" inside "gpt-5.3-codex-spark",
+// "fable" inside "affable", "Opus 5" inside "Opus 5.1". \b cannot express this — it sits between "6"
+// and "-", so a version-shaped term still matches the head of a longer id. The dot rules are
+// asymmetric on purpose: a dot that continues a version ("5" then ".1") extends the identifier, but
+// a dot ending a sentence ("opus(latest).") does not.
+function literalTermPattern(source) {
+  return new RegExp(`(?<![\\w-]|\\w\\.)${escapeRegExp(source)}(?![\\w-]|\\.\\w)`, "g");
 }
 
 function terminologyRules(data) {
@@ -3999,27 +4299,51 @@ function applyCopyMissingSkills(plan, operation) {
   }
 }
 
+// Two names canonicalizing to one key would let a plain Map copy one agent's body over the other.
+function indexAgentsByName(agents) {
+  const index = new Map();
+  const collisions = new Map();
+  for (const agent of agents) {
+    const first = index.get(agent.name);
+    if (first) collisions.set(agent.name, [first.path, agent.path]);
+    else index.set(agent.name, agent);
+  }
+  return { index, collisions };
+}
+
 function applyMergeAgents(plan, operation) {
   mkdirSync(operation.targetPath, { recursive: true });
   const overwrite = new Set(operation.overwriteAgentNames ?? []);
-  const sourceClaudeIndex =
+  const source = indexAgentsByName(
     operation.from === "claude"
-      ? new Map(enumerateClaudeAgents(operation.sourcePath).map((agent) => [agent.name, agent]))
-      : null;
-  const sourceCodexIndex =
-    operation.from === "codex"
-      ? new Map(enumerateCodexAgents(operation.sourcePath).map((agent) => [agent.name, agent]))
-      : null;
+      ? enumerateClaudeAgents(operation.sourcePath)
+      : enumerateCodexAgents(operation.sourcePath)
+  );
+  const sourceClaudeIndex = operation.from === "claude" ? source.index : null;
+  const sourceCodexIndex = operation.from === "codex" ? source.index : null;
   const existingClaudeIndex =
     operation.to === "claude"
-      ? new Map(enumerateClaudeAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      ? indexAgentsByName(enumerateClaudeAgents(operation.targetPath)).index
       : null;
   const existingCodexIndex =
     operation.to === "codex"
-      ? new Map(enumerateCodexAgents(operation.targetPath).map((agent) => [agent.name, agent]))
+      ? indexAgentsByName(enumerateCodexAgents(operation.targetPath)).index
       : null;
 
-  for (const agentName of operation.agentNames ?? []) {
+  for (const agentName of new Set(operation.agentNames ?? [])) {
+    const collision = source.collisions.get(agentName);
+    if (collision) {
+      const message = `agent name collision: ${collision.join(" and ")} both resolve to ${agentName}`;
+      plan.results.push({ status: "skipped", message });
+      recordLedger(plan, {
+        area: operation.area,
+        item: agentName,
+        action: operation.action,
+        status: "skipped",
+        message,
+      });
+      continue;
+    }
     if (operation.to === "codex") {
       const sourceAgent = sourceClaudeIndex?.get(agentName);
       if (!sourceAgent) {
@@ -4061,9 +4385,10 @@ function applyMergeAgents(plan, operation) {
         callArchive: plan.callArchive,
       });
       mkdirSync(dirname(targetPath), { recursive: true });
-      const beforeHash = hashPath(existingAgent ? existingAgent.path : targetPath);
-      const backupPathTaken = existingAgent ? backupTargetPath(plan, existingAgent.path) : null;
-      if (existingAgent) backupPath(plan, existingAgent.path);
+      // Matching is by name, so the existing file can sit elsewhere than the path being written.
+      const beforeHash = hashPath(targetPath);
+      const backupPathTaken = backupTargetPath(plan, targetPath);
+      backupPath(plan, targetPath);
       writeFileSync(targetPath, serializeCodexAgentFile(codexFields));
       const message = `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}`;
       plan.results.push({ status: "applied", message });
@@ -4117,13 +4442,34 @@ function applyMergeAgents(plan, operation) {
       : { frontmatter: {}, body: "" };
     const claude = mapAgentToClaude(codexParsed, {
       preserveClaude: existingClaude.frontmatter,
+      fallbackName: agentName.split("/").pop(),
       callArchive: plan.callArchive,
     });
     mkdirSync(dirname(targetPath), { recursive: true });
-    const beforeHash = hashPath(existingAgent ? existingAgent.path : targetPath);
-    const backupPathTaken = existingAgent ? backupTargetPath(plan, existingAgent.path) : null;
-    if (existingAgent) backupPath(plan, existingAgent.path);
+    // The old file would enumerate to the same canonical name and never stop reporting a diff.
+    const replacedPath =
+      existingAgent && !isSameFile(existingAgent.path, targetPath) ? existingAgent.path : null;
+    const replacedHash = replacedPath ? hashPath(replacedPath) : null;
+    const replacedBackup = replacedPath ? backupTargetPath(plan, replacedPath) : null;
+    if (replacedPath) backupPath(plan, replacedPath);
+    // On a rename these are two files, and a before-state naming the other restores wrong bytes.
+    const beforeHash = hashPath(targetPath);
+    const backupPathTaken = backupTargetPath(plan, targetPath);
+    backupPath(plan, targetPath);
     writeFileSync(targetPath, serializeClaudeAgentFile(claude.frontmatter, claude.body));
+    if (replacedPath) {
+      rmSync(replacedPath, { force: true });
+      recordLedger(plan, {
+        area: operation.area,
+        item: agentName,
+        action: "delete-items",
+        status: "applied",
+        target: replacedPath,
+        beforeHash: replacedHash,
+        backupPath: replacedBackup,
+        message: `removed superseded agent path ${replacedPath}`,
+      });
+    }
     const message = `${existingAgent ? "replaced" : "copied"} agent ${agentName} -> ${targetPath}`;
     plan.results.push({ status: "applied", message });
     recordLedger(plan, {
@@ -4137,6 +4483,15 @@ function applyMergeAgents(plan, operation) {
       message,
     });
   }
+}
+
+// Case-insensitive volumes fold both paths onto one inode, so string equality would delete the write.
+function isSameFile(left, right) {
+  if (left === right) return true;
+  if (!existsSync(left) || !existsSync(right)) return false;
+  const leftStat = lstatSync(left);
+  const rightStat = lstatSync(right);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 }
 
 function applyMergeSettingsItems(plan, operation) {
@@ -6484,7 +6839,13 @@ function enumerateCodexAgents(dir) {
 function canonicalAgentName(rawName, fallbackStem) {
   const candidate = typeof rawName === "string" ? rawName.trim() : "";
   const source = candidate || fallbackStem || "";
-  return source.replace(/\//g, "-");
+  return source.replace(/[/:]/g, "-");
+}
+
+// Claude groups agents on "/" but has reserved ":" for plugin namespacing since CLI 2.1.218.
+function claudeSafeAgentName(rawName, fallbackStem) {
+  const candidate = typeof rawName === "string" ? rawName.trim() : "";
+  return (candidate || fallbackStem || "").replace(/:/g, "-");
 }
 
 function agentsEquivalent(claudeAgent, codexAgent, entry, item, rules) {
@@ -6696,7 +7057,7 @@ function mapAgentToClaude(codex, options = {}) {
   );
   recordVocabFindings(options.callArchive, lintHostVocab(body, "claude"), "codex", "claude");
   const frontmatter = {
-    name: codex.name ?? "",
+    name: claudeSafeAgentName(codex.name, options.fallbackName),
     description: codex.description ?? "",
     model: aliases[codex.model] ?? codex.model ?? "",
   };
@@ -6770,15 +7131,13 @@ function modelTiers() {
 function modelAliasMap(from, to) {
   const aliases = {};
   for (const tier of modelTiers()) {
-    const sourceAlias = tier?.[from]?.alias;
     const targetAlias = tier?.[to]?.alias;
-    if (
-      typeof sourceAlias === "string" &&
-      sourceAlias &&
-      typeof targetAlias === "string" &&
-      targetAlias
-    ) {
-      aliases[sourceAlias] = targetAlias;
+    if (typeof targetAlias !== "string" || !targetAlias) continue;
+    const sourceTerms = Array.isArray(tier?.[from]?.terms) ? tier[from].terms : [];
+    // terms carry superseded ids and vendor-tagged variants, so a frontmatter model written in any
+    // accepted spelling still converts. Later tiers win, which is how an overlay reclaims a token.
+    for (const token of [tier?.[from]?.alias, ...sourceTerms]) {
+      if (typeof token === "string" && token) aliases[token] = targetAlias;
     }
   }
   return aliases;
@@ -8066,6 +8425,9 @@ function printHelp() {
   ai-config-sync status --tree
   ai-config-sync status --scope global|project|all
   ai-config-sync status --include skills:foo,mcp:notion --exclude permissions:Bash
+  ai-config-sync board
+  ai-config-sync board --help
+  ai-config-sync board --scope global|project|all --open
   ai-config-sync sync --dry-run
   ai-config-sync sync --help
   ai-config-sync sync --plan-json
@@ -8112,6 +8474,26 @@ Options:
 Examples:
   ai-config-sync status --scope project --tree
   ai-config-sync status --include skills:foo,mcp:notion --exclude permissions:Bash`);
+}
+
+function printBoardHelp() {
+  console.log(`Usage:
+  ai-config-sync board [options]
+
+Renders a self-contained HTML inventory board of skills, agents, hooks, and other config areas, colored by sync status (in-sync, conflict, one-host-only, unsupported).
+
+Options:
+  --scope global|project|all     Limit board scope
+  --include area[:item][,...]    Include only selected areas or items
+  --exclude area[:item][,...]    Exclude selected areas or items
+  --no-open                      Only write the file; do not open a browser
+  -h, --help                     Show board help
+
+The board opens in the default browser by default; pass --no-open to skip it.
+
+Examples:
+  ai-config-sync board
+  ai-config-sync board --scope global --no-open`);
 }
 
 function printSyncHelp() {
