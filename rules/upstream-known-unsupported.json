@@ -783,6 +783,56 @@
       },
       "recheck_after": "2027-01-29"
     },
+    "ConfigProfile.features.executed_tool_call_metadata": {
+      "reason": "Codex host feature toggle for executed-tool-call metadata; Claude has no equivalent switch.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.image_resize_notice": {
+      "reason": "Codex host feature toggle for the image-resize notice; Claude has no equivalent switch.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.recommended_plugins": {
+      "reason": "Codex host feature toggle for recommended-plugin surfacing; Claude plugin discovery has no matching switch.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.tool_registry": {
+      "reason": "Codex tool-registry feature container; its only field is already dropped (see ToolRegistryConfigToml.error_on_tool_collisions).",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.view_image": {
+      "reason": "Codex host feature toggle for the view-image tool; Claude exposes no settings key for it.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
     "CurrentTimeReminderConfigToml.clock_source": {
       "reason": "Codex-internal current-time reminder injection; no Claude equivalent.",
       "decided_in": "#24",

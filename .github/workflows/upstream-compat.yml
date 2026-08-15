@@ -111,16 +111,16 @@ jobs:
             local path="$1"
             git show "HEAD:$path" 2>/dev/null | jq -r '.properties // {} | keys[]' 2>/dev/null | sort -u || true
           }
-          # Nested keys: definitions.<TypeName>.properties.<field> — covers RawMcpServerConfig and other $ref targets.
+          # Recurse: flags nested under a property's own properties (e.g. ConfigProfile.features.view_image) are invisible to a one-level scan.
           extract_nested() {
             local f="$1"
             if [ -f "$f" ]; then
-              jq -r '.definitions // {} | to_entries[] | . as $d | ($d.value.properties // {}) | keys[] | "\($d.key).\(.)"' "$f" 2>/dev/null | sort -u
+              jq -r 'def walk_props($prefix; $node): (if ($node | type) == "object" then ($node.properties // {}) else {} end) | to_entries[] | ("\($prefix).\(.key)") as $path | $path, walk_props($path; .value); .definitions // {} | to_entries[] | walk_props(.key; .value)' "$f" 2>/dev/null | sort -u
             fi
           }
           extract_nested_head() {
             local path="$1"
-            git show "HEAD:$path" 2>/dev/null | jq -r '.definitions // {} | to_entries[] | . as $d | ($d.value.properties // {}) | keys[] | "\($d.key).\(.)"' 2>/dev/null | sort -u || true
+            git show "HEAD:$path" 2>/dev/null | jq -r 'def walk_props($prefix; $node): (if ($node | type) == "object" then ($node.properties // {}) else {} end) | to_entries[] | ("\($prefix).\(.key)") as $path | $path, walk_props($path; .value); .definitions // {} | to_entries[] | walk_props(.key; .value)' 2>/dev/null | sort -u || true
           }
           claude_added=$(comm -23 <(extract_keys snapshots/claude/settings-schema.json) <(extract_keys_head snapshots/claude/settings-schema.json) || true)
           codex_added=$(comm -23 <(extract_keys snapshots/codex/config-schema.json) <(extract_keys_head snapshots/codex/config-schema.json) || true)
