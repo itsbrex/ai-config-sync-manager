@@ -1104,7 +1104,7 @@ test("status treats grouped and flat agent path references as equivalent inside 
   mkdirSync(join(codexSkill, "references"), { recursive: true });
 
   writeFileSync(
-    join(claudeSkill, "skill.md"),
+    join(claudeSkill, "SKILL.md"),
     [
       "---",
       "name: path-equivalent",
@@ -1143,7 +1143,7 @@ test("status treats grouped and flat agent path references as equivalent inside 
       {
         id: "path-equivalent-tools",
         area: "skills",
-        claude_path: join(claudeSkill, "skill.md"),
+        claude_path: join(claudeSkill, "SKILL.md"),
         codex_path: join(codexSkill, "SKILL.md"),
         claude_line: 6,
         codex_line: 6,
@@ -3297,10 +3297,62 @@ function callsArchivePath(output) {
   return match[1];
 }
 
-function writeSkillManifest(skillDir, host, body) {
-  const filename = host === "claude" ? "skill.md" : "SKILL.md";
+// Both hosts resolve SKILL.md; _host stays so the ~60 call sites keep naming which tree they seed.
+function writeSkillManifest(skillDir, _host, body) {
   mkdirSync(skillDir, { recursive: true });
-  writeFileSync(join(skillDir, filename), body);
+  writeFileSync(join(skillDir, "SKILL.md"), body);
+}
+
+function writeLegacySkillManifest(skillDir, body) {
+  mkdirSync(skillDir, { recursive: true });
+  writeFileSync(join(skillDir, "skill.md"), body);
+}
+
+// APFS folds SKILL.md and skill.md onto one inode, so the both-spellings fixtures below can only
+// exist on a case-sensitive volume (ext4 on CI).
+function volumeSeparatesManifestCasing(dir) {
+  const probeDir = join(dir, "manifest-casing-probe");
+  mkdirSync(probeDir, { recursive: true });
+  writeFileSync(join(probeDir, "SKILL.md"), "upper\n");
+  writeFileSync(join(probeDir, "skill.md"), "lower\n");
+  const separates = readdirSync(probeDir).length === 2;
+  rmSync(probeDir, { recursive: true, force: true });
+  return separates;
+}
+
+function writeBothSkillManifestSpellings(skillDir, canonicalBody, legacyBody) {
+  writeSkillManifest(skillDir, "claude", canonicalBody);
+  writeLegacySkillManifest(skillDir, legacyBody);
+}
+
+// Two skills so a crash on the first one shows up as the second one never being copied.
+function copySkillsUnderManifestRule(claudeReplace) {
+  const fixture = createFixture();
+  writeJson(join(fixture.project, "rules/terminology-map.json"), {
+    version: 2,
+    layers: [
+      { id: "files", rules: [{ id: "skill-manifest-filename", claude_replace: claudeReplace }] },
+    ],
+  });
+  writeSkillManifest(join(fixture.project, ".agents/skills/aaa"), "codex", "# aaa\nbody\n");
+  writeSkillManifest(join(fixture.project, ".agents/skills/zzz"), "codex", "# zzz\nbody\n");
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+  return Object.fromEntries(
+    ["aaa", "zzz"].map((name) => [
+      name,
+      readdirSync(join(fixture.project, ".claude/skills", name)).sort(),
+    ])
+  );
+}
+
+function legacyManifestHostPhrase(fixture) {
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo"]);
+  const match = output.match(/Manifest is named skill\.md, which (.+?) cannot load;/);
+  assert.ok(match, `expected legacy manifest details, got: ${output}`);
+  return match[1];
 }
 
 test("sync apply transforms Agent call inside skill body to Codex marker plus rendered prose", () => {
@@ -3571,7 +3623,7 @@ test("sync dry-run does not write the calls archive file to disk", () => {
 
 test("sync apply renames lowercase Claude skill manifest to uppercase SKILL.md on Codex side", () => {
   const fixture = createFixture();
-  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", "# Foo\nbody\n");
+  writeLegacySkillManifest(join(fixture.project, ".claude/skills/foo"), "# Foo\nbody\n");
 
   runCli(fixture, ["sync", "--scope", "project", "--include", "skills:foo", "--apply"]);
   const codexEntries = readdirSync(join(fixture.project, ".agents/skills/foo"));
@@ -3631,21 +3683,46 @@ test("sync apply rewrites skill.md body references to SKILL.md when copying to C
   assert.doesNotMatch(codexBody, /Read skill\.md for full details\./);
 });
 
+test("sync apply rewrites skill.md body references to SKILL.md when copying to Claude", () => {
+  const fixture = createFixture();
+  writeSkillManifest(
+    join(fixture.project, ".codex/skills/bar"),
+    "codex",
+    "# Bar\nRead skill.md for full details.\n"
+  );
+
+  runCli(fixture, ["sync", "--scope", "project", "--include", "skills:bar", "--apply"], undefined, {
+    AI_CONFIG_SYNC_HOST: "codex",
+  });
+  const claudeBody = readFileSync(join(fixture.project, ".claude/skills/bar/SKILL.md"), "utf8");
+
+  assert.match(claudeBody, /Read SKILL\.md for full details\./);
+  assert.doesNotMatch(claudeBody, /Read skill\.md for full details\./);
+});
+
 test("status treats identical skill content with mismatched manifest casing as no conflict", () => {
   const fixture = createFixture();
   const sharedBody = "# Foo\nshared body\n";
-  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", sharedBody);
+  writeLegacySkillManifest(join(fixture.project, ".claude/skills/foo"), sharedBody);
   writeSkillManifest(join(fixture.project, ".agents/skills/foo"), "codex", sharedBody);
 
   const report = JSON.parse(
     runCli(fixture, ["status", "--scope", "project", "--include", "skills", "--json"])
   );
   const skillsEntries = report.entries.filter((entry) => entry.area === "skills");
+  const conflictEntries = skillsEntries.filter((entry) => entry.summary === "skills conflict");
+  const legacyEntries = skillsEntries.filter(
+    (entry) => entry.summary === "legacy skill manifest name"
+  );
 
   assert.equal(
-    skillsEntries.length,
+    conflictEntries.length,
     0,
-    `expected no skills entries, got: ${JSON.stringify(skillsEntries)}`
+    `expected no skills conflict, got: ${JSON.stringify(conflictEntries)}`
+  );
+  assert.deepEqual(
+    legacyEntries.map((entry) => entry.unsupported),
+    [["foo"]]
   );
 });
 
@@ -3676,7 +3753,7 @@ test("status treats multi-file skills with mismatched manifest casing as no conf
   const sharedHelper = "shared helper text\n";
   const claudeDir = join(fixture.project, ".claude/skills/foo");
   const codexDir = join(fixture.project, ".agents/skills/foo");
-  writeSkillManifest(claudeDir, "claude", sharedManifest);
+  writeLegacySkillManifest(claudeDir, sharedManifest);
   writeSkillManifest(codexDir, "codex", sharedManifest);
   mkdirSync(join(claudeDir, "helpers"), { recursive: true });
   mkdirSync(join(codexDir, "helpers"), { recursive: true });
@@ -3687,12 +3764,189 @@ test("status treats multi-file skills with mismatched manifest casing as no conf
     runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
   );
   const skillsEntries = report.entries.filter((entry) => entry.area === "skills");
+  const conflictEntries = skillsEntries.filter((entry) => entry.summary === "skills conflict");
+  const legacyEntries = skillsEntries.filter(
+    (entry) => entry.summary === "legacy skill manifest name"
+  );
 
   assert.equal(
-    skillsEntries.length,
+    conflictEntries.length,
     0,
-    `expected no skills entries, got: ${JSON.stringify(skillsEntries)}`
+    `expected no skills conflict, got: ${JSON.stringify(conflictEntries)}`
   );
+  assert.deepEqual(
+    legacyEntries.map((entry) => entry.unsupported),
+    [["foo"]]
+  );
+});
+
+test("status counts one manifest when a skill folder holds both spellings", (t) => {
+  const fixture = createFixture();
+  if (!volumeSeparatesManifestCasing(fixture.root)) {
+    t.skip("needs a case-sensitive volume to hold SKILL.md and skill.md side by side");
+    return;
+  }
+  const sharedBody = "# Foo\nshared body\n";
+  writeBothSkillManifestSpellings(
+    join(fixture.project, ".claude/skills/foo"),
+    sharedBody,
+    "# Foo\nstale body the loader never reads\n"
+  );
+  writeSkillManifest(join(fixture.project, ".agents/skills/foo"), "codex", sharedBody);
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
+  const conflictEntries = report.entries.filter((entry) => entry.summary === "skills conflict");
+
+  assert.equal(
+    conflictEntries.length,
+    0,
+    `expected no skills conflict, got: ${JSON.stringify(conflictEntries)}`
+  );
+});
+
+test("sync apply names the dropped duplicate manifest when a copied skill folder holds both spellings", (t) => {
+  const fixture = createFixture();
+  if (!volumeSeparatesManifestCasing(fixture.root)) {
+    t.skip("needs a case-sensitive volume to hold SKILL.md and skill.md side by side");
+    return;
+  }
+  writeBothSkillManifestSpellings(
+    join(fixture.project, ".claude/skills/foo"),
+    "# Foo\ncanonical body\n",
+    "# Foo\nlegacy body\n"
+  );
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "project",
+    "--include",
+    "skills:foo",
+    "--apply",
+  ]);
+  const codexEntries = readdirSync(join(fixture.project, ".agents/skills/foo")).sort();
+
+  assert.match(output, /applied: copied skill foo \(dropped duplicate manifest skill\.md\)/);
+  assert.deepEqual(codexEntries, ["SKILL.md"]);
+});
+
+test("sync apply falls back to SKILL.md when the manifest filename rule is unusable", () => {
+  for (const claudeReplace of ["", ".", "../escape.md", "sub/dir.md"]) {
+    assert.deepEqual(
+      copySkillsUnderManifestRule(claudeReplace),
+      { aaa: ["SKILL.md"], zzz: ["SKILL.md"] },
+      `expected both skills under SKILL.md for rule value ${JSON.stringify(claudeReplace)}`
+    );
+  }
+});
+
+test("status reports a lowercase skill manifest as a status-only manual item", () => {
+  const fixture = createFixture();
+  const sharedBody = "# Foo\nshared body\n";
+  writeLegacySkillManifest(join(fixture.project, ".claude/skills/foo"), sharedBody);
+  writeSkillManifest(join(fixture.project, ".agents/skills/foo"), "codex", sharedBody);
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
+  const legacyEntry = report.entries.find(
+    (entry) => entry.summary === "legacy skill manifest name"
+  );
+
+  assert.ok(
+    legacyEntry,
+    `expected a legacy manifest entry, got: ${JSON.stringify(report.entries)}`
+  );
+  assert.equal(legacyEntry.area, "skills");
+  assert.equal(legacyEntry.risk, "manual");
+  assert.equal(legacyEntry.statusOnly, true);
+  assert.deepEqual(legacyEntry.unsupported, ["foo"]);
+  assert.deepEqual(legacyEntry.itemQualities, { foo: "unsupported" });
+});
+
+test("status names the hosts that cannot load a legacy skill manifest", () => {
+  const sharedBody = "# Foo\nshared body\n";
+  const codexOffends = createFixture();
+  writeSkillManifest(join(codexOffends.project, ".claude/skills/foo"), "claude", sharedBody);
+  writeLegacySkillManifest(join(codexOffends.project, ".agents/skills/foo"), sharedBody);
+  const claudeOffends = createFixture();
+  writeLegacySkillManifest(join(claudeOffends.project, ".claude/skills/foo"), sharedBody);
+  writeSkillManifest(join(claudeOffends.project, ".agents/skills/foo"), "codex", sharedBody);
+  const bothOffend = createFixture();
+  writeLegacySkillManifest(join(bothOffend.project, ".claude/skills/foo"), sharedBody);
+  writeLegacySkillManifest(join(bothOffend.project, ".agents/skills/foo"), sharedBody);
+
+  assert.equal(legacyManifestHostPhrase(codexOffends), "Codex");
+  assert.equal(legacyManifestHostPhrase(claudeOffends), "Claude");
+  assert.equal(legacyManifestHostPhrase(bothOffend), "Claude and Codex");
+});
+
+test("compact and tree status name the skill behind a legacy manifest entry", () => {
+  const fixture = createFixture();
+  const sharedBody = "# Foo\nshared body\n";
+  writeLegacySkillManifest(join(fixture.project, ".claude/skills/foo"), sharedBody);
+  writeSkillManifest(join(fixture.project, ".agents/skills/foo"), "codex", sharedBody);
+
+  const compact = runCli(fixture, [
+    "status",
+    "--scope",
+    "project",
+    "--include",
+    "skills:foo",
+    "--compact",
+  ]);
+  const tree = runCli(fixture, [
+    "status",
+    "--scope",
+    "project",
+    "--include",
+    "skills:foo",
+    "--tree",
+  ]);
+
+  assert.match(compact, /project\/skills \[manual\] unsupported: foo \[unsupported\]/);
+  assert.match(tree, /\[manual\] legacy skill manifest name\n {6}unsupported: foo \[unsupported\]/);
+});
+
+test("status treats a nested skill.md as a file distinct from a nested SKILL.md", () => {
+  const fixture = createFixture();
+  const sharedBody = "# Foo\nshared body\n";
+  const claudeDir = join(fixture.project, ".claude/skills/foo");
+  const codexDir = join(fixture.project, ".agents/skills/foo");
+  writeSkillManifest(claudeDir, "claude", sharedBody);
+  writeSkillManifest(codexDir, "codex", sharedBody);
+  mkdirSync(join(claudeDir, "refs"), { recursive: true });
+  mkdirSync(join(codexDir, "refs"), { recursive: true });
+  writeFileSync(join(claudeDir, "refs/skill.md"), "claude reference notes\n");
+  writeFileSync(join(codexDir, "refs/SKILL.md"), "codex reference notes\n");
+
+  const output = runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo"]);
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
+  const conflictEntries = report.entries.filter((entry) => entry.summary === "skills conflict");
+
+  assert.deepEqual(
+    conflictEntries.map((entry) => entry.conflicts),
+    [["foo"]]
+  );
+  assert.match(output, /refs\/skill\.md: only on Claude/);
+  assert.match(output, /refs\/SKILL\.md: only on Codex/);
+});
+
+test("status omits the legacy manifest entry when both hosts use SKILL.md", () => {
+  const fixture = createFixture();
+  const sharedBody = "# Foo\nshared body\n";
+  writeSkillManifest(join(fixture.project, ".claude/skills/foo"), "claude", sharedBody);
+  writeSkillManifest(join(fixture.project, ".agents/skills/foo"), "codex", sharedBody);
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "project", "--include", "skills:foo", "--json"])
+  );
+
+  assert.deepEqual(report.entries, []);
 });
 
 test("sync apply maps English agent-team term to canonical multiple spawn_agent invocations on Codex side", () => {

@@ -77,10 +77,10 @@
         },
         {
           "id": "skill-manifest-filename",
-          "description": "Normalize skill manifest filename references in body text. Both hosts load SKILL.md; the lowercase spelling only ever worked on case-insensitive volumes. Word boundaries keep the rule from firing inside unrelated tokens.",
+          "description": "Normalize skill manifest filename references in body text. Both hosts load SKILL.md; the lowercase spelling only ever worked on case-insensitive volumes. The lookbehind keeps the rule off hyphenated filenames such as my-skill.md, which a plain word boundary rewrites.",
           "regex": true,
-          "claude_pattern": "\\bskill\\.md\\b",
-          "codex_pattern": "\\bSKILL\\.md\\b",
+          "claude_pattern": "(?<![\\w-])skill\\.md\\b",
+          "codex_pattern": "(?<![\\w-])skill\\.md\\b",
           "claude_replace": "SKILL.md",
           "codex_replace": "SKILL.md"
         },
