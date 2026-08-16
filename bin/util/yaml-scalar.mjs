@@ -1,3 +1,4 @@
+// @ts-check
 // YAML 1.2 spec rule [22] c-indicator + YAML 1.1 coercion compat. Single source of truth for frontmatter scalar quoting in claude/codex sync.
 
 const RESERVED_INDICATOR_PREFIX = /^[-?:,[\]{}#&*!|>'"%@`]/;
@@ -17,6 +18,7 @@ const YAML_SPECIAL_FLOAT = /^[+-]?\.(?:nan|NaN|NAN|inf|Inf|INF)$/;
 const YAML_TIMESTAMP =
   /^\d{4}-\d{2}-\d{2}(?:[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?$/;
 
+/** @param {string} text */
 export function yamlScalarRequiresQuoting(text) {
   if (text === "") return true;
   if (LEADING_TRAILING_WS.test(text)) return true;
@@ -36,6 +38,7 @@ export function yamlScalarRequiresQuoting(text) {
   return false;
 }
 
+/** @param {unknown} value */
 export function serializeYamlScalar(value) {
   const text = String(value);
   return yamlScalarRequiresQuoting(text) ? JSON.stringify(text) : text;

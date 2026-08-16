@@ -3835,10 +3835,6 @@
       ],
       "type": "string"
     },
-    "leftArrowOpensAgents": {
-      "description": "Whether the Left arrow key at the start of an empty prompt opens the agents view. Turn it off in /config (the leftArrowOpensAgents setting). See https://code.claude.com/docs/en/agent-view",
-      "type": "boolean"
-    },
     "managedMcpServers": {
       "description": "(Managed settings, third-party Desktop deployments only) MCP server configurations pushed to all users. Each entry specifies the transport and connection details, plus an optional toolPolicy map. Delivered through the managed settings file or MDM. See https://code.claude.com/docs/en/desktop#enterprise-configuration",
       "items": {

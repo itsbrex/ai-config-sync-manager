@@ -383,17 +383,6 @@
       "schema_desc_hash": "f12a73382a23",
       "recheck_after": "2026-10-09"
     },
-    "leftArrowOpensAgents": {
-      "reason": "Claude Code TUI keybinding preference; no Codex config equivalent.",
-      "decided_in": "#31",
-      "decided_at": "2026-07-11",
-      "direction": {
-        "claude_to_codex": "drop",
-        "codex_to_claude": "drop"
-      },
-      "schema_desc_hash": "b82359ca1506",
-      "recheck_after": "2026-10-09"
-    },
     "managedMcpServers": {
       "reason": "Claude Desktop managed MCP-server policy delivery, not user MCP config synced by this tool; no Codex config equivalent.",
       "decided_in": "#31",
@@ -781,7 +770,7 @@
         "claude_to_codex": "drop",
         "codex_to_claude": "drop"
       },
-      "schema_desc_hash": "d3770dead383",
+      "schema_desc_hash": "cae6ae0f0a86",
       "recheck_after": "2027-01-29"
     },
     "CodeModeHostConfigToml.enabled": {
@@ -793,6 +782,56 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-01-29"
+    },
+    "ConfigProfile.features.executed_tool_call_metadata": {
+      "reason": "Codex host feature toggle for executed-tool-call metadata; Claude has no equivalent switch.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.image_resize_notice": {
+      "reason": "Codex host feature toggle for the image-resize notice; Claude has no equivalent switch.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.recommended_plugins": {
+      "reason": "Codex host feature toggle for recommended-plugin surfacing; Claude plugin discovery has no matching switch.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.tool_registry": {
+      "reason": "Codex tool-registry feature container; its only field is already dropped (see ToolRegistryConfigToml.error_on_tool_collisions).",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.view_image": {
+      "reason": "Codex host feature toggle for the view-image tool; Claude exposes no settings key for it.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
     },
     "CurrentTimeReminderConfigToml.clock_source": {
       "reason": "Codex-internal current-time reminder injection; no Claude equivalent.",
@@ -887,6 +926,17 @@
       },
       "recheck_after": "2027-01-07"
     },
+    "MultiAgentV2ConfigToml.subagent_developer_instructions": {
+      "reason": "Codex fallback developer prompt for subagents without role-specific instructions; Claude carries subagent instructions in the agent file body, not a settings key.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "ac65534e3201",
+      "recheck_after": "2027-02-11"
+    },
     "MultiAgentV2ConfigToml.wait_agent_enabled": {
       "reason": "Codex multi-agent wait tool toggle; Claude subagents are awaited by the harness with no settings switch.",
       "decided_in": "#45",
@@ -958,6 +1008,16 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-01-07"
+    },
+    "RawMcpServerConfig.omit_tools_from": {
+      "reason": "Codex per-server tool-surface filter (code_mode/deferred/direct); Claude gates MCP tools by name through permissions, not by exposure surface. Note: unlike the other drops this one is rewritten territory — an existing Codex value is removed on the next claude -> codex MCP sync.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-11"
     },
     "RolloutBudgetConfigToml.enabled": {
       "reason": "Codex rollout weighted-token budget; no Claude equivalent.",
@@ -1064,6 +1124,17 @@
       "schema_desc_hash": "7c9e67860d0c",
       "recheck_after": "2027-01-07"
     },
+    "TokenBudgetConfigToml.mode": {
+      "reason": "Codex chooses thread vs name as the identity in its context-window developer message; Claude exposes no equivalent knob.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "16a71e282d18",
+      "recheck_after": "2027-02-11"
+    },
     "TokenBudgetConfigToml.reminder_message_template": {
       "reason": "Codex pre-auto-compaction reminder; nearest Claude controls are env vars (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, CLAUDE_CODE_AUTO_COMPACT_WINDOW) which are not sync targets.",
       "decided_in": "#24",
@@ -1085,6 +1156,17 @@
       },
       "schema_desc_hash": "1b8616062e5e",
       "recheck_after": "2027-01-02"
+    },
+    "ToolRegistryConfigToml.error_on_tool_collisions": {
+      "reason": "Codex turn-failure switch for duplicate effective tool names; Claude has no tool-registry collision policy.",
+      "decided_in": "#50",
+      "decided_at": "2026-08-15",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "da7121de0071",
+      "recheck_after": "2027-02-11"
     },
     "ToolsToml.update_plan": {
       "reason": "Enables the Codex update_plan tool; Claude plan mode is a session mode, not a toggleable tool.",

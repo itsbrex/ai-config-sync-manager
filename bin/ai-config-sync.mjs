@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -33,6 +34,10 @@ const BOARD_RETENTION = 100;
 // Areas the board inventories; overlays outside this set (permissions/plugins) are out of board scope.
 const BOARD_AREAS = new Set(["skills", "agents", "hooks", "mcp"]);
 const CODEX_PLUGIN_NAME = "ai-config-sync-manager";
+// Both hosts load SKILL.md; the lowercase spelling only ever worked on case-insensitive volumes.
+const LEGACY_SKILL_MANIFEST = "skill.md";
+const DEFAULT_SKILL_MANIFEST = "SKILL.md";
+const SKILL_MANIFEST_BASENAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const CODEX_MARKETPLACE_NAME = "local-plugins";
 const runtimePackage = readRuntimePackage();
 
@@ -908,6 +913,8 @@ function statusDetails(entry, change) {
       `Claude manifest: ${statusPathSummary(entry, "claude")}; Codex manifest: ${statusPathSummary(entry, "codex")}`,
     ].join(" ");
   }
+  if (change === "unsupported" && entry.summary === "legacy skill manifest name")
+    return `Manifest is named ${LEGACY_SKILL_MANIFEST}, which ${legacyManifestHostLabel(entry)} cannot load; rename it to ${DEFAULT_SKILL_MANIFEST}. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
   if (change === "unsupported")
     return `Skill symlink is unsupported and excluded from sync. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
   if (change === "missing in Codex")
@@ -917,6 +924,14 @@ function statusDetails(entry, change) {
   if (change === "conflict")
     return `Both hosts have this item with different content. Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")}; Codex: ${statusPathSummary(entry, "codex")}`;
   return `Default sync updates ${toLabel} from ${fromLabel}. Claude: ${statusPathSummary(entry, "claude")} (${entry.claude}); Codex: ${statusPathSummary(entry, "codex")} (${entry.codex})`;
+}
+
+function legacyManifestHostLabel(entry) {
+  const offenders = ["claude", "codex"].filter(
+    (host) => (entry.legacyManifestHosts?.[host] ?? []).length > 0
+  );
+  const hosts = offenders.length > 0 ? offenders : ["claude", "codex"];
+  return hosts.map(toLabel).join(" and ");
 }
 
 function statusPreview(entry, change, item, ignoreRules = []) {
@@ -1122,8 +1137,12 @@ function renderTreeStatus(report) {
 }
 
 function statusItems(entry) {
-  if (entry.missingInCodex || entry.missingInClaude || entry.conflicts) {
+  if (entry.missingInCodex || entry.missingInClaude || entry.conflicts || entry.unsupported) {
     return [
+      ...(entry.unsupported ?? []).map(
+        (name) =>
+          `unsupported: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "unsupported")}`
+      ),
       ...(entry.missingInCodex ?? []).map(
         (name) =>
           `missing-in-codex: ${formatQualityItem(entry, name)} | details: ${statusDetails(entry, "missing in Codex")}`
@@ -3758,16 +3777,16 @@ function agentPreviewContent(baseDir, agentName, host) {
 }
 
 function copySkillWithMappings(source, target, from, to, options = {}) {
-  if (!existsSync(source)) return;
+  if (!existsSync(source)) return null;
 
   const stat = lstatSync(source);
   if (!stat.isDirectory()) {
     copyFileWithMappings(source, target, from, to, options);
-    return;
+    return null;
   }
 
   copySkillTreeWithMappings(source, target, from, to, options);
-  normalizeSkillManifestCasing(target, to);
+  return normalizeSkillManifestCasing(target, to);
 }
 
 function copySkillTreeWithMappings(source, target, from, to, options) {
@@ -3783,42 +3802,33 @@ function copySkillTreeWithMappings(source, target, from, to, options) {
   }
 }
 
-// After copying a skill directory, rename the manifest (SKILL.md/skill.md) to match
-// the destination host's canonical casing. Skills written with the wrong casing
-// would not be discovered by the destination host's loader. Uses readdirSync to read
-// actual entry names because existsSync case-folds on case-insensitive filesystems.
-//
-// On case-insensitive filesystems (APFS default, NTFS), renameSync(skill.md, SKILL.md)
-// is a no-op — the FS treats both paths as the same inode, so the on-disk casing is
-// preserved and the wrong-cased file remains. To force the case change we read the
-// wrong-cased manifest into memory, delete it, then write the canonical name. This
-// sidesteps FS case-sensitivity entirely and works on both APFS and ext4.
+// readdirSync, not existsSync: existsSync case-folds on case-insensitive filesystems and would miss a wrong-cased manifest the destination host cannot load.
 function normalizeSkillManifestCasing(skillDir, host) {
-  if (!existsSync(skillDir)) return;
+  if (!existsSync(skillDir)) return null;
   const canonical = skillManifestBasename(host);
-  const wrong = canonical === "SKILL.md" ? "skill.md" : "SKILL.md";
+  const wrong =
+    canonical === DEFAULT_SKILL_MANIFEST ? LEGACY_SKILL_MANIFEST : DEFAULT_SKILL_MANIFEST;
 
   const entries = readdirSync(skillDir);
   const hasCanonical = entries.includes(canonical);
   const hasWrong = entries.includes(wrong);
-  if (!hasWrong) return;
+  if (!hasWrong) return null;
 
   const wrongPath = join(skillDir, wrong);
   const canonicalPath = join(skillDir, canonical);
 
+  // Safe to drop: this tree is a copy this call just made, so the duplicate the host cannot read is not user data.
   if (hasCanonical) {
-    // Both casings present as distinct entries (only possible on case-sensitive FS).
-    // Drop the wrong-cased one to avoid duplicate manifests.
     rmSync(wrongPath, { force: true });
-    return;
+    return wrong;
   }
 
-  // Read body, delete original, write under canonical name. On case-insensitive FS,
-  // the delete + write pair forces the on-disk entry to be replaced with the new
-  // casing. On case-sensitive FS, this is equivalent to a rename.
-  const body = readFileSync(wrongPath);
+  // Stage under a temp name: on a case-insensitive FS the canonical path resolves to the wrong-cased inode, so the delete that follows would erase what we just wrote.
+  const stagedPath = join(skillDir, `.${canonical}.ai-config-sync-tmp`);
+  writeFileSync(stagedPath, readFileSync(wrongPath));
   rmSync(wrongPath, { force: true });
-  writeFileSync(canonicalPath, body);
+  renameSync(stagedPath, canonicalPath);
+  return null;
 }
 
 function copyFileWithMappings(source, target, from, to, options = {}) {
@@ -4281,10 +4291,13 @@ function applyCopyMissingSkills(plan, operation) {
       rmSync(target, { recursive: true, force: true });
     }
 
-    copySkillWithMappings(source, target, operation.from, operation.to, {
+    const droppedManifest = copySkillWithMappings(source, target, operation.from, operation.to, {
       callArchive: plan.callArchive,
     });
-    const message = `${overwrite.has(skillName) ? "replaced" : "copied"} skill ${skillName}`;
+    const copyVerb = overwrite.has(skillName) ? "replaced" : "copied";
+    const message = droppedManifest
+      ? `${copyVerb} skill ${skillName} (dropped duplicate manifest ${droppedManifest})`
+      : `${copyVerb} skill ${skillName}`;
     plan.results.push({ status: "applied", message });
     recordLedger(plan, {
       area: operation.area,
@@ -6641,6 +6654,40 @@ function compareSkillDirs(
     });
   }
 
+  const manifestBasenames = skillManifestFilenames();
+  const skillNames = uniqueStrings([...claude, ...codex]);
+  const legacyManifestHosts = {
+    claude: skillNames.filter((name) =>
+      skillDirHasLegacyManifest(claudeIndex, name, manifestBasenames.claude)
+    ),
+    codex: skillNames.filter((name) =>
+      skillDirHasLegacyManifest(codexIndex, name, manifestBasenames.codex)
+    ),
+  };
+  const legacyManifestNames = uniqueStrings([
+    ...legacyManifestHosts.claude,
+    ...legacyManifestHosts.codex,
+  ]).sort();
+
+  if (legacyManifestNames.length > 0) {
+    entries.push({
+      scope,
+      area: "skills",
+      risk: "manual",
+      summary: "legacy skill manifest name",
+      statusOnly: true,
+      claudePath: claudeDir,
+      codexPath: codexDir,
+      claudeSkillIndex,
+      codexSkillIndex,
+      claude: `${claude.length} skill(s)`,
+      codex: `${codex.length} skill(s)`,
+      unsupported: legacyManifestNames,
+      legacyManifestHosts,
+      itemQualities: Object.fromEntries(legacyManifestNames.map((name) => [name, "unsupported"])),
+    });
+  }
+
   if (missingInCodex.length > 0 || missingInClaude.length > 0) {
     entries.push({
       scope,
@@ -6674,6 +6721,18 @@ function compareSkillDirs(
       conflicts,
       itemQualities: Object.fromEntries(conflicts.map((name) => [name, "unsupported"])),
     });
+  }
+}
+
+// readdirSync, not existsSync: a case-insensitive filesystem folds skill.md onto SKILL.md and hides the legacy spelling.
+function skillDirHasLegacyManifest(index, name, canonicalBasename) {
+  if (canonicalBasename === LEGACY_SKILL_MANIFEST) return false;
+  const dir = index.get(name);
+  if (!dir) return false;
+  try {
+    return readdirSync(join(dir, name)).includes(LEGACY_SKILL_MANIFEST);
+  } catch {
+    return false;
   }
 }
 
@@ -7608,10 +7667,9 @@ function enumerateSkillSymlinkIndex(dirs) {
   return index;
 }
 
-// Skill manifest filename differs by host: Claude uses lowercase skill.md, Codex uses SKILL.md.
-// Authors may have mixed-case skills on either side; helpers explicitly check both casings.
 function skillManifestBasename(host) {
-  return host === "claude" ? "skill.md" : "SKILL.md";
+  const { claude, codex } = skillManifestFilenames();
+  return host === "codex" ? codex : claude;
 }
 
 function findSkillManifest(skillDir, hostHint) {
@@ -7633,19 +7691,26 @@ function skillManifestFilenames() {
   const rules = terminologyRules(terminologyMapSource().data);
   const rule = rules.find((r) => r?.id === "skill-manifest-filename");
   return {
-    claude: typeof rule?.claude_replace === "string" ? rule.claude_replace : "skill.md",
-    codex: typeof rule?.codex_replace === "string" ? rule.codex_replace : "SKILL.md",
+    claude: safeSkillManifestBasename(rule?.claude_replace),
+    codex: safeSkillManifestBasename(rule?.codex_replace),
   };
 }
 
-function skillManifestLookupOrder(hostHint) {
+// The rules file is user-editable, so an empty, separator-bearing, or dot-only value would make the copier write onto the skill directory itself.
+function safeSkillManifestBasename(value) {
+  if (typeof value !== "string") return DEFAULT_SKILL_MANIFEST;
+  if (value === "." || value === "..") return DEFAULT_SKILL_MANIFEST;
+  return SKILL_MANIFEST_BASENAME_PATTERN.test(value) ? value : DEFAULT_SKILL_MANIFEST;
+}
+
+// Reading stays tolerant of the legacy lowercase spelling; skills authored under it still load.
+function skillManifestLookupOrder() {
   const { claude, codex } = skillManifestFilenames();
-  return hostHint === "claude" ? [claude, codex] : [codex, claude];
+  return [...new Set([codex, claude, LEGACY_SKILL_MANIFEST])];
 }
 
 function isSkillManifestBasename(name) {
-  const { claude, codex } = skillManifestFilenames();
-  return name === claude || name === codex;
+  return skillManifestLookupOrder().includes(name);
 }
 
 function instructionState(host, paths) {
@@ -7740,23 +7805,35 @@ function tomlInstructionSources(path) {
   return values;
 }
 
-// Replace a skill manifest basename with a casing-neutral sentinel so two skills
-// with identical content but differing manifest casing (skill.md vs SKILL.md)
-// share a single normalized path.
+// Only the file directly under the skill root is a manifest, so folding a nested skill.md onto the sentinel would collapse two ordinary documents into one and hide the difference.
 function normalizeSkillPath(file) {
-  const segments = file.split("/");
-  const last = segments[segments.length - 1];
-  if (!isSkillManifestBasename(last)) return file;
-  return [...segments.slice(0, -1), "__skill_manifest__.md"].join("/");
+  if (file.includes("/")) return file;
+  if (!isSkillManifestBasename(file)) return file;
+  return "__skill_manifest__.md";
 }
 
 // Pair each raw skill file path with its normalized form, then sort by the
 // normalized path so claude (skill.md) and codex (SKILL.md) iterate the same
 // logical files in the same order before hashing.
 function sortedSkillFiles(path) {
-  return directoryFiles(path)
-    .map((raw) => ({ raw, normalized: normalizeSkillPath(raw) }))
-    .sort((a, b) => (a.normalized < b.normalized ? -1 : a.normalized > b.normalized ? 1 : 0));
+  const lookupOrder = skillManifestLookupOrder();
+  const preferred = new Map();
+  for (const raw of directoryFiles(path)) {
+    const normalized = normalizeSkillPath(raw);
+    const current = preferred.get(normalized);
+    const outranksCurrent =
+      !current || skillManifestRank(raw, lookupOrder) < skillManifestRank(current.raw, lookupOrder);
+    if (outranksCurrent) preferred.set(normalized, { raw, normalized });
+  }
+  return [...preferred.values()].sort((a, b) =>
+    a.normalized < b.normalized ? -1 : a.normalized > b.normalized ? 1 : 0
+  );
+}
+
+// A folder holding both manifest spellings must contribute one entry, or its hash can never match a peer holding one.
+function skillManifestRank(raw, lookupOrder) {
+  const rank = lookupOrder.indexOf(raw.split("/").pop());
+  return rank === -1 ? Number.MAX_SAFE_INTEGER : rank;
 }
 
 // Read a skill file's bytes for hashing, canonicalizing YAML frontmatter when the
