@@ -111,16 +111,26 @@ jobs:
             local path="$1"
             git show "HEAD:$path" 2>/dev/null | jq -r '.properties // {} | keys[]' 2>/dev/null | sort -u || true
           }
+          # snapshot-upstream.mjs writes a valid-JSON stub on fetch failure, so parseability alone still lets an empty scan read as "no new keys".
+          for snapshot in snapshots/claude/settings-schema.json snapshots/codex/config-schema.json; do
+            [ -f "$snapshot" ] || continue
+            jq -e 'type == "object" and (has("_error") | not) and (has("properties") or has("$defs") or has("definitions"))' "$snapshot" >/dev/null \
+              || { echo "::error::snapshot is not a usable schema: $snapshot"; exit 1; }
+          done
           # Recurse: flags nested under a property's own properties (e.g. ConfigProfile.features.view_image) are invisible to a one-level scan.
+          # Claude keeps its subschemas under $defs while Codex uses definitions, and merging beats // so an empty $defs cannot mask definitions.
+          NESTED_WALK_DEF='def walk_props($prefix; $depth; $node): (if ($node | type) == "object" then ($node.properties // {}) else {} end) | to_entries[] | ("\($prefix).\(.key)") as $path | {path: $path, depth: ($depth + 1), desc: (if (.value | type) == "object" then (.value.description // "") else "" end)}, walk_props($path; $depth + 1; .value);'
+          NESTED_WALK_BODY='((."$defs" // {}) + (.definitions // {})) | to_entries[] | walk_props(.key; 1; .value)'
+          NESTED_WALK="$NESTED_WALK_DEF $NESTED_WALK_BODY"
           extract_nested() {
             local f="$1"
             if [ -f "$f" ]; then
-              jq -r 'def walk_props($prefix; $node): (if ($node | type) == "object" then ($node.properties // {}) else {} end) | to_entries[] | ("\($prefix).\(.key)") as $path | $path, walk_props($path; .value); .definitions // {} | to_entries[] | walk_props(.key; .value)' "$f" 2>/dev/null | sort -u
+              jq -r "$NESTED_WALK"' | .path' "$f" | sort -u
             fi
           }
           extract_nested_head() {
             local path="$1"
-            git show "HEAD:$path" 2>/dev/null | jq -r 'def walk_props($prefix; $node): (if ($node | type) == "object" then ($node.properties // {}) else {} end) | to_entries[] | ("\($prefix).\(.key)") as $path | $path, walk_props($path; .value); .definitions // {} | to_entries[] | walk_props(.key; .value)' 2>/dev/null | sort -u || true
+            git show "HEAD:$path" 2>/dev/null | jq -r "$NESTED_WALK"' | .path' 2>/dev/null | sort -u || true
           }
           claude_added=$(comm -23 <(extract_keys snapshots/claude/settings-schema.json) <(extract_keys_head snapshots/claude/settings-schema.json) || true)
           codex_added=$(comm -23 <(extract_keys snapshots/codex/config-schema.json) <(extract_keys_head snapshots/codex/config-schema.json) || true)
@@ -129,6 +139,13 @@ jobs:
           check_coverage() {
             local key="$1"
             grep -q "\"$key\"\|'$key'" rules/*.json bin/ai-config-sync.mjs 2>/dev/null
+          }
+          # Depth-3+ paths are inline sub-objects whose leaf names are common words (hooks, plugins, web_search) that collide with unrelated rules entries.
+          # Depth comes from the walk, not from counting dots: property names such as hide_gpt-5.1-codex-max_migration_prompt contain them.
+          coverage_probe() {
+            local file="$1" path="$2" depth
+            depth=$(jq -r --arg key "$path" "$NESTED_WALK"' | select(.path == $key) | .depth' "$file" 2>/dev/null | head -1)
+            if [ "${depth:-2}" -ge 3 ] 2>/dev/null; then printf '%s' "$path"; else printf '%s' "${path#*.}"; fi
           }
           # Allowlist gate: keys with an entry in rules/upstream-known-unsupported.json are intentional decisions, not gaps.
           is_allowlisted() {
@@ -157,8 +174,7 @@ jobs:
           if [ -n "${claude_nested_added:-}" ]; then
             while IFS= read -r path; do
               [ -z "${path:-}" ] && continue
-              leaf="${path##*.}"
-              if ! check_coverage "$leaf" && ! is_allowlisted claude nested "$path"; then
+              if ! check_coverage "$(coverage_probe snapshots/claude/settings-schema.json "$path")" && ! is_allowlisted claude nested "$path"; then
                 claude_nested_missing="${claude_nested_missing}- settings.${path}"$'\n'
               fi
             done <<< "$claude_nested_added"
@@ -167,8 +183,7 @@ jobs:
           if [ -n "${codex_nested_added:-}" ]; then
             while IFS= read -r path; do
               [ -z "${path:-}" ] && continue
-              leaf="${path##*.}"
-              if ! check_coverage "$leaf" && ! is_allowlisted codex nested "$path"; then
+              if ! check_coverage "$(coverage_probe snapshots/codex/config-schema.json "$path")" && ! is_allowlisted codex nested "$path"; then
                 codex_nested_missing="${codex_nested_missing}- config.${path}"$'\n'
               fi
             done <<< "$codex_nested_added"
@@ -236,8 +251,7 @@ jobs:
           if [ -n "${claude_nested_removed:-}" ]; then
             while IFS= read -r path; do
               [ -z "${path:-}" ] && continue
-              leaf="${path##*.}"
-              if check_coverage "$leaf"; then
+              if check_coverage "${path##*.}"; then
                 claude_nested_stale="${claude_nested_stale}- settings.${path}"$'\n'
               fi
             done <<< "$claude_nested_removed"
@@ -246,8 +260,7 @@ jobs:
           if [ -n "${codex_nested_removed:-}" ]; then
             while IFS= read -r path; do
               [ -z "${path:-}" ] && continue
-              leaf="${path##*.}"
-              if check_coverage "$leaf"; then
+              if check_coverage "${path##*.}"; then
                 codex_nested_stale="${codex_nested_stale}- config.${path}"$'\n'
               fi
             done <<< "$codex_nested_removed"
@@ -299,12 +312,11 @@ jobs:
                   current=$(hash_desc "$desc")
                   [ "$current" != "$recorded" ] && printf -- "- %s (%s → %s)\n" "$key" "$recorded" "$current"
                 done
-            # nested keys are "<Type>.<field>"; description lives under definitions.<Type>.properties.<field>.
+            # Match against the same walk that produced the keys; splitting on "." instead would break both depth-3 paths and names that contain a dot.
             jq -r ".${side}_nested // {} | to_entries[] | \"\(.key)\t\(.value.schema_desc_hash // \"\")\"" "$ALLOWLIST" \
               | while IFS=$'\t' read -r key recorded; do
                   [ -z "${key:-}" ] && continue
-                  type="${key%%.*}"; field="${key#*.}"
-                  desc=$(jq -r ".definitions.\"$type\".properties.\"$field\".description // \"\"" "$file" 2>/dev/null)
+                  desc=$(jq -r --arg key "$key" "$NESTED_WALK_DEF"' [ '"$NESTED_WALK_BODY"' | select(.path == $key) ] | .[0].desc // ""' "$file" 2>/dev/null)
                   [ -z "$desc" ] && continue
                   current=$(hash_desc "$desc")
                   [ "$current" != "$recorded" ] && printf -- "- %s (%s → %s)\n" "$key" "$recorded" "$current"
