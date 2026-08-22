@@ -16,7 +16,8 @@ import { dirname } from "node:path";
 //   4) friendly abort
 //
 // Version compare policy (§6.2):
-//   patch diff -> ignore, minor diff -> warn, major diff or unparsable -> abort.
+//   equal/patch -> ignore, minor -> warn, unparsable -> warn, major -> abort.
+//   A 0.x minor diff aborts too: npm caret reads ^0.1.2 as <0.2.0, so minor is the breaking slot below 1.0.
 /**
  * @param {string} targetPath - Absolute path of the launcher script to write
  * @param {string} host - "claude" or "codex"; injected as AI_CONFIG_SYNC_HOST default
@@ -53,7 +54,7 @@ abort() {
   exit 1
 }
 
-# Compare two semver-like strings (X.Y.Z). Echoes one of: equal | patch | minor | major | unknown
+# Compare two semver-like strings (X.Y.Z). Echoes one of: equal | patch | minor | minor-breaking | major | unknown
 compare_versions() {
   node -e '
     const [a, b] = process.argv.slice(1);
@@ -64,7 +65,7 @@ compare_versions() {
     const [, a1, a2, a3] = ma.map(Number);
     const [, b1, b2, b3] = mb.map(Number);
     if (a1 !== b1) { console.log("major"); process.exit(0); }
-    if (a2 !== b2) { console.log("minor"); process.exit(0); }
+    if (a2 !== b2) { console.log(a1 === 0 ? "minor-breaking" : "minor"); process.exit(0); }
     if (a3 !== b3) { console.log("patch"); process.exit(0); }
     console.log("equal");
   ' "$1" "$2" 2>/dev/null || echo "unknown"
@@ -88,6 +89,8 @@ if [ -n "$FOUND" ]; then
   if [ "$LAUNCHER_REAL" != "$FOUND_REAL" ]; then
     PATH_VERSION="$("$FOUND" --version 2>/dev/null | head -1 | tr -d '[:space:]' || true)"
     DIFF="$(compare_versions "$PINNED_VERSION" "$PATH_VERSION")"
+    # The pin is baked in at plugin build time, so npm update -g alone can never move a stale pin.
+    UPDATE_HINT="Update whichever is older: if $PATH_VERSION is older, run: npm update -g $PACKAGE_NAME; if $PINNED_VERSION is older, update this plugin in your host, since the pin ships inside the plugin. To resolve it either way right now, run: npm install -g $PACKAGE_NAME@$PINNED_VERSION"
 
     case "$DIFF" in
       equal|patch)
@@ -97,8 +100,11 @@ if [ -n "$FOUND" ]; then
         echo "ai-config-sync launcher: PATH binary $PATH_VERSION differs from launcher pin $PINNED_VERSION (minor); proceeding" >&2
         exec "$FOUND" "$@"
         ;;
+      minor-breaking)
+        abort "PATH binary $PATH_VERSION incompatible with launcher pin $PINNED_VERSION (minor differs below 1.0, where minor is the breaking slot). $UPDATE_HINT"
+        ;;
       major)
-        abort "PATH binary $PATH_VERSION incompatible with launcher pin $PINNED_VERSION (major). Run: npm update -g $PACKAGE_NAME"
+        abort "PATH binary $PATH_VERSION incompatible with launcher pin $PINNED_VERSION (major). $UPDATE_HINT"
         ;;
       *)
         echo "ai-config-sync launcher: unable to read --version from $FOUND ($PATH_VERSION); proceeding" >&2
