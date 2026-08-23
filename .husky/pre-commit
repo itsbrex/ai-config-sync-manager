@@ -1,7 +1,8 @@
 # Step 0: Guard against package.json version bumps outside main
 # Version bumps must be committed as a dedicated release commit on main.
 BRANCH=$(git branch --show-current)
-if [ "$BRANCH" != "main" ] && git diff --cached --name-only | grep -q "^package.json$"; then
+# `git branch --show-current` prints nothing on a detached HEAD, which must not read as "not main".
+if [ -n "$BRANCH" ] && [ "$BRANCH" != "main" ] && git diff --cached --name-only | grep -q "^package.json$"; then
   if git diff --cached package.json | grep -qE '^[+-][[:space:]]*"version":'; then
     echo ""
     echo "❌ package.json \"version\" change detected on branch '$BRANCH'."
