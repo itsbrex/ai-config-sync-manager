@@ -274,6 +274,84 @@ test("global MCP sync maps Codex bearer_token_env_var to Claude Authorization he
   assert.equal(report.entries.length, 0);
 });
 
+test("global MCP sync maps Codex http_headers_helper to Claude headersHelper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.sentry]",
+      'transport = "streamable_http"',
+      'url = "https://mcp.sentry.io"',
+      'http_headers_helper = "/usr/local/bin/mint-sentry-headers"',
+      "",
+    ].join("\n")
+  );
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+
+  assert.match(output, /merged MCP servers codex -> claude: sentry/);
+  assert.deepEqual(claude.mcpServers.sentry, {
+    type: "http",
+    url: "https://mcp.sentry.io",
+    headersHelper: "/usr/local/bin/mint-sentry-headers",
+  });
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(report.entries.length, 0);
+});
+
+test("global MCP sync maps Claude headersHelper to Codex http_headers_helper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: {
+        type: "http",
+        url: "https://mcp.sentry.io",
+        headersHelper: "/usr/local/bin/mint-sentry-headers",
+      },
+    },
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(output, /merged MCP servers claude -> codex: sentry/);
+  assert.match(config, /http_headers_helper = "\/usr\/local\/bin\/mint-sentry-headers"/);
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(report.entries.length, 0);
+});
+
 test("global MCP sync maps Claude Authorization header to Codex bearer_token_env_var", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
