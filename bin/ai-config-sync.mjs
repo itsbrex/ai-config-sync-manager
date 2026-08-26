@@ -5822,14 +5822,15 @@ function readCodexMcpServerDetails(path) {
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
-    const headersHelper = body.match(/^http_headers_helper\s*=\s*"([^"]*)"/m);
+    const headersHelper = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
-    if (headersHelper) server.headersHelper = headersHelper[1];
+    // renderCodexMcpServers writes this with JSON.stringify, so only parsing it back keeps escapes intact
+    if (headersHelper) server.headersHelper = parseJsonLike(headersHelper[1], "");
     servers[match[1]] = server;
   }
 
@@ -5869,14 +5870,15 @@ function readCodexMcpServers(path) {
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
-    const headersHelper = body.match(/^http_headers_helper\s*=\s*"([^"]*)"/m);
+    const headersHelper = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
-    if (headersHelper) server.headersHelper = headersHelper[1];
+    // renderCodexMcpServers writes this with JSON.stringify, so only parsing it back keeps escapes intact
+    if (headersHelper) server.headersHelper = parseJsonLike(headersHelper[1], "");
     servers[match[1]] = server;
   }
 
@@ -5924,7 +5926,7 @@ function normalizeMcpServerDetails(servers) {
               : {}),
             ...(bearerTokenEnvVar ? { bearerTokenEnvVar } : {}),
             ...(Object.keys(residualHeaders).length > 0 ? { headers: residualHeaders } : {}),
-            ...(typeof value.headersHelper === "string" && value.headersHelper
+            ...(typeof value.headersHelper === "string" && value.headersHelper.trim()
               ? { headersHelper: value.headersHelper }
               : {}),
           },
@@ -7328,6 +7330,7 @@ function mcpServerSignature(server) {
     env,
     bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
     headers,
+    headersHelper: server.headersHelper ?? null,
   });
 }
 

@@ -352,6 +352,125 @@ test("global MCP sync maps Claude headersHelper to Codex http_headers_helper", (
   assert.equal(report.entries.length, 0);
 });
 
+test("global MCP status reports a headersHelper that only one host has", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: {
+        type: "http",
+        url: "https://mcp.sentry.io",
+        headersHelper: "/usr/local/bin/mint-sentry-headers",
+      },
+    },
+  });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.sentry]",
+      'transport = "streamable_http"',
+      'url = "https://mcp.sentry.io"',
+      "",
+    ].join("\n")
+  );
+
+  const before = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(
+    before.entries.length,
+    1,
+    "a server present on both hosts must still report the headersHelper difference"
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /http_headers_helper = "\/usr\/local\/bin\/mint-sentry-headers"/);
+
+  const after = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(after.entries.length, 0);
+});
+
+test("global MCP sync round-trips a headersHelper containing quotes and backslashes", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const helper = 'sh -c "mint --path C:\\bin\\tok"';
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: { type: "http", url: "https://mcp.sentry.io", headersHelper: helper },
+    },
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  rmSync(join(fixture.home, ".claude.json"));
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+  assert.equal(claude.mcpServers.sentry.headersHelper, helper);
+});
+
+test("global MCP sync drops a whitespace-only headersHelper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    ["[mcp_servers.ws]", 'command = "ws-server"', 'http_headers_helper = "   "', ""].join("\n")
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:ws",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+  assert.deepEqual(claude.mcpServers.ws, { type: "stdio", command: "ws-server" });
+});
+
 test("global MCP sync maps Claude Authorization header to Codex bearer_token_env_var", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
