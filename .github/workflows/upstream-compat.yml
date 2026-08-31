@@ -2,8 +2,8 @@ name: Upstream compatibility snapshot
 
 "on":
   schedule:
-    # Fridays at 13:17 UTC (22:17 KST). The local notifier (com.aiconfigsync.compat) fires 4h43m
-    # later; GitHub has started this schedule up to 3h38m late, which a 30min gap never survived.
+    # Fridays at 13:17 UTC (22:17 KST). The local notifier (com.aiconfigsync.compat) fires 28h43m
+    # later; GitHub has started this schedule as late as 23:01 UTC, which a 4h43m gap never survived.
     - cron: "17 13 * * 5"
   workflow_dispatch:
 
