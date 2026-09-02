@@ -650,6 +650,28 @@
       "schema_desc_hash": "d6aada59d140",
       "recheck_after": "2026-11-22"
     },
+    "browser_use": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "e3b0c44298fc",
+      "recheck_after": "2027-02-27"
+    },
+    "computer_use": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "e3b0c44298fc",
+      "recheck_after": "2027-02-27"
+    },
     "desktop": {
       "reason": "Opaque desktop runtime object (additionalProperties:true); Codex itself does not track its inner shape.",
       "decided_in": "#5",
@@ -806,6 +828,76 @@
       "schema_desc_hash": "c310729c33d0",
       "recheck_after": "2027-02-22"
     },
+    "BrowserUseConfigToml.allow_history_access": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "BrowserUseConfigToml.default_origin_policy": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "BrowserUseConfigToml.origins": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "BrowserUseOriginPolicyConfigToml.access": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "BrowserUseOriginPolicyConfigToml.downloads": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "BrowserUseOriginPolicyConfigToml.full_cdp_access": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "BrowserUseOriginPolicyConfigToml.uploads": {
+      "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "CodeModeConfigToml.default_exec_yield_time_ms": {
       "reason": "Codex code-mode exec yield timeout; Claude has no code-mode execution model.",
       "decided_in": "#53",
@@ -849,6 +941,106 @@
       },
       "recheck_after": "2027-01-29"
     },
+    "ComputerUseConfigToml.default_app_access": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseConfigToml.macos": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseConfigToml.windows": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseMacosConfigToml.bundle_ids": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseWindowsConfigToml.aumids": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseWindowsConfigToml.exes": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseWindowsExeConfigToml.access": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseWindowsExeConfigToml.binary_name": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseWindowsExeConfigToml.product_name": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ComputerUseWindowsExeConfigToml.publisher_name": {
+      "reason": "Codex OS-level app-control policy (macOS bundle ids, Windows executables); Claude Code has no computer-control configuration surface.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "ConfigProfile.features.apply_patch_preserve_line_endings": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
       "decided_in": "#53",
@@ -879,6 +1071,26 @@
       },
       "recheck_after": "2027-02-22"
     },
+    "ConfigProfile.features.compaction_image_budget": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
+    "ConfigProfile.features.content_item_kinds": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "ConfigProfile.features.cwd_relative_turn_diffs": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
       "decided_in": "#53",
@@ -908,6 +1120,16 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-02-22"
+    },
+    "ConfigProfile.features.guardian_ext": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
     },
     "ConfigProfile.features.guardian_node_repl_transcript_images": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
@@ -959,6 +1181,16 @@
       },
       "recheck_after": "2027-02-22"
     },
+    "ConfigProfile.features.in_app_local_automation": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "ConfigProfile.features.psp": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
       "decided_in": "#53",
@@ -999,6 +1231,16 @@
       },
       "recheck_after": "2027-02-22"
     },
+    "ConfigProfile.features.shell_snapshot_v2": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "ConfigProfile.features.tool_registry": {
       "reason": "Codex tool-registry feature container; its only field is already dropped (see ToolRegistryConfigToml.error_on_tool_collisions).",
       "decided_in": "#50",
@@ -1008,6 +1250,16 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-02-11"
+    },
+    "ConfigProfile.features.transcript_v2": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
     },
     "ConfigProfile.features.unbounded_connection_retries": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
@@ -1181,6 +1433,16 @@
       },
       "recheck_after": "2027-02-22"
     },
+    "GuardianV2ConfigToml.reuse_parent_compaction": {
+      "reason": "Codex Guardian v2 review-classifier settings; Claude has no equivalent second-model review pass over tool calls.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "GuardianV2ConfigToml.review_scope": {
       "reason": "Codex Guardian v2 review-classifier settings; Claude has no equivalent second-model review pass over tool calls.",
       "decided_in": "#53",
@@ -1210,6 +1472,17 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-02-22"
+    },
+    "GuardianV2ReviewScopeConfigToml.computer_use_only": {
+      "reason": "Codex Guardian v2 review-classifier settings; Claude has no equivalent second-model review pass over tool calls.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "31eecc5ccf0e",
+      "recheck_after": "2027-02-27"
     },
     "GuardianV2ReviewScopeConfigToml.sandboxed_exec_commands": {
       "reason": "Codex Guardian v2 review-classifier settings; Claude has no equivalent second-model review pass over tool calls.",
@@ -1369,6 +1642,16 @@
       "schema_desc_hash": "3d17f2950f35",
       "recheck_after": "2027-01-29"
     },
+    "NetworkProxyConfigToml.credential_broker": {
+      "reason": "Codex network-proxy credential source; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-02-27"
+    },
     "NonPrefixedMcpToolNamesConfigToml.enabled": {
       "reason": "Lets Codex expose MCP tools without a server prefix; Claude always namespaces MCP tools as mcp__<server>__<tool> and cannot opt out.",
       "decided_in": "#45",
@@ -1419,6 +1702,17 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-01-02"
+    },
+    "OtelConfigToml.tool_result": {
+      "reason": "Codex OpenTelemetry tool-result log sizing; Claude exposes telemetry through OTEL_* env vars and otelHeadersHelper, neither of which carries a log byte budget.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "cdf85f487616",
+      "recheck_after": "2027-02-27"
     },
     "RawMcpServerConfig.auth": {
       "reason": "Codex MCP server auth/credentials; ai-config-sync maps MCP tool-approval only, never transport/auth. No cross-host sync.",
@@ -1578,6 +1872,17 @@
       "schema_desc_hash": "1b8616062e5e",
       "recheck_after": "2027-01-02"
     },
+    "TokenBudgetConfigToml.use_history_notes_extension": {
+      "reason": "Codex token-budget host feature; same family as TokenBudgetConfigToml.enabled (already allowlisted). No Claude equivalent.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "1ba1bd5bc0bd",
+      "recheck_after": "2027-02-27"
+    },
     "ToolRegistryConfigToml.error_on_tool_collisions": {
       "reason": "Codex turn-failure switch for duplicate effective tool names; Claude has no tool-registry collision policy.",
       "decided_in": "#50",
@@ -1599,6 +1904,17 @@
       },
       "schema_desc_hash": "dcbe78482fc5",
       "recheck_after": "2027-02-22"
+    },
+    "ToolResultLogConfig.max_bytes": {
+      "reason": "Codex tool-result log truncation budget; Claude has no tool-output log sizing setting.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "30952b801604",
+      "recheck_after": "2027-02-27"
     },
     "ToolsToml.update_plan": {
       "reason": "Enables the Codex update_plan tool; Claude plan mode is a session mode, not a toggleable tool.",
@@ -1676,6 +1992,39 @@
       "schema_desc_hash": "dc4a6190fa67",
       "recheck_after": "2027-02-22"
     },
+    "TuiChatKeymap.next_permission_mode": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "355227b424d1",
+      "recheck_after": "2027-02-27"
+    },
+    "TuiChatKeymap.previous_permission_mode": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "16b851a57daa",
+      "recheck_after": "2027-02-27"
+    },
+    "TuiChatKeymap.toggle_voice_mute": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "3b70613541ee",
+      "recheck_after": "2027-02-27"
+    },
     "TuiGlobalKeymap.open_agents": {
       "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
       "decided_in": "#53",
@@ -1707,6 +2056,17 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-02-22"
+    },
+    "TuiVimNormalKeymap.repeat_last_change": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#56",
+      "decided_at": "2026-08-31",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "8193a63014dd",
+      "recheck_after": "2027-02-27"
     },
     "TuiVimNormalKeymap.replace_char": {
       "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
