@@ -516,6 +516,159 @@ test("global MCP sync tells a multi-line literal http_headers_helper apart from 
   assert.match(config, /http_headers_helper = "\/usr\/local\/bin\/mint --header \\"X-Api: tok\\""/);
 });
 
+test("global MCP sync preserves literal and multi-line command, url, and bearer_token_env_var on servers it was not asked to touch", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const literalServer = [
+    "[mcp_servers.literal]",
+    "command = 'C:\\bin\\thing.exe'",
+    "url = 'https://mcp.literal.io/?q=a\\b'",
+    "bearer_token_env_var = 'LITERAL_TOKEN'",
+  ].join("\n");
+  const literalRewritten = [
+    "[mcp_servers.literal]",
+    'command = "C:\\\\bin\\\\thing.exe"',
+    'url = "https://mcp.literal.io/?q=a\\\\b"',
+    'bearer_token_env_var = "LITERAL_TOKEN"',
+  ].join("\n");
+  const multilineBasicServer = [
+    "[mcp_servers.mlbasic]",
+    'command = """',
+    "node --harmony",
+    '"""',
+    'url = """',
+    "https://mcp.mlbasic.io",
+    '"""',
+    'bearer_token_env_var = """',
+    "MLBASIC_TOKEN",
+    '"""',
+  ].join("\n");
+  const multilineLiteralServer = [
+    "[mcp_servers.mlliteral]",
+    "command = '''",
+    "C:\\bin\\thing.exe",
+    "'''",
+    "url = '''",
+    "https://mcp.mlliteral.io",
+    "'''",
+    "bearer_token_env_var = '''",
+    "MLLITERAL_TOKEN",
+    "'''",
+  ].join("\n");
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [literalServer, multilineBasicServer, multilineLiteralServer, ""].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { fresh: { type: "stdio", command: "node" } },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:fresh",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /\[mcp_servers\.fresh\]/);
+  assert.ok(config.includes(literalRewritten), `literal strings lost their values:\n${config}`);
+  assert.ok(
+    config.includes(multilineBasicServer),
+    `multi-line basic strings were not preserved verbatim:\n${config}`
+  );
+  assert.ok(
+    config.includes(multilineLiteralServer),
+    `multi-line literal strings were not preserved verbatim:\n${config}`
+  );
+});
+
+test("global MCP sync reads a literal Codex command into a Claude stdio server with its backslashes intact", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    ["[mcp_servers.winpath]", "command = 'C:\\bin\\thing.exe'", 'args = ["--serve"]', ""].join("\n")
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:winpath",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+
+  assert.deepEqual(claude.mcpServers.winpath, {
+    type: "stdio",
+    command: "C:\\bin\\thing.exe",
+    args: ["--serve"],
+  });
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:winpath", "--json"])
+  );
+  assert.equal(report.entries.length, 0);
+});
+
+test("global MCP sync keeps a multi-line basic Codex command in the Codex config and out of Claude", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const multiline = '"""\nnode --harmony\n"""';
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    ["[mcp_servers.mlbasic]", `command = ${multiline}`, 'args = ["server.js"]', ""].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { fresh: { type: "stdio", command: "node" } },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:fresh",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:mlbasic",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+
+  assert.ok(
+    config.includes(`command = ${multiline}`),
+    `multi-line basic command was not preserved verbatim:\n${config}`
+  );
+  assert.deepEqual(claude.mcpServers.mlbasic, { args: ["server.js"] });
+});
+
 test("global MCP sync maps Claude headersHelper to Codex http_headers_helper", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });

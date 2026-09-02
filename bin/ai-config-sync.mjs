@@ -39,6 +39,13 @@ const LEGACY_SKILL_MANIFEST = "skill.md";
 const DEFAULT_SKILL_MANIFEST = "SKILL.md";
 const SKILL_MANIFEST_BASENAME_PATTERN = /^[A-Za-z0-9._-]+$/;
 const CODEX_MARKETPLACE_NAME = "local-plugins";
+// Reader and renderer share this list so a field can never be parsed in one and dropped in the other.
+const CODEX_MCP_STRING_FIELDS = [
+  ["command", "command"],
+  ["url", "url"],
+  ["bearerTokenEnvVar", "bearer_token_env_var"],
+  ["headersHelper", "http_headers_helper"],
+];
 const runtimePackage = readRuntimePackage();
 
 /**
@@ -5817,18 +5824,14 @@ function readCodexMcpServerDetails(path) {
   for (const match of text.matchAll(tablePattern)) {
     const server = {};
     const body = match[2];
-    const command = body.match(/^command\s*=\s*"([^"]*)"/m);
-    const url = body.match(/^url\s*=\s*"([^"]*)"/m);
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
-    const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
 
-    if (command) server.command = command[1];
-    if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
-    if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
-    assignCodexHeadersHelper(server, body);
+    for (const [field, tomlKey] of CODEX_MCP_STRING_FIELDS) {
+      assignCodexTomlString(server, body, tomlKey, field);
+    }
     servers[match[1]] = server;
   }
 
@@ -5863,37 +5866,35 @@ function readCodexMcpServers(path) {
   for (const match of text.matchAll(tablePattern)) {
     const server = {};
     const body = match[2];
-    const command = body.match(/^command\s*=\s*"([^"]*)"/m);
-    const url = body.match(/^url\s*=\s*"([^"]*)"/m);
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
-    const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
 
-    if (command) server.command = command[1];
-    if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
-    if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
-    assignCodexHeadersHelper(server, body);
+    for (const [field, tomlKey] of CODEX_MCP_STRING_FIELDS) {
+      assignCodexTomlString(server, body, tomlKey, field);
+    }
     servers[match[1]] = server;
   }
 
   return normalizeMcpServers(servers);
 }
 
-// JSON.parse reads only one of TOML's three string forms, and decoding the others to "" deleted them.
-function readCodexHeadersHelper(body) {
-  const multiline = body.match(/^http_headers_helper\s*=\s*("""[\s\S]*?""")/m);
+// JSON.parse reads only one of TOML's four string forms, and decoding the others to "" deleted them.
+function readCodexTomlString(body, key) {
+  // Escapes and the line-ending backslash make this form the one we still cannot decode.
+  const multiline = body.match(new RegExp(`^${key}\\s*=\\s*("""[\\s\\S]*?""")`, "m"));
   if (multiline) return { raw: multiline[1] };
 
   // ''' comes first: the single-line literal regex reads its leading '' as an empty value.
-  const multilineLiteral = body.match(/^http_headers_helper\s*=\s*('''[\s\S]*?''')/m);
-  if (multilineLiteral) return { raw: multilineLiteral[1] };
+  const multilineLiteral = body.match(new RegExp(`^${key}\\s*=\\s*('''[\\s\\S]*?''')`, "m"));
+  if (multilineLiteral)
+    return { value: decodeTomlMultilineLiteral(multilineLiteral[1]), raw: multilineLiteral[1] };
 
-  const literal = body.match(/^http_headers_helper\s*=\s*('[^']*')/m);
+  const literal = body.match(new RegExp(`^${key}\\s*=\\s*('[^']*')`, "m"));
   if (literal) return { value: literal[1].slice(1, -1) };
 
-  const basic = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
+  const basic = body.match(new RegExp(`^${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*")`, "m"));
   if (!basic) return {};
   try {
     return { value: JSON.parse(basic[1]) };
@@ -5902,10 +5903,15 @@ function readCodexHeadersHelper(body) {
   }
 }
 
-function assignCodexHeadersHelper(server, body) {
-  const { value, raw } = readCodexHeadersHelper(body);
-  if (typeof value === "string" && value.trim()) server.headersHelper = value;
-  if (raw) server.headersHelperRaw = raw;
+// TOML drops only the newline right after the opening delimiter; a literal has no escapes to undo.
+function decodeTomlMultilineLiteral(token) {
+  return token.slice(3, -3).replace(/^\r?\n/, "");
+}
+
+function assignCodexTomlString(server, body, tomlKey, field) {
+  const { value, raw } = readCodexTomlString(body, tomlKey);
+  if (typeof value === "string") server[field] = value;
+  if (raw) server.rawTomlTokens = { ...server.rawTomlTokens, [field]: raw };
 }
 
 function normalizeMcpServers(servers) {
@@ -5922,7 +5928,9 @@ function normalizeMcpServers(servers) {
           ? { headers: value.headers }
           : {}),
         ...(value.headersHelper ? { headersHelper: value.headersHelper } : {}),
-        ...(value.headersHelperRaw ? { headersHelperRaw: value.headersHelperRaw } : {}),
+        ...(value.rawTomlTokens && Object.keys(value.rawTomlTokens).length > 0
+          ? { rawTomlTokens: value.rawTomlTokens }
+          : {}),
       },
     ])
   );
@@ -5953,8 +5961,8 @@ function normalizeMcpServerDetails(servers) {
             ...(typeof value.headersHelper === "string" && value.headersHelper.trim()
               ? { headersHelper: value.headersHelper }
               : {}),
-            ...(typeof value.headersHelperRaw === "string" && value.headersHelperRaw.trim()
-              ? { headersHelperRaw: value.headersHelperRaw }
+            ...(value.rawTomlTokens && typeof value.rawTomlTokens === "object"
+              ? { rawTomlTokens: value.rawTomlTokens }
               : {}),
           },
         ];
@@ -6045,6 +6053,14 @@ function stripSecretsEnabled() {
   return typeof value === "string" && /^(1|true|yes)$/i.test(value.trim());
 }
 
+// Writing the author's own token back leaves a server the user never asked to touch byte-identical.
+function renderCodexMcpStringLine(server, field, tomlKey) {
+  const raw = server.rawTomlTokens?.[field];
+  if (raw) return `${tomlKey} = ${raw}`;
+  if (server[field]) return `${tomlKey} = ${JSON.stringify(server[field])}`;
+  return "";
+}
+
 function renderCodexMcpServers(servers) {
   const lines = [];
 
@@ -6052,13 +6068,10 @@ function renderCodexMcpServers(servers) {
     left.localeCompare(right)
   )) {
     lines.push(`[mcp_servers.${name}]`);
-    if (server.command) lines.push(`command = ${JSON.stringify(server.command)}`);
-    if (server.url) lines.push(`url = ${JSON.stringify(server.url)}`);
-    if (server.bearerTokenEnvVar)
-      lines.push(`bearer_token_env_var = ${JSON.stringify(server.bearerTokenEnvVar)}`);
-    if (server.headersHelperRaw) lines.push(`http_headers_helper = ${server.headersHelperRaw}`);
-    else if (server.headersHelper)
-      lines.push(`http_headers_helper = ${JSON.stringify(server.headersHelper)}`);
+    for (const [field, tomlKey] of CODEX_MCP_STRING_FIELDS) {
+      const line = renderCodexMcpStringLine(server, field, tomlKey);
+      if (line) lines.push(line);
+    }
     if (server.args?.length) lines.push(`args = ${JSON.stringify(server.args)}`);
     if (server.env && Object.keys(server.env).length > 0) {
       lines.push(
