@@ -5489,14 +5489,14 @@ function deleteCodexMcpServers(targetPath, serverNames) {
 
   for (const name of serverNames) {
     const serverPattern = new RegExp(
-      `^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[mcp_servers\\.|(?![\\s\\S]))`,
+      `^\\[mcp_servers\\.${escapeRegExp(name)}\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
       "gm"
     );
-    const toolsPattern = new RegExp(
-      `^\\[mcp_servers\\.${escapeRegExp(name)}\\.tools\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
+    const subTablePattern = new RegExp(
+      `^\\[mcp_servers\\.${escapeRegExp(name)}\\.[^\\]]+\\]\\n[\\s\\S]*?(?=^\\[|(?![\\s\\S]))`,
       "gm"
     );
-    nextText = nextText.replace(serverPattern, "").replace(toolsPattern, "");
+    nextText = nextText.replace(serverPattern, "").replace(subTablePattern, "");
   }
 
   writeFileSync(targetPath, nextText.replace(/\n{3,}/g, "\n\n").replace(/\s*$/, "\n"));
@@ -5812,7 +5812,7 @@ function readCodexMcpServerDetails(path) {
   }
   const text = readFileSync(path, "utf8");
   const servers = {};
-  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[mcp_servers\.|(?![\s\S]))/gm;
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
     const server = {};
@@ -5822,15 +5822,13 @@ function readCodexMcpServerDetails(path) {
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
-    const headersHelper = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
-    // renderCodexMcpServers writes this with JSON.stringify, so only parsing it back keeps escapes intact
-    if (headersHelper) server.headersHelper = parseJsonLike(headersHelper[1], "");
+    assignCodexHeadersHelper(server, body);
     servers[match[1]] = server;
   }
 
@@ -5860,7 +5858,7 @@ function readCodexMcpServers(path) {
   }
   const text = readFileSync(path, "utf8");
   const servers = {};
-  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[mcp_servers\.|(?![\s\S]))/gm;
+  const tablePattern = /^\[mcp_servers\.([^\].]+)\]\n([\s\S]*?)(?=^\[|(?![\s\S]))/gm;
 
   for (const match of text.matchAll(tablePattern)) {
     const server = {};
@@ -5870,19 +5868,40 @@ function readCodexMcpServers(path) {
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
-    const headersHelper = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
-    // renderCodexMcpServers writes this with JSON.stringify, so only parsing it back keeps escapes intact
-    if (headersHelper) server.headersHelper = parseJsonLike(headersHelper[1], "");
+    assignCodexHeadersHelper(server, body);
     servers[match[1]] = server;
   }
 
   return normalizeMcpServers(servers);
+}
+
+// JSON.parse reads only one of TOML's three string forms, and decoding the others to "" deleted them.
+function readCodexHeadersHelper(body) {
+  const multiline = body.match(/^http_headers_helper\s*=\s*("""[\s\S]*?""")/m);
+  if (multiline) return { raw: multiline[1] };
+
+  const literal = body.match(/^http_headers_helper\s*=\s*('[^']*')/m);
+  if (literal) return { value: literal[1].slice(1, -1) };
+
+  const basic = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
+  if (!basic) return {};
+  try {
+    return { value: JSON.parse(basic[1]) };
+  } catch {
+    return { raw: basic[1] };
+  }
+}
+
+function assignCodexHeadersHelper(server, body) {
+  const { value, raw } = readCodexHeadersHelper(body);
+  if (typeof value === "string" && value.trim()) server.headersHelper = value;
+  if (raw) server.headersHelperRaw = raw;
 }
 
 function normalizeMcpServers(servers) {
@@ -5899,6 +5918,7 @@ function normalizeMcpServers(servers) {
           ? { headers: value.headers }
           : {}),
         ...(value.headersHelper ? { headersHelper: value.headersHelper } : {}),
+        ...(value.headersHelperRaw ? { headersHelperRaw: value.headersHelperRaw } : {}),
       },
     ])
   );
@@ -5928,6 +5948,9 @@ function normalizeMcpServerDetails(servers) {
             ...(Object.keys(residualHeaders).length > 0 ? { headers: residualHeaders } : {}),
             ...(typeof value.headersHelper === "string" && value.headersHelper.trim()
               ? { headersHelper: value.headersHelper }
+              : {}),
+            ...(typeof value.headersHelperRaw === "string" && value.headersHelperRaw.trim()
+              ? { headersHelperRaw: value.headersHelperRaw }
               : {}),
           },
         ];
@@ -6026,11 +6049,11 @@ function renderCodexMcpServers(servers) {
   )) {
     lines.push(`[mcp_servers.${name}]`);
     if (server.command) lines.push(`command = ${JSON.stringify(server.command)}`);
-    if (server.url) lines.push('transport = "streamable_http"');
     if (server.url) lines.push(`url = ${JSON.stringify(server.url)}`);
     if (server.bearerTokenEnvVar)
       lines.push(`bearer_token_env_var = ${JSON.stringify(server.bearerTokenEnvVar)}`);
-    if (server.headersHelper)
+    if (server.headersHelperRaw) lines.push(`http_headers_helper = ${server.headersHelperRaw}`);
+    else if (server.headersHelper)
       lines.push(`http_headers_helper = ${JSON.stringify(server.headersHelper)}`);
     if (server.args?.length) lines.push(`args = ${JSON.stringify(server.args)}`);
     if (server.env && Object.keys(server.env).length > 0) {

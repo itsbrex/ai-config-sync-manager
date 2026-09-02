@@ -315,6 +315,128 @@ test("global MCP sync maps Codex http_headers_helper to Claude headersHelper", (
   assert.equal(report.entries.length, 0);
 });
 
+test("global MCP delete removes the server's sub-tables and leaves later sections intact", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "# BEGIN ai-config-sync mcp-servers",
+      "[mcp_servers.keepme]",
+      'command = "keep"',
+      "[mcp_servers.node_repl]",
+      'command = "node-repl"',
+      "[mcp_servers.node_repl.env]",
+      'NODE_REPL_NODE_PATH = "/usr/bin/node"',
+      "# END ai-config-sync mcp-servers",
+      "",
+      "[features]",
+      "hooks = true",
+      "",
+    ].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { keepme: { type: "stdio", command: "keep" } },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:node_repl",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.doesNotMatch(config, /\[mcp_servers\.node_repl\]/);
+  assert.doesNotMatch(config, /\[mcp_servers\.node_repl\.env\]/);
+  assert.doesNotMatch(config, /NODE_REPL_NODE_PATH/);
+  assert.match(config, /\[mcp_servers\.keepme\]/);
+  assert.match(config, /\[features\]/);
+  assert.match(config, /hooks = true/);
+});
+
+test("global MCP sync reads a single-quoted Codex http_headers_helper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.sentry]",
+      'url = "https://mcp.sentry.io"',
+      "http_headers_helper = '/usr/local/bin/mint --header \"X-Api: tok\"'",
+      "",
+    ].join("\n")
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+
+  assert.deepEqual(claude.mcpServers.sentry, {
+    type: "http",
+    url: "https://mcp.sentry.io",
+    headersHelper: '/usr/local/bin/mint --header "X-Api: tok"',
+  });
+});
+
+test("global MCP sync preserves an undecodable http_headers_helper on a server it was not asked to touch", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const multiline = '"""\nmint --emoji\n"""';
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.bystander]",
+      'url = "https://mcp.bystander.io"',
+      `http_headers_helper = ${multiline}`,
+      "[mcp_servers.escaped]",
+      'url = "https://mcp.escaped.io"',
+      'http_headers_helper = "mint \\U0001F600"',
+      "",
+    ].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { fresh: { type: "stdio", command: "node" } },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:fresh",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /\[mcp_servers\.fresh\]/);
+  assert.ok(
+    config.includes(`http_headers_helper = ${multiline}`),
+    `multi-line helper was not preserved verbatim:\n${config}`
+  );
+  assert.match(config, /http_headers_helper = "mint \\U0001F600"/);
+});
+
 test("global MCP sync maps Claude headersHelper to Codex http_headers_helper", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
@@ -501,7 +623,7 @@ test("global MCP sync maps Claude Authorization header to Codex bearer_token_env
 
   assert.match(output, /merged MCP servers claude -> codex: sentry/);
   assert.match(config, /\[mcp_servers\.sentry\]/);
-  assert.match(config, /transport = "streamable_http"/);
+  assert.doesNotMatch(config, /transport = /);
   assert.match(config, /url = "https:\/\/mcp\.sentry\.io"/);
   assert.match(config, /bearer_token_env_var = "SENTRY_AUTH_TOKEN"/);
 
@@ -6915,7 +7037,7 @@ async function runLauncherAgainstVersionStub({ fixture, pinnedVersion, stubVersi
   return spawnSync("bash", [launcher, "hello"], { encoding: "utf8", env });
 }
 
-test("host-launcher aborts when the PATH binary differs by minor below 1.0", async () => {
+test("host-launcher skips the PATH binary and falls back when it differs by minor below 1.0", async () => {
   const fixture = createFixture();
   const run = await runLauncherAgainstVersionStub({
     fixture,
@@ -6923,9 +7045,21 @@ test("host-launcher aborts when the PATH binary differs by minor below 1.0", asy
     stubVersion: "0.2.0",
   });
 
-  assert.notEqual(run.status, 0, `expected abort, got stdout: ${run.stdout}`);
   assert.match(run.stderr, /0\.2\.0 incompatible with launcher pin 0\.1\.0/);
   assert.match(run.stderr, /minor differs below 1\.0/);
+  assert.match(run.stderr, /falling back to the pinned version/);
+  assert.doesNotMatch(run.stdout, /STUB_RAN/);
+});
+
+test("host-launcher skips the PATH binary when it is a prerelease of the pin", async () => {
+  const fixture = createFixture();
+  const run = await runLauncherAgainstVersionStub({
+    fixture,
+    pinnedVersion: "0.2.0",
+    stubVersion: "0.2.0-beta.1",
+  });
+
+  assert.match(run.stderr, /0\.2\.0-beta\.1 is a prerelease of launcher pin 0\.2\.0/);
   assert.doesNotMatch(run.stdout, /STUB_RAN/);
 });
 
