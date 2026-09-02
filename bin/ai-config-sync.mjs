@@ -5886,6 +5886,10 @@ function readCodexHeadersHelper(body) {
   const multiline = body.match(/^http_headers_helper\s*=\s*("""[\s\S]*?""")/m);
   if (multiline) return { raw: multiline[1] };
 
+  // ''' comes first: the single-line literal regex reads its leading '' as an empty value.
+  const multilineLiteral = body.match(/^http_headers_helper\s*=\s*('''[\s\S]*?''')/m);
+  if (multilineLiteral) return { raw: multilineLiteral[1] };
+
   const literal = body.match(/^http_headers_helper\s*=\s*('[^']*')/m);
   if (literal) return { value: literal[1].slice(1, -1) };
 

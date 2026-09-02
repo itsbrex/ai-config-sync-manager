@@ -437,6 +437,85 @@ test("global MCP sync preserves an undecodable http_headers_helper on a server i
   assert.match(config, /http_headers_helper = "mint \\U0001F600"/);
 });
 
+test("global MCP sync preserves a multi-line literal http_headers_helper on a server it was not asked to touch", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const multilineLiteral = "'''\nmint --header 'X-Api: tok'\n'''";
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.bystander]",
+      'url = "https://mcp.bystander.io"',
+      `http_headers_helper = ${multilineLiteral}`,
+      "",
+    ].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { fresh: { type: "stdio", command: "node" } },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:fresh",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /\[mcp_servers\.fresh\]/);
+  assert.ok(
+    config.includes(`http_headers_helper = ${multilineLiteral}`),
+    `multi-line literal helper was not preserved verbatim:\n${config}`
+  );
+});
+
+test("global MCP sync tells a multi-line literal http_headers_helper apart from a single-line one in the same config", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const multilineLiteral = "'''\nmint --emoji\n'''";
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.bystander]",
+      'url = "https://mcp.bystander.io"',
+      `http_headers_helper = ${multilineLiteral}`,
+      "[mcp_servers.literal]",
+      'url = "https://mcp.literal.io"',
+      "http_headers_helper = '/usr/local/bin/mint --header \"X-Api: tok\"'",
+      "",
+    ].join("\n")
+  );
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: { fresh: { type: "stdio", command: "node" } },
+  });
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:fresh",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.ok(
+    config.includes(`http_headers_helper = ${multilineLiteral}`),
+    `multi-line literal helper was not preserved verbatim:\n${config}`
+  );
+  assert.match(config, /http_headers_helper = "\/usr\/local\/bin\/mint --header \\"X-Api: tok\\""/);
+});
+
 test("global MCP sync maps Claude headersHelper to Codex http_headers_helper", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
