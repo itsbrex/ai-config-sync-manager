@@ -17,7 +17,7 @@ import { dirname } from "node:path";
 //
 // Version compare policy (§6.2):
 //   equal/patch -> ignore, minor -> warn, unparsable -> warn, major -> abort.
-//   A 0.x minor diff aborts too: npm caret reads ^0.1.2 as <0.2.0, so minor is the breaking slot below 1.0.
+//   A 0.x minor diff and a prerelease tag skip the PATH binary for the pin: npm reads ^0.1.2 as <0.2.0 and rejects 0.2.0-beta.1 for ^0.2.0.
 /**
  * @param {string} targetPath - Absolute path of the launcher script to write
  * @param {string} host - "claude" or "codex"; injected as AI_CONFIG_SYNC_HOST default
