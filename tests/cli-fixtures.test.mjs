@@ -274,6 +274,203 @@ test("global MCP sync maps Codex bearer_token_env_var to Claude Authorization he
   assert.equal(report.entries.length, 0);
 });
 
+test("global MCP sync maps Codex http_headers_helper to Claude headersHelper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.sentry]",
+      'transport = "streamable_http"',
+      'url = "https://mcp.sentry.io"',
+      'http_headers_helper = "/usr/local/bin/mint-sentry-headers"',
+      "",
+    ].join("\n")
+  );
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+
+  assert.match(output, /merged MCP servers codex -> claude: sentry/);
+  assert.deepEqual(claude.mcpServers.sentry, {
+    type: "http",
+    url: "https://mcp.sentry.io",
+    headersHelper: "/usr/local/bin/mint-sentry-headers",
+  });
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(report.entries.length, 0);
+});
+
+test("global MCP sync maps Claude headersHelper to Codex http_headers_helper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: {
+        type: "http",
+        url: "https://mcp.sentry.io",
+        headersHelper: "/usr/local/bin/mint-sentry-headers",
+      },
+    },
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  const output = runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(output, /merged MCP servers claude -> codex: sentry/);
+  assert.match(config, /http_headers_helper = "\/usr\/local\/bin\/mint-sentry-headers"/);
+
+  const report = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(report.entries.length, 0);
+});
+
+test("global MCP status reports a headersHelper that only one host has", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: {
+        type: "http",
+        url: "https://mcp.sentry.io",
+        headersHelper: "/usr/local/bin/mint-sentry-headers",
+      },
+    },
+  });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    [
+      "[mcp_servers.sentry]",
+      'transport = "streamable_http"',
+      'url = "https://mcp.sentry.io"',
+      "",
+    ].join("\n")
+  );
+
+  const before = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(
+    before.entries.length,
+    1,
+    "a server present on both hosts must still report the headersHelper difference"
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  const config = readFileSync(join(fixture.home, ".codex/config.toml"), "utf8");
+
+  assert.match(config, /http_headers_helper = "\/usr\/local\/bin\/mint-sentry-headers"/);
+
+  const after = JSON.parse(
+    runCli(fixture, ["status", "--scope", "global", "--include", "mcp:sentry", "--json"])
+  );
+  assert.equal(after.entries.length, 0);
+});
+
+test("global MCP sync round-trips a headersHelper containing quotes and backslashes", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  const helper = 'sh -c "mint --path C:\\bin\\tok"';
+  writeJson(join(fixture.home, ".claude.json"), {
+    mcpServers: {
+      sentry: { type: "http", url: "https://mcp.sentry.io", headersHelper: helper },
+    },
+  });
+  writeFileSync(join(fixture.home, ".codex/config.toml"), "");
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "claude",
+    "--to",
+    "codex",
+    "--apply",
+  ]);
+  rmSync(join(fixture.home, ".claude.json"));
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:sentry",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+  assert.equal(claude.mcpServers.sentry.headersHelper, helper);
+});
+
+test("global MCP sync drops a whitespace-only headersHelper", () => {
+  const fixture = createFixture();
+  mkdirSync(join(fixture.home, ".codex"), { recursive: true });
+  writeFileSync(
+    join(fixture.home, ".codex/config.toml"),
+    ["[mcp_servers.ws]", 'command = "ws-server"', 'http_headers_helper = "   "', ""].join("\n")
+  );
+
+  runCli(fixture, [
+    "sync",
+    "--scope",
+    "global",
+    "--include",
+    "mcp:ws",
+    "--from",
+    "codex",
+    "--to",
+    "claude",
+    "--apply",
+  ]);
+
+  const claude = JSON.parse(readFileSync(join(fixture.home, ".claude.json"), "utf8"));
+  assert.deepEqual(claude.mcpServers.ws, { type: "stdio", command: "ws-server" });
+});
+
 test("global MCP sync maps Claude Authorization header to Codex bearer_token_env_var", () => {
   const fixture = createFixture();
   mkdirSync(join(fixture.home, ".codex"), { recursive: true });
@@ -6692,6 +6889,56 @@ test("host-launcher delegates to PATH binary discovered after self-exclude", asy
   const env = { PATH: `${stubDir}:/usr/bin:/bin`, HOME: fixture.home };
   const run = spawnSync("bash", [launcher, "hello"], { encoding: "utf8", env });
   assert.equal(run.status, 0, `unexpected exit: ${run.stderr}`);
+  assert.match(run.stdout, /STUB_RAN:hello/);
+});
+
+async function runLauncherAgainstVersionStub({ fixture, pinnedVersion, stubVersion }) {
+  const stubDir = join(fixture.root, "stub");
+  mkdirSync(stubDir, { recursive: true });
+  const stub = join(stubDir, "ai-config-sync");
+  writeFileSync(
+    stub,
+    `#!/usr/bin/env bash\nif [ "\${1:-}" = "--version" ]; then echo "${stubVersion}"; exit 0; fi\necho "STUB_RAN:\${1:-}"\n`
+  );
+  chmodSync(stub, 0o755);
+
+  const launcherDir = join(fixture.root, "launcher");
+  mkdirSync(launcherDir, { recursive: true });
+  const { writeHostLauncher } = await import(
+    fileURLToPath(new URL("../scripts/lib/host-launcher.mjs", import.meta.url))
+  );
+  const launcher = join(launcherDir, "launcher.sh");
+  writeHostLauncher(launcher, "claude", { pinnedVersion, packageName: "ai-config-sync-manager" });
+
+  // compare_versions shells out to node, which the minimal PATH of the other launcher tests omits.
+  const env = { PATH: `${stubDir}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: fixture.home };
+  return spawnSync("bash", [launcher, "hello"], { encoding: "utf8", env });
+}
+
+test("host-launcher aborts when the PATH binary differs by minor below 1.0", async () => {
+  const fixture = createFixture();
+  const run = await runLauncherAgainstVersionStub({
+    fixture,
+    pinnedVersion: "0.1.0",
+    stubVersion: "0.2.0",
+  });
+
+  assert.notEqual(run.status, 0, `expected abort, got stdout: ${run.stdout}`);
+  assert.match(run.stderr, /0\.2\.0 incompatible with launcher pin 0\.1\.0/);
+  assert.match(run.stderr, /minor differs below 1\.0/);
+  assert.doesNotMatch(run.stdout, /STUB_RAN/);
+});
+
+test("host-launcher warns but delegates when the PATH binary differs by minor at 1.x", async () => {
+  const fixture = createFixture();
+  const run = await runLauncherAgainstVersionStub({
+    fixture,
+    pinnedVersion: "1.1.0",
+    stubVersion: "1.2.0",
+  });
+
+  assert.equal(run.status, 0, `unexpected exit: ${run.stderr}`);
+  assert.match(run.stderr, /1\.2\.0 differs from launcher pin 1\.1\.0 \(minor\); proceeding/);
   assert.match(run.stdout, /STUB_RAN:hello/);
 });
 

@@ -5755,6 +5755,10 @@ function mcpServerChanges(source, target) {
     );
   }
 
+  if (source.headersHelper && source.headersHelper !== target?.headersHelper) {
+    changes.push(`http_headers_helper: ${fmt(source.headersHelper, target?.headersHelper)}`);
+  }
+
   if (source.args?.length && JSON.stringify(source.args) !== JSON.stringify(target?.args ?? [])) {
     changes.push(`args: ${fmt(source.args, target?.args ?? [])}`);
   }
@@ -5818,12 +5822,15 @@ function readCodexMcpServerDetails(path) {
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
+    const headersHelper = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
+    // renderCodexMcpServers writes this with JSON.stringify, so only parsing it back keeps escapes intact
+    if (headersHelper) server.headersHelper = parseJsonLike(headersHelper[1], "");
     servers[match[1]] = server;
   }
 
@@ -5863,12 +5870,15 @@ function readCodexMcpServers(path) {
     const args = body.match(/^args\s*=\s*(\[.*\])/m);
     const env = body.match(/^env\s*=\s*(\{.*\})/m);
     const bearerTokenEnvVar = body.match(/^bearer_token_env_var\s*=\s*"([^"]*)"/m);
+    const headersHelper = body.match(/^http_headers_helper\s*=\s*("(?:[^"\\]|\\.)*")/m);
 
     if (command) server.command = command[1];
     if (url) server.url = url[1];
     if (args) server.args = parseJsonLike(args[1], []);
     if (env) server.env = parseInlineTomlObject(env[1]);
     if (bearerTokenEnvVar) server.bearerTokenEnvVar = bearerTokenEnvVar[1];
+    // renderCodexMcpServers writes this with JSON.stringify, so only parsing it back keeps escapes intact
+    if (headersHelper) server.headersHelper = parseJsonLike(headersHelper[1], "");
     servers[match[1]] = server;
   }
 
@@ -5888,6 +5898,7 @@ function normalizeMcpServers(servers) {
         ...(value.headers && Object.keys(value.headers).length > 0
           ? { headers: value.headers }
           : {}),
+        ...(value.headersHelper ? { headersHelper: value.headersHelper } : {}),
       },
     ])
   );
@@ -5915,6 +5926,9 @@ function normalizeMcpServerDetails(servers) {
               : {}),
             ...(bearerTokenEnvVar ? { bearerTokenEnvVar } : {}),
             ...(Object.keys(residualHeaders).length > 0 ? { headers: residualHeaders } : {}),
+            ...(typeof value.headersHelper === "string" && value.headersHelper.trim()
+              ? { headersHelper: value.headersHelper }
+              : {}),
           },
         ];
       })
@@ -5971,6 +5985,7 @@ function mcpServerForClaude(server) {
     ...(server.args?.length ? { args: server.args } : {}),
     ...(server.env && Object.keys(server.env).length > 0 ? { env: server.env } : {}),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
+    ...(server.headersHelper ? { headersHelper: server.headersHelper } : {}),
   };
 }
 
@@ -6015,6 +6030,8 @@ function renderCodexMcpServers(servers) {
     if (server.url) lines.push(`url = ${JSON.stringify(server.url)}`);
     if (server.bearerTokenEnvVar)
       lines.push(`bearer_token_env_var = ${JSON.stringify(server.bearerTokenEnvVar)}`);
+    if (server.headersHelper)
+      lines.push(`http_headers_helper = ${JSON.stringify(server.headersHelper)}`);
     if (server.args?.length) lines.push(`args = ${JSON.stringify(server.args)}`);
     if (server.env && Object.keys(server.env).length > 0) {
       lines.push(
@@ -7313,6 +7330,7 @@ function mcpServerSignature(server) {
     env,
     bearerTokenEnvVar: server.bearerTokenEnvVar ?? null,
     headers,
+    headersHelper: server.headersHelper ?? null,
   });
 }
 
