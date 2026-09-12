@@ -89,16 +89,24 @@
         "claude": {
           "alias": "fable",
           "terms": [
+            "claude-fable-5-1",
             "claude-fable-5",
             "fable(latest)",
+            "Claude Fable 5.1",
             "Claude Fable 5",
+            "Fable 5.1",
             "Fable 5",
             "Fable"
           ]
         },
         "codex": {
-          "alias": "gpt-5.6-sol",
+          "alias": "gpt-6-astra",
           "terms": [
+            "gpt-6-astra-pro",
+            "gpt-5.6-sol",
+            "GPT-6 Astra Pro",
+            "GPT-6 Astra",
+            "GPT-6-Astra",
             "GPT-5.6 Sol",
             "GPT-5.6-Sol"
           ]

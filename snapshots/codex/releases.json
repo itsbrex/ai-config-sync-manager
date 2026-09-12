@@ -1,27 +1,27 @@
 [
   {
-    "body": "Release 0.151.0-alpha.11\n\n",
-    "published_at": "2026-08-28T21:28:20Z",
-    "tag_name": "rust-v0.151.0-alpha.11"
+    "body": "Release 0.155.0-alpha.3.10\n\n",
+    "published_at": "2026-09-11T15:52:58Z",
+    "tag_name": "rust-v0.155.0-alpha.3.10"
   },
   {
-    "body": "Release 0.151.0-alpha.7.1\n\n",
-    "published_at": "2026-08-28T20:18:38Z",
-    "tag_name": "rust-v0.151.0-alpha.7.1"
+    "body": "Release 0.155.0-alpha.3.9\n\n",
+    "published_at": "2026-09-11T11:51:30Z",
+    "tag_name": "rust-v0.155.0-alpha.3.9"
   },
   {
-    "body": "Release 0.151.0-alpha.10\n\n",
-    "published_at": "2026-08-28T16:59:16Z",
-    "tag_name": "rust-v0.151.0-alpha.10"
+    "body": "Release 0.155.0-alpha.3.8\n\n",
+    "published_at": "2026-09-11T09:18:04Z",
+    "tag_name": "rust-v0.155.0-alpha.3.8"
   },
   {
-    "body": "Release 0.151.0-alpha.9\n\n",
-    "published_at": "2026-08-28T15:32:32Z",
-    "tag_name": "rust-v0.151.0-alpha.9"
+    "body": "Release 0.155.0-alpha.3.7\n\n",
+    "published_at": "2026-09-11T07:58:14Z",
+    "tag_name": "rust-v0.155.0-alpha.3.7"
   },
   {
-    "body": "Release 0.151.0-alpha.8\n\n",
-    "published_at": "2026-08-28T04:42:54Z",
-    "tag_name": "rust-v0.151.0-alpha.8"
+    "body": "Release 0.155.0-alpha.3\n\n",
+    "published_at": "2026-09-11T02:35:52Z",
+    "tag_name": "rust-v0.155.0-alpha.3"
   }
 ]
