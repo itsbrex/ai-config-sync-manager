@@ -89,6 +89,31 @@ test("apply copies SKILL.md frontmatter intact (golden)", () => {
   });
 });
 
+test("apply keeps SKILL.md boolean frontmatter unquoted (golden)", () => {
+  withFixture("skills-boolean-frontmatter", (fixture) => {
+    const specs = [{ area: "skills", variant: "boolean-frontmatter" }];
+    layCodexHome(fixture.home, specs);
+    const beforeSnapshot = snapshotTree(fixture.home);
+
+    const result = applySkills(fixture);
+    assert.equal(result.status, 0, `apply failed: ${result.output}`);
+
+    layExpectedClaude(fixture.expectedHome, specs);
+    assertGolden(fixture.home, fixture.expectedHome, { ignore: GOLDEN_IGNORE });
+
+    const claudeSkill = readFileSync(
+      join(fixture.home, ".claude", "skills", "hello", "SKILL.md"),
+      "utf8"
+    );
+    assert.match(claudeSkill, /^disable-model-invocation: true$/m);
+    assert.match(claudeSkill, /^interactive: false$/m);
+    assert.doesNotMatch(claudeSkill, /disable-model-invocation: "true"/);
+    assert.doesNotMatch(claudeSkill, /interactive: "false"/);
+
+    assertSourceUnchanged(fixture.home, beforeSnapshot);
+  });
+});
+
 test("symlinked skill is unsupported and not copied to target", () => {
   withFixture("skills-symlink-unsupported", (fixture) => {
     const specs = [{ area: "skills", variant: "symlink-unsupported" }];

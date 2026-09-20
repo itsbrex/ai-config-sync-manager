@@ -894,6 +894,39 @@
       "schema_desc_hash": "c310729c33d0",
       "recheck_after": "2027-02-22"
     },
+    "AwsCredentialExportConfig.args": {
+      "reason": "Codex AWS model-provider credential export command; Claude has no provider auth hook in settings.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "170c8d491a89",
+      "recheck_after": "2027-03-19"
+    },
+    "AwsCredentialExportConfig.command": {
+      "reason": "Codex AWS model-provider credential export command; Claude has no provider auth hook in settings.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "cef969aed715",
+      "recheck_after": "2027-03-19"
+    },
+    "AwsCredentialExportConfig.timeout_ms": {
+      "reason": "Codex AWS model-provider credential export command; Claude has no provider auth hook in settings.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "7837424c5feb",
+      "recheck_after": "2027-03-19"
+    },
     "BrowserUseConfigToml.allow_history_access": {
       "reason": "Codex per-origin browser-tool policy; Claude's nearest keys (browserExternalPageTools, disableBrowserExternalNavigation) are managed-only on/off switches for the desktop Browser pane, so a per-origin capability grant has no faithful target.",
       "decided_in": "#56",
@@ -1107,6 +1140,16 @@
       },
       "recheck_after": "2027-02-27"
     },
+    "ConfigProfile.features.api_key_model_discovery": {
+      "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
+    },
     "ConfigProfile.features.apply_patch_preserve_line_endings": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
       "decided_in": "#53",
@@ -1156,6 +1199,16 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-03-11"
+    },
+    "ConfigProfile.features.codex_apps_mcp_2026_07_28": {
+      "reason": "Codex per-profile feature toggle gating MCP protocol negotiation for hosted apps, not an MCP server definition; Claude has no per-profile feature flag table.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
     },
     "ConfigProfile.features.compaction_image_budget": {
       "reason": "Codex per-profile feature toggle; Claude has no per-profile feature flag table.",
@@ -1518,6 +1571,78 @@
       "schema_desc_hash": "3d5b41a077a8",
       "recheck_after": "2027-03-11"
     },
+    "CredentialProviderConfig.auth": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
+    },
+    "CredentialProviderConfig.env": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
+    },
+    "CredentialProviderConfig.header": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
+    },
+    "CredentialProviderConfig.patterns": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
+    },
+    "CredentialProviderConfig.prefix": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
+    },
+    "CredentialProviderConfig.url_prefix_from_env": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "d278110ef31b",
+      "recheck_after": "2027-03-19"
+    },
+    "CredentialProviderConfig.url_prefixes": {
+      "reason": "Codex network-proxy credential injection rule; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "33f9ca7fdc8c",
+      "recheck_after": "2027-03-19"
+    },
     "CurrentTimeReminderConfigToml.clock_source": {
       "reason": "Codex-internal current-time reminder injection; no Claude equivalent.",
       "decided_in": "#24",
@@ -1859,6 +1984,28 @@
       "schema_desc_hash": "58941eebfce8",
       "recheck_after": "2027-03-11"
     },
+    "MemoriesToml.dual_write": {
+      "reason": "Codex host-level memory pipeline switch; Claude memory is a per-agent frontmatter field with no pipeline version to select.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "f28018ea36e4",
+      "recheck_after": "2027-03-19"
+    },
+    "MemoriesToml.version": {
+      "reason": "Codex host-level memory pipeline switch; Claude memory is a per-agent frontmatter field with no pipeline version to select.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "2ecc651a396a",
+      "recheck_after": "2027-03-19"
+    },
     "ModelProviderAwsAuthInfo.auth_refresh": {
       "reason": "Codex AWS model-provider credential refresh command; Claude has no provider auth-refresh hook in settings.",
       "decided_in": "#53",
@@ -1869,6 +2016,17 @@
       },
       "schema_desc_hash": "d2fed0593f12",
       "recheck_after": "2027-02-22"
+    },
+    "ModelProviderAwsAuthInfo.credential_export": {
+      "reason": "Codex AWS model-provider credential export command; Claude has no provider auth hook in settings.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "66460b85a161",
+      "recheck_after": "2027-03-19"
     },
     "ModelProviderInfo.supports_standalone_web_search": {
       "reason": "Declares a Codex model provider capability; Claude exposes WebSearch as a tool, not a per-provider capability flag.",
@@ -1933,6 +2091,16 @@
         "codex_to_claude": "drop"
       },
       "recheck_after": "2027-02-27"
+    },
+    "NetworkProxyConfigToml.credentials": {
+      "reason": "Codex network-proxy credential source; Claude settings.json has no proxy configuration (proxying is env-driven via HTTPS_PROXY).",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "recheck_after": "2027-03-19"
     },
     "NonPrefixedMcpToolNamesConfigToml.enabled": {
       "reason": "Lets Codex expose MCP tools without a server prefix; Claude always namespaces MCP tools as mcp__<server>__<tool> and cannot opt out.",
@@ -2272,6 +2440,17 @@
       "schema_desc_hash": "09bac73e37da",
       "recheck_after": "2027-01-25"
     },
+    "Tui.show_server_version_notice": {
+      "reason": "Codex TUI notice toggle for older app-server builds; Claude has no equivalent settings key and no sync area covers plain settings keys.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "dac4a648ce27",
+      "recheck_after": "2027-03-19"
+    },
     "Tui.whimsy": {
       "reason": "Codex TUI decorative-effects toggle; Claude prefersReducedMotion only reduces motion and does not gate decorative effects.",
       "decided_in": "#60",
@@ -2282,6 +2461,39 @@
       },
       "schema_desc_hash": "f26a76625d44",
       "recheck_after": "2027-03-11"
+    },
+    "TuiAgentsKeymap.archive": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "2b095b95166c",
+      "recheck_after": "2027-03-19"
+    },
+    "TuiAgentsKeymap.delete": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "d4535123e111",
+      "recheck_after": "2027-03-19"
+    },
+    "TuiAgentsKeymap.hide": {
+      "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",
+      "decided_in": "#64",
+      "decided_at": "2026-09-20",
+      "direction": {
+        "claude_to_codex": "drop",
+        "codex_to_claude": "drop"
+      },
+      "schema_desc_hash": "c0443e31f6d1",
+      "recheck_after": "2027-03-19"
     },
     "TuiAgentsKeymap.new_task": {
       "reason": "Codex TUI keybinding. Claude also has keybindings, but in a separate file (~/.claude/keybindings.json) whose action vocabulary and per-context model do not line up with Codex [tui.keymap.*]; no mapping.",

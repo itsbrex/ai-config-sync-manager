@@ -40,6 +40,8 @@ export function yamlScalarRequiresQuoting(text) {
 
 /** @param {unknown} value */
 export function serializeYamlScalar(value) {
+  // Quoting a JS boolean would read back as the string "true", losing the type the source file had.
+  if (typeof value === "boolean") return String(value);
   const text = String(value);
   return yamlScalarRequiresQuoting(text) ? JSON.stringify(text) : text;
 }

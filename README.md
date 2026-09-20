@@ -446,6 +446,7 @@ Inside a clone, invoke the CLI as `./bin/ai-config-sync.mjs <command>` (the publ
 
 - **No programmatic API.** `bin/ai-config-sync.mjs` executes on import. Do not `import` it from another module — see [API surface](#api-surface).
 - **Symlink skills, `TaskCreate` / `TaskUpdate` / `TeamCreate`, and memory/runtime state are not synced** — see [Unsupported](#unsupported) for the per-surface behavior.
+- **Skills synced from a claude.ai account are in scope** — Claude Code 2.1.275 can sync the skills enabled on your claude.ai account into a signed-in terminal session (`syncClaudeAiSkills: false` opts out). Anything that lands in a scanned skill directory is treated as an ordinary local skill: it syncs to Codex and takes part in Claude-side deletion propagation. Turn the option off on a machine whose synced config should hold only skills you authored.
 - **Codex host inversion** — when invoked through the Codex plugin, `AI_CONFIG_SYNC_HOST=codex` flips the default direction to `codex → claude`. Use `--from`/`--to` for an explicit override.
 - **MCP env values are copied verbatim by default** — opt in to redaction with `AI_CONFIG_SYNC_STRIP_SECRETS=1`.
 - **`--apply` is final**, but reversible: every write creates a `.backups/` snapshot. `--dry-run` is the default for a reason.

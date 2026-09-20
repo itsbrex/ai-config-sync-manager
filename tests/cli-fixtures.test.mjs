@@ -3659,6 +3659,32 @@ test("agents sync apply preserves Claude metadata-only fields when overwriting",
   assert.doesNotMatch(claudeFile, /Older claude body/);
 });
 
+test("agents sync apply preserves Claude omitClaudeMd when overwriting", () => {
+  const fixture = createFixture();
+  writeClaudeAgent(
+    join(fixture.project, ".claude/agents/sample.md"),
+    { name: "sample", description: "Sample", model: "opus", omitClaudeMd: true },
+    "Older claude body"
+  );
+  writeCodexAgent(join(fixture.project, ".codex/agents/sample.toml"), {
+    name: "sample",
+    description: "Sample",
+    model: "gpt-5.4",
+    developer_instructions: "Codex side body",
+  });
+
+  runCli(
+    fixture,
+    ["sync", "--scope", "project", "--include", "agents:sample", "--apply"],
+    undefined,
+    { AI_CONFIG_SYNC_HOST: "codex" }
+  );
+  const claudeFile = readFileSync(join(fixture.project, ".claude/agents/sample.md"), "utf8");
+
+  assert.match(claudeFile, /^omitClaudeMd: true$/m);
+  assert.match(claudeFile, /Codex side body/);
+});
+
 test("agents sync apply with selector limits work to a single agent", () => {
   const fixture = createFixture();
   for (const name of ["foo", "bar"]) {
