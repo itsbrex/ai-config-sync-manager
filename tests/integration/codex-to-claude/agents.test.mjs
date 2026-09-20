@@ -157,6 +157,27 @@ test("tool-paraphrase rewrites codex_only tokens during agents apply", () => {
   });
 });
 
+test("agents apply keeps a pre-existing omitClaudeMd as an unquoted boolean", () => {
+  withFixture("agents-preserve-omit-claude-md", (fixture) => {
+    const specs = [{ area: "agents", variant: "preserve-omit-claude-md" }];
+    layCodexHome(fixture.home, specs);
+    layPreExistingClaude(fixture.home, specs);
+
+    const result = applyAgents(fixture);
+    assert.equal(result.status, 0, `apply failed: ${result.output}`);
+
+    layExpectedClaude(fixture.expectedHome, specs);
+    assertGolden(fixture.home, fixture.expectedHome, { ignore: GOLDEN_IGNORE });
+
+    const claudeAgent = readFileSync(
+      join(fixture.home, ".claude", "agents", "translate.md"),
+      "utf8"
+    );
+    assert.match(claudeAgent, /^omitClaudeMd: true$/m);
+    assert.doesNotMatch(claudeAgent, /omitClaudeMd: "true"/);
+  });
+});
+
 test("idempotent re-apply", () => {
   withFixture("agents-idempotent", (fixture) => {
     const specs = [{ area: "agents", variant: "happy" }];

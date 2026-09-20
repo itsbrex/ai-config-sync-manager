@@ -7063,6 +7063,8 @@ function parseFrontmatterScalar(raw) {
   if (raw.startsWith("'") && raw.endsWith("'")) {
     return raw.slice(1, -1).replace(/''/g, "'");
   }
+  if (raw === "true") return true;
+  if (raw === "false") return false;
   return raw;
 }
 
@@ -7180,7 +7182,7 @@ function mapAgentToClaude(codex, options = {}) {
   const sandboxTools = claudeToolsForCodexSandboxMode(codex.sandbox_mode);
   if (sandboxTools) frontmatter.tools = sandboxTools;
   const preserved = options.preserveClaude ?? {};
-  for (const key of ["tools", "color", "memory"]) {
+  for (const key of ["tools", "color", "memory", "omitClaudeMd"]) {
     if (preserved[key] === undefined || preserved[key] === "") continue;
     if (key === "tools") {
       if (sandboxTools) continue;

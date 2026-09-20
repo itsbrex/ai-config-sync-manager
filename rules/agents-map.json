@@ -39,6 +39,11 @@
       "level": "metadata-only"
     },
     {
+      "claude": "omitClaudeMd",
+      "codex": null,
+      "level": "metadata-only"
+    },
+    {
       "claude": null,
       "codex": "model_reasoning_effort",
       "level": "metadata-only"

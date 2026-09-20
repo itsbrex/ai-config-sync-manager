@@ -172,12 +172,20 @@ test("serializeYamlScalar wraps quoting-required values with double quotes and l
   // numeric coercion: 123 → "123" → numeric regex hit → quoted
   assert.equal(serializeYamlScalar(123), '"123"');
 
-  // boolean coercion: true → "true" → bool token hit → quoted
-  assert.equal(serializeYamlScalar(true), '"true"');
-
   // null coercion: null → "null" → null token hit → quoted
   assert.equal(serializeYamlScalar(null), '"null"');
 
   // empty string → quoted empty
   assert.equal(serializeYamlScalar(""), '""');
+});
+
+test("serializeYamlScalar emits JS booleans bare while the string forms stay quoted", () => {
+  assert.equal(serializeYamlScalar(true), "true");
+  assert.equal(serializeYamlScalar(false), "false");
+
+  // the string "true" is still a coercion token and must keep its quotes
+  assert.equal(serializeYamlScalar("true"), '"true"');
+  assert.equal(serializeYamlScalar("false"), '"false"');
+  assert.equal(yamlScalarRequiresQuoting("true"), true);
+  assert.equal(yamlScalarRequiresQuoting("false"), true);
 });
